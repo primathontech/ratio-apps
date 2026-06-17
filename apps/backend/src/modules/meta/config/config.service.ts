@@ -170,7 +170,7 @@ export class MetaConfigService {
    * memory from the validated input (no follow-up SELECT).
    */
   async upsert(merchantId: string, input: MetaConfigInput): Promise<MetaConfig> {
-    const events = input.events ?? buildDefaultEventMap();
+    const events = input.events ?? buildDefaultEventMap('meta');
     const debug = input.debug ?? false;
     const dataSharingLevel = input.dataSharingLevel ?? DEFAULT_DATA_SHARING_LEVEL;
     const productIdType = input.productIdType ?? DEFAULT_PRODUCT_ID_TYPE;

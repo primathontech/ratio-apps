@@ -59,4 +59,31 @@ describe('event-map schema', () => {
     expect(sdkMap.PageView).toBeUndefined();
     expect(sdkMap.Purchase).toBe('purchase');
   });
+
+  it("buildDefaultEventMap('meta') yields Title-Case Meta Conversions-API names", () => {
+    const map = buildDefaultEventMap('meta');
+    // Meta uses PascalCase identity names matching the OpenStore event keys
+    expect(map.PageView.name).toBe('PageView');
+    expect(map.Purchase.name).toBe('Purchase');
+    expect(map.AddToCart.name).toBe('AddToCart');
+    expect(map.ViewContent.name).toBe('ViewContent');
+    // All events are enabled by default
+    expect(map.PageView.enabled).toBe(true);
+    expect(map.Purchase.enabled).toBe(true);
+  });
+
+  it("buildDefaultEventMap('moengage') yields MoEngage Title-Case names", () => {
+    const map = buildDefaultEventMap('moengage');
+    // MoEngage uses human-readable spaced Title Case
+    expect(map.PageView.name).toBe('Page View');
+    expect(map.Purchase.name).toBe('Purchase');
+    expect(map.ViewContent.name).toBe('Product Viewed');
+  });
+
+  it('buildDefaultEventMap() (no-arg) still yields template snake_case names for back-compat', () => {
+    const map = buildDefaultEventMap();
+    expect(map.PageView.name).toBe('pageview');
+    expect(map.Purchase.name).toBe('purchase');
+    expect(map.AddToCart.name).toBe('add_to_cart');
+  });
 });

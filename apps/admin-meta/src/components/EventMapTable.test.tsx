@@ -13,7 +13,7 @@ const schema = z.object({ events: eventMapSchema });
 function Harness() {
   const form = useForm<z.infer<typeof schema>>({
     resolver: zodResolver(schema),
-    defaultValues: { events: buildDefaultEventMap() },
+    defaultValues: { events: buildDefaultEventMap('meta') },
   });
   return (
     <OrionProvider>

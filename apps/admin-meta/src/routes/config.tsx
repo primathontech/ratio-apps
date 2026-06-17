@@ -36,7 +36,7 @@ function ConfigPage() {
       dataSharingLevel: 'maximum',
       productIdType: 'product_id',
       debug: false,
-      events: buildDefaultEventMap(),
+      events: buildDefaultEventMap('meta'),
     },
   });
 
@@ -46,7 +46,7 @@ function ConfigPage() {
     // Fill missing keys with defaults so the form passes validation on save.
     form.reset({
       ...data,
-      events: { ...buildDefaultEventMap(), ...(data.events ?? {}) },
+      events: { ...buildDefaultEventMap('meta'), ...(data.events ?? {}) },
     });
   }, [data, form]);
 

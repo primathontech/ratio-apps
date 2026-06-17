@@ -31,7 +31,7 @@ export class MetaConfigController {
   } {
     return {
       eventMap: DEFAULT_META_EVENT_MAP,
-      events: buildDefaultEventMap(),
+      events: buildDefaultEventMap('meta'),
       dataSharingLevels: DATA_SHARING_LEVELS,
       productIdTypes: PRODUCT_ID_TYPES,
     };

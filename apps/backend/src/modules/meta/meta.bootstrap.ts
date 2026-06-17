@@ -26,7 +26,7 @@ export class MetaBootstrap implements AppBootstrap<MetaDatabase> {
 
   async run(trx: Transaction<MetaDatabase>, merchantId: string): Promise<void> {
     // mysql2 doesn't auto-stringify objects into JSON columns; encode here.
-    const events = JSON.stringify(buildDefaultEventMap());
+    const events = JSON.stringify(buildDefaultEventMap('meta'));
     await trx
       .insertInto('meta_configs')
       .values({
