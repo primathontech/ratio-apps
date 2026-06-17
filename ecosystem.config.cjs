@@ -32,8 +32,9 @@
  *     `instances: 'max'` + `exec_mode: 'cluster'`, but raise
  *     `DB_POOL_SIZE` / MySQL `max_connections` accordingly (formula:
  *     instances × modules × pool ≤ max_connections × 0.6).
- *   - The backend serves every vendor module under subpath routing on the
- *     same port, plus the built admin SPA (SERVE_STATIC=true). One process.
+ *   - The backend serves every vendor module's API under subpath routing on
+ *     the same port. It serves NO static UI (SERVE_STATIC=false) — the admin
+ *     SPA is built and deployed by a separate service.
  */
 module.exports = {
   apps: [
@@ -45,8 +46,9 @@ module.exports = {
       exec_mode: 'fork',
       env: {
         NODE_ENV: 'production',
-        // Single-artifact deploy: serve the built admin SPA from the backend.
-        SERVE_STATIC: 'true',
+        // API-only: the backend serves no static UI. The admin SPA is built and
+        // deployed by a separate service, so static serving stays off.
+        SERVE_STATIC: 'false',
       },
       // PM2 will restart if the process exits non-zero. These limits guard
       // against pathological loops (e.g., DB unavailable → crash on boot).

@@ -37,8 +37,8 @@ services:
   #       condition: service_healthy
   #   env_file: .env
   #   environment:
-  #     # Single-artifact deploy: the image serves the built admin SPA too.
-  #     SERVE_STATIC: "true"
+  #     # API-only: the backend serves no static UI (admin deployed separately).
+  #     SERVE_STATIC: "false"
   #     # Point each module at the compose mysql service (host `mysql`, not
   #     # localhost). Add a RATIO_<SLUG>_DATABASE_URL line per scaffolded vendor.
   #     RATIO_GOOGLE_DATABASE_URL: mysql://app:app@mysql:3306/google_app
