@@ -50,8 +50,9 @@ The repo currently has **four live vendors**: `google`, `meta`, `posthog`, and
 existing multi-entry `APPS` tuple — not replacing it. The full ordered checklist:
 
 1. Append `<slug>` to `APPS` in `apps/backend/src/config/apps.ts` (after `moengage`).
-2. Add `<Slug>Module` to **both** `REGISTERED_MODULES` and `imports[]` in
-   `apps/backend/src/app.module.ts` (leaving the existing four entries intact).
+2. Add the import statement + `REGISTERED_MODULES` entry + `imports[]` entry
+   (three additions) in `apps/backend/src/app.module.ts` (leaving the existing
+   four entries intact).
 3. Add `<slug>_app` / `<slug>_app_test` CREATE + GRANT to
    `docker/mysql/init/01-database.sql`.
 4. Add shared barrel exports to `packages/shared/src/index.ts`

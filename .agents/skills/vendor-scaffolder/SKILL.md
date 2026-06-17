@@ -150,9 +150,16 @@ Add vendor-specific shared files and export them from the barrel
 - Do **NOT** re-export a generic `DEFAULT_EVENT_MAP` alias — only
   `_template-events.ts` does that for back-compat; all real vendor files export
   their own named constant (see `meta-events.ts`, `google-events.ts`).
-- If the vendor needs a distinct default map, add a `vendor?: '…' | '<slug>'`
-  branch to `buildDefaultEventMap` in `packages/shared/src/schemas/event-map.ts`
-  and import `DEFAULT_<VENDOR>_EVENT_MAP` there.
+- If your vendor needs a default event map that differs from the template's
+  snake_case names, add `| '<slug>'` to the existing `vendor` union in
+  `buildDefaultEventMap`'s signature in
+  `packages/shared/src/schemas/event-map.ts` — the real signature is
+  `buildDefaultEventMap(vendor?: 'meta' | 'posthog' | 'moengage'): EventMap` —
+  and add a `vendor === '<slug>' ? DEFAULT_<VENDOR>_EVENT_MAP : …` branch,
+  importing `DEFAULT_<VENDOR>_EVENT_MAP` from your new events file. If your
+  vendor's defaults match the template's snake_case names, no branch is needed —
+  the default branch returns `DEFAULT_TEMPLATE_EVENT_MAP` (this is what
+  posthog/google do).
 
 **b) Config file** `packages/shared/src/schemas/<slug>-config.ts`:
 - From `_template-config.ts`; rename `Template`→`<Slug>` everywhere, including
@@ -192,7 +199,7 @@ GRANT ALL ON `<slug>_app_test`.* TO 'app'@'%';
 This init script runs only on a fresh Docker volume; existing containers need
 a manual `CREATE DATABASE` if already running.
 
-## Step 9 — Add env keys to .env.example
+## Step 8 — Add env keys to .env.example
 
 Add a `RATIO_<SLUG>_*` block to `.env.example` (placeholders only; secrets
 empty). `env.schema.ts` derives these keys from `APPS` automatically via a
@@ -210,7 +217,7 @@ RATIO_<SLUG>_ADMIN_BASE_URL=http://localhost:5173
 Remind the operator to add a real block to their local `.env` (with a generated
 encryption key) — never commit `.env`.
 
-## Step 10 — Prove it wires
+## Step 9 — Prove it wires
 
 ```bash
 pnpm install
@@ -221,7 +228,7 @@ Expected: PASS across backend, shared, and `apps/admin-<slug>`. If typecheck
 fails, you missed a rename in Step 2/3 — fix and re-run. Do not advance until the
 scaffold compiles.
 
-## Step 11 — Update STATE.json and hand back
+## Step 10 — Update STATE.json and hand back
 
 Via `context-keeper`: set `paths.module = "apps/backend/src/modules/<slug>"` and
 `paths.admin = "apps/admin-<slug>"`; append the scaffold files to `filesCreated`;
