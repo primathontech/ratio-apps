@@ -1,0 +1,45 @@
+{
+  "name": "@ratio-app/admin-meta",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "pnpm routes:gen && tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "routes:gen": "tsr generate",
+    "typecheck": "pnpm routes:gen && tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:cov": "vitest run --coverage",
+    "lint": "biome check src"
+  },
+  "dependencies": {
+    "@hookform/resolvers": "^5.4.0",
+    "@primathonos/orion": "^0.4.2",
+    "@ratio-app/shared": "workspace:*",
+    "@tanstack/react-query": "^5.59.0",
+    "@tanstack/react-router": "^1.78.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-hook-form": "^7.53.0",
+    "zod": "^4.4.3",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.1.0",
+    "@tanstack/router-cli": "^1.78.0",
+    "@tanstack/router-plugin": "^1.78.0",
+    "@testing-library/jest-dom": "^6.6.0",
+    "@testing-library/react": "^16.0.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "happy-dom": "^15.0.0",
+    "typescript": "^5.6.0",
+    "vite": "^6.0.0",
+    "vitest": "^2.1.0"
+  }
+}

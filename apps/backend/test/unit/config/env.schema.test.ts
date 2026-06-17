@@ -4,7 +4,7 @@ import { envSchema, loadEnv } from '@/config/env.schema';
 // Buffer.alloc(32).toString('base64') is `'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='`
 // — exactly 44 chars, matches the strict `/^[A-Za-z0-9+/]{43}=$/` shape.
 //
-// env.schema derives per-app keys from APPS (currently just `google`).
+// env.schema derives per-app keys from APPS (currently `google` and `meta`).
 const validEnv = {
   NODE_ENV: 'development',
   LOG_LEVEL: 'info',
@@ -18,6 +18,13 @@ const validEnv = {
   RATIO_GOOGLE_CLIENT_SECRET: 'goog_secret',
   RATIO_GOOGLE_CALLBACK_URL: 'http://localhost:3000/google/api/v1/oauth/callback',
   RATIO_GOOGLE_ADMIN_BASE_URL: 'http://localhost:5173',
+  // `meta` app keys (derived from the APPS tuple — required by the schema).
+  RATIO_META_DATABASE_URL: 'mysql://app:app@localhost:3306/meta_app',
+  RATIO_META_DATA_ENCRYPTION_KEY: Buffer.alloc(32).toString('base64'),
+  RATIO_META_CLIENT_ID: 'meta_id',
+  RATIO_META_CLIENT_SECRET: 'meta_secret',
+  RATIO_META_CALLBACK_URL: 'http://localhost:3000/meta/api/v1/oauth/callback',
+  RATIO_META_ADMIN_BASE_URL: 'http://localhost:5173',
 };
 
 describe('envSchema', () => {

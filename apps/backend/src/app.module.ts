@@ -11,6 +11,7 @@ import { HealthModule } from './core/health/health.module';
 // on disk only as the source the `vendor-scaffolder` skill copies. Only real
 // vendor apps in APPS are registered + run.
 import { GoogleModule } from './modules/google/google.module';
+import { MetaModule } from './modules/meta/meta.module';
 
 // Re-export the canonical APPS tuple so call sites can keep importing it
 // from the AppModule barrel. The source of truth lives in `./config/apps.ts`
@@ -23,7 +24,7 @@ export { APPS, type AppSlug } from './config/apps';
  * args are static), so this load-time assertion catches the human-error
  * case of adding a slug to APPS without registering its module.
  */
-const REGISTERED_MODULES = new Map<string, unknown>([['google', GoogleModule]]);
+const REGISTERED_MODULES = new Map<string, unknown>([['google', GoogleModule], ['meta', MetaModule]]);
 for (const slug of APPS) {
   if (!REGISTERED_MODULES.has(slug)) {
     throw new Error(`AppModule: APPS contains '${slug}' but no <App>Module is registered`);
@@ -99,6 +100,7 @@ for (const slug of APPS) {
     }),
     HealthModule,
     GoogleModule,
+    MetaModule,
   ],
 })
 export class AppModule {}

@@ -54,6 +54,12 @@ const baseEnv = z.object({
   RATIO_GOOGLE_GOOGLE_CLIENT_ID: emptyAsUndefined(z.string().min(1)),
   RATIO_GOOGLE_GOOGLE_CLIENT_SECRET: emptyAsUndefined(z.string().min(1)),
   RATIO_GOOGLE_GOOGLE_REDIRECT_URI: emptyAsUndefined(z.string().url()),
+
+  // ─── meta app: Meta Graph API base for Conversions API dispatch ───────────
+  // Defaults to the real Graph API; override with a local mock URL for testing.
+  // Declared here so @nestjs/config keeps it on process.env (unknown keys are
+  // stripped by the validate() step).
+  FACEBOOK_CAPI_BASE_URL: z.string().url().default('https://graph.facebook.com/v21.0'),
 });
 
 export const envSchema = APPS.reduce((schema, app) => {
