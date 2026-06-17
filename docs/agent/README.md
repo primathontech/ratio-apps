@@ -75,20 +75,29 @@ any future session inherits it:
 - **`pnpm verify`** — the feedback loop (`lint → typecheck → test → build`); see the
   Definition of Done in `AGENTS.md`.
 
-Save context any time with the `remember` skill ("save this to context"). Read
-`context/INDEX.md` + the relevant `CONTEXT.md` before non-trivial work.
+Save context any time with the `remember` skill ("save this to context"). Pull
+context on demand — read `context/INDEX.md` or a relevant `CONTEXT.md` only when
+your change touches that area (see AGENTS.md Standing rules), not as a routine
+pre-read.
 
-## Making a change (any feature / bug / PR)
+## Making a change — pick the lane by size
 
-For anything that is **not** a brand-new vendor app (that's `build-app`), the repo
-has a native change workflow — three chained skills, scaled to change size:
+For anything that is **not** a brand-new vendor app (that's `build-app`), classify
+the change first and take the matching lane. The classifier and tie-breakers are
+the single source in [`AGENTS.md`](../../AGENTS.md) ("Making a change"); in short:
 
-1. **`brainstorm`** — inherits context, clarifies, writes `docs/agent/changes/<slug>/SPEC.md` → **GATE 1: spec sign-off**.
-2. **`write-plan`** — turns the spec into `docs/agent/changes/<slug>/PLAN.md` (bite-sized TDD tasks) → **GATE 2: plan sign-off**.
-3. **`execute`** — asks subagent-driven vs inline, implements test-first, and finishes at the **Definition of Done** (`pnpm verify` green · change recorded via `remember` · `FEATURES`/`PROGRESS` updated).
+| Tier | Lane |
+|---|---|
+| **Trivial** (one file, obvious, reversible) | Just do it → `pnpm verify` → done. No spec/plan/gate. |
+| **Small** (a few files, no design choice) | State a 1–3 line plan in chat → implement → `pnpm verify`. No docs. |
+| **Feature** (multi-file, a design choice, or risk) | `brainstorm` → `write-plan` → `execute` (SPEC + PLAN, gated). |
+| **New vendor app** | `build-app` (five gates). |
 
-A trivial bug gets a 3-line spec and a 1-task plan; a feature gets the full
-treatment. No external plugins required — the skills are self-contained.
+Changes touching `core/`, `config/{apps.ts,env.schema.ts}`, the `APPS` tuple,
+auth/crypto, migrations, or deploy are **always feature** (high blast radius).
+Context is pulled **on demand** — read an ADR or an app's `CONTEXT.md` only when
+your change touches that area, never as a blanket pre-read. The three feature-lane
+skills are self-contained; no external plugins required.
 
 ## The skills
 
