@@ -8,7 +8,7 @@ Living context for the MoEngage app (customer engagement platform — push, in-a
 - **Pixel config is DB-driven**, injected as a `window.__MOENGAGE_RATIO_CONFIG__` prelude
   before the pixel bundle. Config includes `appId`, `dataCenter`, `debug`, `swPath`,
   and `events`.
-- **Data centers:** `DC_1` (US), `DC_2` (EU), `DC_3` (IN), `DC_4` (SEA), `DC_5` (AU).
+- **Data centers:** `DC_1` (US), `DC_2` (EU), `DC_3` (India), `DC_4` (Indonesia), `DC_5` (region unassigned in code).
   Default is `DC_1`. Must match the merchant's MoEngage account region.
 - **Service-worker path (`swPath`):** MoEngage Web Push requires a service worker at the
   root of the domain (`/moengage-service-worker.js`). Merchants must self-host it;

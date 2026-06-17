@@ -35,7 +35,9 @@
     "apps/backend/src/modules/meta/catalog/catalog-transformer.service.ts",
     "apps/backend/src/modules/meta/catalog/catalog.types.ts",
     "apps/backend/src/modules/meta/catalog/feed.controller.ts",
-    "apps/backend/src/modules/meta/catalog/redis.service.ts",
+    "apps/backend/src/modules/meta/cache/redis.service.ts",
+    "apps/backend/src/modules/meta/queue/capi.worker.ts",
+    "apps/backend/src/modules/meta/queue/queue.service.ts",
     "apps/backend/src/modules/meta/db/types.ts",
     "apps/admin-meta/src/routes/config.tsx"
   ],

@@ -12,6 +12,12 @@ this module. Standing context first; dated change journal below (newest first).
 - **CAPI calls go direct** — `CapiService` POST to
   `https://graph.facebook.com/v21.0/{pixelId}/events` with the `access_token` in body
   (Meta's convention). PII is SHA-256-hashed before transmission.
+- **CAPI is queue-backed in production.** `QueueService` (`queue/queue.service.ts`) wraps
+  AWS SQS (ElasticMQ locally via `SQS_ENDPOINT`). `MetaCapiWorker` (`queue/capi.worker.ts`)
+  is an `OnModuleInit` background loop that drains the `meta-capi` queue and batch-dispatches
+  to Meta CAPI. It accumulates events per merchant and flushes on whichever fires first:
+  800 events (default `META_CAPI_BATCH_SIZE`) or 300,000 ms / 5 min (default
+  `META_CAPI_BATCH_WINDOW_MS`). Enabled only when `META_WORKER_ENABLED=true`.
 - **Phase 2: Catalog Sync.** `CatalogService` + `CatalogBatchService` +
   `CatalogTransformerService` handle product feed sync to Meta Catalog via the Commerce
   Manager API. Redis (`RedisService`) backs the cache layer. `FeedController` exposes the
