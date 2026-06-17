@@ -32,7 +32,7 @@
     "test:cov": "pnpm -r test:cov",
     "typecheck": "pnpm -r typecheck",
     "lint": "biome check .",
-    "verify": "pnpm -r lint && pnpm -r typecheck && pnpm -r test && pnpm -r build",
+    "verify": "pnpm -r lint && pnpm -r typecheck && pnpm --filter @ratio-app/shared build && pnpm -r test && pnpm -r build",
     "format": "biome format --write .",
     "//--- production deploy (single artifact: backend serves built admin) ---//": "",
     "deploy:docker": "docker compose up -d --build",
