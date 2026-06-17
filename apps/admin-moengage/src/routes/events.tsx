@@ -19,7 +19,7 @@ function EventsPage() {
 
   const form = useForm<FormShape>({
     resolver: zodResolver(formSchema),
-    defaultValues: { events: buildDefaultEventMap() },
+    defaultValues: { events: buildDefaultEventMap('moengage') },
   });
 
   useEffect(() => {
