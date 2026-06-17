@@ -38,7 +38,7 @@
 module.exports = {
   apps: [
     {
-      name: 'ratio-backend-analytics',
+      name: 'ratio-apps-backend',
       script: 'apps/backend/dist/apps/backend/src/main.js',
       cwd: __dirname,
       instances: 1,
@@ -62,8 +62,8 @@ module.exports = {
       // finish cleanly under SIGTERM.
       kill_timeout: 8000,
       // Log paths (relative to cwd). Rotate via `pm2 install pm2-logrotate`.
-      error_file: 'logs/ratio-backend-analytics.error.log',
-      out_file: 'logs/ratio-backend-analytics.out.log',
+      error_file: 'logs/ratio-apps-backend.error.log',
+      out_file: 'logs/ratio-apps-backend.out.log',
       merge_logs: true,
       time: true,
       // pino already emits structured JSON in prod (no pino-pretty in
