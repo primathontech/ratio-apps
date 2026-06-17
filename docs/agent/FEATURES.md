@@ -8,4 +8,7 @@ capability's `CONTEXT.md` for its standing context + change journal. Update the
 | Capability | Slug | Status | Context | Notes |
 |---|---|---|---|---|
 | Google (GA4 + Google Ads + Merchant Center) | `google` | built · local-tested | [apps/google/CONTEXT.md](./apps/google/CONTEXT.md) | not yet PR'd/deployed; needs Web Pixels API + live Ratio token for full flow. OAuth auto-discovery built for GA4 + GMC (auto-fills IDs on connect); Ads ID/label still manual (needs Google Ads API dev token) |
+| Meta (Facebook Pixel + Conversions API + Catalog Sync) | `meta` | built · local-tested | [apps/meta/CONTEXT.md](./apps/meta/CONTEXT.md) | not yet PR'd/deployed; Phase 2 catalog sync present (CatalogBatchService + FeedController); CAPI token encrypted at rest; product webhooks wired |
+| PostHog (product analytics + event tracking) | `posthog` | built · local-tested | [apps/posthog/CONTEXT.md](./apps/posthog/CONTEXT.md) | not yet PR'd/deployed; browser-to-PostHog direct (no server-side forwarding); EU merchants set custom host; no product webhooks |
+| MoEngage (customer engagement — push, in-app, analytics) | `moengage` | built · local-tested | [apps/moengage/CONTEXT.md](./apps/moengage/CONTEXT.md) | not yet PR'd/deployed; Title-Case event names; multi-region data centers (DC_1–DC_5); service-worker path configurable; no product webhooks |
 | Golden template | `_template` | golden source (not shipped) | — | scaffolder copy source; excluded from run/workspace |

@@ -1,0 +1,33 @@
+{
+  "slug": "moengage",
+  "displayName": "MoEngage",
+  "phase": "pr-author",
+  "gates": { "prd": "approved", "trd": "approved", "tdd": "approved", "pr": "pending", "deploy": "pending" },
+  "docs": { "prd": null, "trd": null, "tdd": null },
+  "scopes": ["read_products", "write_pixels", "read_pixels", "read_customer_events"],
+  "webhooks": ["app/uninstalled"],
+  "paths": { "module": "apps/backend/src/modules/moengage", "admin": "apps/admin-moengage" },
+  "filesCreated": [
+    "apps/backend/src/modules/moengage/moengage.module.ts",
+    "apps/backend/src/modules/moengage/moengage.bootstrap.ts",
+    "apps/backend/src/modules/moengage/tokens.ts",
+    "apps/backend/src/modules/moengage/kysely.module.ts",
+    "apps/backend/src/modules/moengage/guards.ts",
+    "apps/backend/src/modules/moengage/config/moengage-config.dto.ts",
+    "apps/backend/src/modules/moengage/config/config.controller.ts",
+    "apps/backend/src/modules/moengage/config/config.service.ts",
+    "apps/backend/src/modules/moengage/sdk/sdk.controller.ts",
+    "apps/backend/src/modules/moengage/sdk/sdk.service.ts",
+    "apps/backend/src/modules/moengage/oauth/oauth.controller.ts",
+    "apps/backend/src/modules/moengage/merchants/merchants.controller.ts",
+    "apps/backend/src/modules/moengage/webhooks/webhooks.controller.ts",
+    "apps/backend/src/modules/moengage/webhooks/app-uninstalled.handler.ts",
+    "apps/backend/src/modules/moengage/db/types.ts",
+    "apps/admin-moengage/src/routes/config.tsx"
+  ],
+  "deployTarget": null,
+  "prUrl": null,
+  "history": [
+    { "phase": "monorepo-merge", "ts": "2026-06-17T00:00:00.000Z", "note": "Context synthesized from module code during Task 7 consolidation. No separate source repo existed." }
+  ]
+}

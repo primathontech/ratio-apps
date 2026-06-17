@@ -1,0 +1,33 @@
+{
+  "slug": "posthog",
+  "displayName": "PostHog",
+  "phase": "pr-author",
+  "gates": { "prd": "approved", "trd": "approved", "tdd": "approved", "pr": "pending", "deploy": "pending" },
+  "docs": { "prd": null, "trd": null, "tdd": null },
+  "scopes": ["read_products", "write_pixels", "read_pixels", "read_customer_events"],
+  "webhooks": ["app/uninstalled"],
+  "paths": { "module": "apps/backend/src/modules/posthog", "admin": "apps/admin-posthog" },
+  "filesCreated": [
+    "apps/backend/src/modules/posthog/posthog.module.ts",
+    "apps/backend/src/modules/posthog/posthog.bootstrap.ts",
+    "apps/backend/src/modules/posthog/tokens.ts",
+    "apps/backend/src/modules/posthog/kysely.module.ts",
+    "apps/backend/src/modules/posthog/guards.ts",
+    "apps/backend/src/modules/posthog/config/posthog-config.dto.ts",
+    "apps/backend/src/modules/posthog/config/config.controller.ts",
+    "apps/backend/src/modules/posthog/config/config.service.ts",
+    "apps/backend/src/modules/posthog/sdk/sdk.controller.ts",
+    "apps/backend/src/modules/posthog/sdk/sdk.service.ts",
+    "apps/backend/src/modules/posthog/oauth/oauth.controller.ts",
+    "apps/backend/src/modules/posthog/merchants/merchants.controller.ts",
+    "apps/backend/src/modules/posthog/webhooks/webhooks.controller.ts",
+    "apps/backend/src/modules/posthog/webhooks/app-uninstalled.handler.ts",
+    "apps/backend/src/modules/posthog/db/types.ts",
+    "apps/admin-posthog/src/routes/config.tsx"
+  ],
+  "deployTarget": null,
+  "prUrl": null,
+  "history": [
+    { "phase": "monorepo-merge", "ts": "2026-06-17T00:00:00.000Z", "note": "Context synthesized from posthog source repo during Task 7 consolidation. Source had no docs/agent/ directory." }
+  ]
+}

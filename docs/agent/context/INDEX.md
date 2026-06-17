@@ -12,6 +12,12 @@ prefer editing through it over hand-editing.
 ## Learnings
 See [learnings.md](./learnings.md).
 
+## Per-app context
+- [google — CONTEXT.md](../apps/google/CONTEXT.md) — GA4 + Google Ads + Merchant Center
+- [meta — CONTEXT.md](../apps/meta/CONTEXT.md) — Facebook Pixel + Conversions API + Catalog Sync
+- [posthog — CONTEXT.md](../apps/posthog/CONTEXT.md) — PostHog product analytics
+- [moengage — CONTEXT.md](../apps/moengage/CONTEXT.md) — MoEngage customer engagement
+
 ## Change journals
 - Repo-level: [CHANGELOG.md](./CHANGELOG.md)
 - Per app: `docs/agent/apps/<slug>/CONTEXT.md`
