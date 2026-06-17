@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Ratio Google pixel — local test harness</title>
+  <style>
+    body { font: 14px/1.5 system-ui, sans-serif; margin: 24px; max-width: 880px; }
+    h1 { font-size: 18px; } h2 { font-size: 14px; margin-top: 20px; }
+    button { font: inherit; padding: 8px 12px; margin: 4px 6px 4px 0; cursor: pointer; }
+    #log { background:#111; color:#0f0; padding:12px; height:320px; overflow:auto;
+           white-space:pre-wrap; font-family: ui-monospace, monospace; font-size:12px; border-radius:6px; }
+    .cfg { background:#f4f4f5; padding:10px; border-radius:6px; font-family: ui-monospace, monospace; font-size:12px; }
+    small { color:#666; }
+  </style>
+</head>
+<body>
+  <h1>Ratio Google pixel — local test harness</h1>
+  <p><small>Loads <code id="src"></code>, simulates the storefront pixel runtime, and fires storefront
+  events. Watch them in <b>GA4 → Admin → DebugView</b> (install the “Google Analytics Debugger”
+  Chrome extension first), and in the <b>Network</b> tab (requests to <code>google-analytics.com/g/collect</code>).</small></p>
+
+  <h2>1. Backend / merchant</h2>
+  <div class="cfg">
+    Backend base: <input id="base" value="http://localhost:3000" size="28" />
+    &nbsp; Merchant: <input id="mid" value="dev-merchant" size="16" />
+    &nbsp; <button onclick="loadPixel()">Load pixel</button>
+  </div>
+  <p id="cfgout" class="cfg" style="display:none"></p>
+
+  <h2>2. Fire storefront events</h2>
+  <div>
+    <button onclick="emit('ViewContent',{content_ids:['p1'],content_name:'Test Product',value:499,currency:'INR'})">ViewContent → view_item</button>
+    <button onclick="emit('AddToCart',{contents:[{id:'v1',name:'Test Product',item_price:499,quantity:1}],value:499,currency:'INR'})">AddToCart → add_to_cart</button>
+    <button onclick="emit('InitiateCheckout',{contents:[{id:'v1',name:'Test Product',item_price:499,quantity:1}],value:499,currency:'INR',coupon:'SAVE10'})">InitiateCheckout → begin_checkout</button>
+    <button onclick="emit('Search',{search_string:'protein'})">Search → search</button>
+    <button onclick="emitPurchase()">Purchase → purchase (+ enhanced user_data)</button>
+  </div>
+
+  <h2>3. Live log (gtag / dataLayer calls)</h2>
+  <div id="log"></div>
+
+  <script>
+    // ---- harness state ----
+    const handlers = {};
+    const logEl = document.getElementById('log');
+    function log(...a){ logEl.textContent += a.map(x=>typeof x==='object'?JSON.stringify(x):x).join(' ') + '\n'; logEl.scrollTop = logEl.scrollHeight; }
+
+    // Surface every gtag() call locally by wrapping dataLayer.push BEFORE the pixel loads.
+    window.dataLayer = window.dataLayer || [];
+    const _push = window.dataLayer.push.bind(window.dataLayer);
+    window.dataLayer.push = function(args){ try { log('gtag(', Array.from(args).map(v=>v).join(', '), ')'); } catch(e){} return _push(args); };
+
+    // Minimal stand-in for the storefront @shopkit/events PixelRuntime.
+    const analytics = {
+      subscribe(name, fn){ (handlers[name] = handlers[name] || []).push(fn); log('subscribed:', name); }
+    };
+    window.__OPEN_STORE_PIXEL_RUNTIME__ = {
+      register(reg){ try { reg.register(analytics); log('registered pixel:', reg.name); } catch(e){ log('register error:', String(e)); } }
+    };
+
+    function emit(name, properties){
+      const list = handlers[name] || [];
+      if (!list.length){ log('(no subscriber for', name, '— is the pixel loaded + that event configured?)'); return; }
+      const event = { properties, metadata: { event_id: 'evt_' + Math.round(performance.now()) } };
+      list.forEach(fn => fn(event));
+      log('>> emitted', name);
+    }
+    function emitPurchase(){
+      const list = handlers['Purchase'] || [];
+      const event = {
+        properties: { order_id: 'ORDER-' + Math.round(performance.now()), value: 499, currency: 'INR', tax: 25, shipping: 0,
+                      contents: [{ id:'v1', name:'Test Product', item_price:499, quantity:1 }] },
+        // enhanced conversions: gets attached via gtag('set','user_data',…) when enabled (Ads)
+        user_data: { sha256_email_address: '(hashed-by-real-flow)', email: 'buyer@example.com', phone_number: '+919999999999' },
+        metadata: { event_id: 'evt_' + Math.round(performance.now()) }
+      };
+      if (!list.length){ log('(no Purchase subscriber)'); return; }
+      list.forEach(fn => fn(event));
+      log('>> emitted Purchase');
+    }
+
+    function loadPixel(){
+      const base = document.getElementById('base').value.replace(/\/$/, '');
+      const mid = document.getElementById('mid').value.trim();
+      const url = base + '/google/sdk/' + mid + '.js';
+      document.getElementById('src').textContent = url;
+      log('loading', url, '…');
+      const s = document.createElement('script');
+      s.src = url;
+      s.onload = () => {
+        log('pixel loaded.');
+        const cfg = window.__GOOGLE_RATIO_CONFIG__;
+        const out = document.getElementById('cfgout');
+        out.style.display = 'block';
+        out.textContent = 'window.__GOOGLE_RATIO_CONFIG__ = ' + JSON.stringify(cfg, null, 2);
+        if (!cfg || !cfg.ga4) log('WARNING: no ga4 in config — enable GA4 + set Measurement ID for this merchant.');
+      };
+      s.onerror = () => log('FAILED to load', url, '— is the backend running? (pnpm dev:backend)');
+      document.head.appendChild(s);
+    }
+
+    // auto-load on open
+    document.getElementById('src').textContent = 'http://localhost:3000/google/sdk/dev-merchant.js';
+    loadPixel();
+  </script>
+</body>
+</html>

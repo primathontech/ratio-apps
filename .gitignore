@@ -1,6 +1,61 @@
-node_modules/
-.DS_Store
+node_modules
+dist
+build
+.turbo
+coverage
+coverage-e2e
+.next
+.tanstack
+
+# Agent-native boilerplate: the skills library, contracts, agent docs, AND each
+# build's context (docs/agent/apps/<slug>/{PRD,TRD,TDD}.md + STATE.json) ARE the
+# product — they are committed so anyone can pick up or audit a build. Only
+# machine-local settings are ignored.
+.claude/settings.local.json
+
+# Belt-and-suspenders against tsc accidentally emitting next to source
+# (packages/shared is consumed via tsconfig paths, never built standalone)
+packages/*/src/**/*.js
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.js.map
+packages/*/src/**/*.d.ts.map
+
+# env
 .env
-.env.*
-!.env.example
-dist/
+.env.local
+.env.production
+.env.*.local
+
+# PM2 log directory (created by ecosystem.config.cjs)
+logs/
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+# os
+.DS_Store
+Thumbs.db
+
+# generated
+routeTree.gen.ts
+drizzle/meta
+
+# test
+playwright-report
+test-results
+
+# Generated pixel build outputs (built from apps/backend/pixel/*.ts)
+apps/backend/static/*.js
+
+# Compiled backend output
+apps/backend/dist/
+
+# transient vite config timestamp files
+*.timestamp-*.mjs

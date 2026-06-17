@@ -1,0 +1,28 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "nodenext",
+    "target": "ES2022",
+    "rootDir": "../..",
+    "outDir": "dist",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "useDefineForClassFields": false,
+    "isolatedModules": false,
+    "types": ["node"],
+    "paths": {
+      "@/*": ["./src/*"],
+      "@shared/*": ["../../packages/shared/src/*"],
+      "@core/*": ["./src/core/*"]
+    }
+  },
+  "include": ["src/**/*", "scripts/**/*", "../../packages/shared/src/**/*"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "test",
+    "../../packages/shared/**/*.test.ts",
+    "src/modules/_template/**"
+  ]
+}

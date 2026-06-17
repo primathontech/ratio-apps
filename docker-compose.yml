@@ -1,0 +1,55 @@
+name: ratio-app
+
+services:
+  mysql:
+    image: mysql:9.7.0
+    container_name: ratio-app-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: ratio_app
+      MYSQL_USER: app
+      MYSQL_PASSWORD: app
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
+      - ./docker/mysql/conf.d:/etc/mysql/conf.d:ro
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # backend:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   image: ratio-app-backend:dev
+  #   container_name: ratio-app-backend
+  #   restart: unless-stopped
+  #   depends_on:
+  #     mysql:
+  #       condition: service_healthy
+  #   env_file: .env
+  #   environment:
+  #     # Single-artifact deploy: the image serves the built admin SPA too.
+  #     SERVE_STATIC: "true"
+  #     # Point each module at the compose mysql service (host `mysql`, not
+  #     # localhost). Add a RATIO_<SLUG>_DATABASE_URL line per scaffolded vendor.
+  #     RATIO_GOOGLE_DATABASE_URL: mysql://app:app@mysql:3306/google_app
+  #   ports:
+  #     - "3000:3000"
+  #   healthcheck:
+  #     test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/ready"]
+  #     interval: 10s
+  #     timeout: 3s
+  #     start_period: 20s
+  #     retries: 3
+
+volumes:
+  mysql_data:

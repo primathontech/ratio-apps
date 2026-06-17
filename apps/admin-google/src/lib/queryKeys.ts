@@ -1,0 +1,9 @@
+export const queryKeys = {
+  merchant: () => ['merchant', 'me'] as const,
+  defaults: () => ['google', 'defaults'] as const,
+  config: () => ['google', 'config'] as const,
+  discover: () => ['google', 'discover'] as const,
+  feedSummary: () => ['google', 'feed', 'summary'] as const,
+  feedItems: (status: string, page: number) => ['google', 'feed', 'items', status, page] as const,
+  feedHistory: () => ['google', 'feed', 'history'] as const,
+} as const;

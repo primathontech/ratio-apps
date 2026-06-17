@@ -1,0 +1,47 @@
+**/node_modules
+**/dist
+**/coverage
+**/coverage-e2e
+**/.turbo
+**/.next
+**/.vite
+**/.cache
+
+# editor / git / OS
+.git
+.github
+.vscode
+.idea
+**/.DS_Store
+
+# logs
+**/*.log
+**/npm-debug.log*
+**/yarn-debug.log*
+**/yarn-error.log*
+
+# env files — image must use what docker-compose / runtime injects, not the
+# developer's local secrets baked into the layer.
+.env
+.env.*
+!.env.example
+
+# tests + admin apps (backend image doesn't need them)
+apps/admin-posthog
+apps/admin-moengage
+**/test
+**/*.test.ts
+**/*.test.tsx
+**/*.e2e.test.ts
+**/vitest.*.config.ts
+
+# generated route tree (rebuilt during admin builds, not used in backend image)
+**/routeTree.gen.ts
+
+# docs / specs / plans
+docs
+
+# misc
+Dockerfile
+.dockerignore
+README.md

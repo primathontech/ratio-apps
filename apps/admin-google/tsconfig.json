@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "rootDir": "../..",
+    "outDir": "dist",
+    "noEmit": true,
+    "types": ["node", "vite/client"],
+    "paths": {
+      "@/*": ["./src/*"],
+      "@shared/*": ["../../packages/shared/src/*"]
+    }
+  },
+  "include": ["src/**/*", "../../packages/shared/src/**/*"],
+  "exclude": ["../../packages/shared/src/**/*.test.ts", "node_modules", "dist"]
+}

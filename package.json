@@ -1,0 +1,53 @@
+{
+  "name": "ratio-app-boilerplate",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Agent-native boilerplate: a single NestJS+MySQL backend + per-vendor React admins, scaffolded from a PRD via the .claude/skills agentic flow.",
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "//--- infra (docker compose: mysql + backend) ---//": "",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down",
+    "infra:logs": "docker compose logs -f",
+    "infra:rebuild": "docker compose build backend && docker compose up -d backend",
+    "//--- dev (host-side fast HMR; backend can also run via infra:up) ---//": "",
+    "dev:backend": "pnpm --filter @ratio-app/backend dev",
+    "dev:admin": "pnpm --filter @ratio-app/admin-google dev",
+    "dev:admin:google": "pnpm --filter @ratio-app/admin-google dev",
+    "dev:all": "pnpm -r --parallel dev",
+    "//--- build ---//": "",
+    "build:backend": "pnpm --filter @ratio-app/backend build",
+    "build:admin": "pnpm --filter @ratio-app/admin-google build",
+    "build:all": "pnpm -r build",
+    "//--- migrations (per-module; generic runner takes the vendor slug as argv) ---//": "",
+    "migrate:google": "pnpm --filter @ratio-app/backend exec tsx scripts/migrate.ts google",
+    "migrate": "pnpm migrate:google",
+    "migrate:down:google": "pnpm --filter @ratio-app/backend exec tsx scripts/migrate-down.ts google",
+    "//--- quality gates ---//": "",
+    "test": "pnpm -r test",
+    "test:cov": "pnpm -r test:cov",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "biome check .",
+    "verify": "pnpm -r lint && pnpm -r typecheck && pnpm -r test && pnpm -r build",
+    "format": "biome format --write .",
+    "//--- production deploy (single artifact: backend serves built admin) ---//": "",
+    "deploy:docker": "docker compose up -d --build",
+    "deploy:pm2": "pnpm build:all && pm2 start ecosystem.config.cjs"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.15",
+    "@vitest/coverage-v8": "^2.1.0",
+    "typescript": "^5.6.0",
+    "vitest": "2.1.9"
+  },
+  "pnpm": {
+    "overrides": {
+      "vitest": "2.1.9",
+      "@vitest/coverage-v8": "2.1.9"
+    }
+  }
+}

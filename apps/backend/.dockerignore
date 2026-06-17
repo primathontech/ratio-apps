@@ -1,0 +1,12 @@
+node_modules
+dist
+static/*.js
+coverage
+coverage-e2e
+.env
+.env.*
+.git
+docs
+*.log
+.turbo
+.DS_Store

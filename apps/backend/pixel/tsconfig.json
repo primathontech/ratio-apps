@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2015",
+    "module": "None",
+    "lib": ["ES2015", "DOM"],
+    "strict": true,
+    "noImplicitAny": true,
+    "outDir": "../static",
+    "removeComments": true,
+    "isolatedModules": false,
+    "moduleResolution": "Node10",
+    "ignoreDeprecations": "5.0",
+    "skipLibCheck": true
+  },
+  "include": ["*.ts"]
+}
