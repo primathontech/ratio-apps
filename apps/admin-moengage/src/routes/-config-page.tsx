@@ -38,7 +38,7 @@ export function ConfigPage() {
       dataCenter: 'DC_1',
       debug: false,
       swPath: '',
-      events: buildDefaultEventMap(),
+      events: buildDefaultEventMap('moengage'),
     },
   });
 
