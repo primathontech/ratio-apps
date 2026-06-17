@@ -27,6 +27,30 @@ export interface OAuthServiceDeps<DB> {
   bootstrap: AppBootstrap<DB>;
 }
 
+/**
+ * Extract merchant_id from a JWT access token payload.
+ * GoKwik sandbox may return merchant_id only inside the JWT, not top-level.
+ * This function decodes the JWT payload (middle segment) and looks for merchant_id.
+ *
+ * @param token JWT access token
+ * @returns merchant_id from JWT payload, or undefined if not found
+ */
+function extractMerchantIdFromJwt(token: string): string | undefined {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return undefined;
+
+    // Decode the payload (second segment)
+    const payload = Buffer.from(parts[1]!, 'base64').toString('utf-8');
+    const decoded = JSON.parse(payload);
+
+    return decoded.merchant_id || decoded.sub || undefined;
+  } catch {
+    // If decoding fails, return undefined — caller will handle the missing merchant_id
+    return undefined;
+  }
+}
+
 export class OAuthService<DB extends DatabaseWithMerchants & DatabaseWithOauthTokens> {
   constructor(private readonly deps: OAuthServiceDeps<DB>) {}
 
@@ -51,7 +75,15 @@ export class OAuthService<DB extends DatabaseWithMerchants & DatabaseWithOauthTo
       },
     });
 
-    const merchantId = tokenResponse.merchant_id;
+    // GoKwik returns merchant_id either top-level OR only inside the access
+    // token JWT (varies by environment). Prefer top-level; fall back to the JWT.
+    const merchantId = tokenResponse.merchant_id ?? extractMerchantIdFromJwt(tokenResponse.access_token);
+    if (!merchantId) {
+      throw new HttpException(
+        { message: 'no merchant_id in token response or JWT', error_code: 'RATIO_NO_MERCHANT_ID' },
+        502,
+      );
+    }
     // Subtract a 60-second safety margin so we never store an expiresAt that
     // already accounts for network latency between the upstream token-endpoint
     // response and the row write. Floors at 0 in the unlikely case the

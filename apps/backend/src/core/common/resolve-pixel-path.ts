@@ -1,15 +1,13 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { AppSlug } from '../../config/apps';
 
 /**
- * Per-module pixel file slug. Determines both the filename
- * (`<slug>-pixel.js`) and is otherwise opaque to this helper.
- *
- * Derived from `AppSlug` so adding a new app to `config/apps.ts` is the
- * single source of truth — the union here stays in lockstep automatically.
+ * Per-module pixel file slug. Determines the filename (`<slug>-pixel.js`) and
+ * is otherwise opaque to this helper. A plain string (not `AppSlug`) so the
+ * golden-reference `_template` module — kept in the repo but NOT in `APPS` —
+ * still compiles; mounted vendors pass their own slug literal.
  */
-export type PixelSlug = AppSlug;
+export type PixelSlug = string;
 
 /**
  * Locate `apps/backend/static/<slug>-pixel.js` regardless of whether we're
