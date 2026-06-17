@@ -9,8 +9,8 @@ import {
   Tag,
   Typography,
 } from '@primathonos/orion';
-import type { ComponentProps } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
+import type { ComponentProps } from 'react';
 import { useEffect, useState } from 'react';
 import {
   type CatalogSyncRun,
@@ -141,9 +141,7 @@ function CatalogPage() {
             <Alert
               type="success"
               message={
-                save.data?.initialSyncStarted
-                  ? 'Saved. Initial full sync started.'
-                  : 'Saved.'
+                save.data?.initialSyncStarted ? 'Saved. Initial full sync started.' : 'Saved.'
               }
               showIcon
             />
@@ -164,17 +162,15 @@ function CatalogPage() {
               </PrimaryButton>
             </Space>
           </div>
-          {syncNow.isSuccess && <Alert type="info" message="Sync started in background." showIcon />}
+          {syncNow.isSuccess && (
+            <Alert type="info" message="Sync started in background." showIcon />
+          )}
         </Space>
       </Card>
 
       {feedUrl && (
         <Card title="Data feed URL" size="small">
-          <Typography.Paragraph
-            copyable
-            code
-            style={{ wordBreak: 'break-all', marginBottom: 0 }}
-          >
+          <Typography.Paragraph copyable code style={{ wordBreak: 'break-all', marginBottom: 0 }}>
             {feedUrl}
           </Typography.Paragraph>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>

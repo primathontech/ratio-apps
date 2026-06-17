@@ -42,6 +42,9 @@ services:
   #     # Point each module at the compose mysql service (host `mysql`, not
   #     # localhost). Add a RATIO_<SLUG>_DATABASE_URL line per scaffolded vendor.
   #     RATIO_GOOGLE_DATABASE_URL: mysql://app:app@mysql:3306/google_app
+  #     RATIO_META_DATABASE_URL: mysql://app:app@mysql:3306/meta_app
+  #     RATIO_POSTHOG_DATABASE_URL: mysql://app:app@mysql:3306/posthog_app
+  #     RATIO_MOENGAGE_DATABASE_URL: mysql://app:app@mysql:3306/moengage_app
   #   ports:
   #     - "3000:3000"
   #   healthcheck:

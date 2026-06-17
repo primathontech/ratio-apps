@@ -3,12 +3,12 @@ import {
   Card,
   CheckOutlined,
   CopyOutlined,
+  message,
   Segmented,
   Space,
   SuccessTag,
   ThunderboltOutlined,
   Typography,
-  message,
 } from '@primathonos/orion';
 import { useState } from 'react';
 
@@ -84,15 +84,7 @@ function CodeBlock({ code }: { code: string }) {
   );
 }
 
-function StepRow({
-  n,
-  title,
-  children,
-}: {
-  n: number;
-  title: string;
-  children: React.ReactNode;
-}) {
+function StepRow({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
       <div
