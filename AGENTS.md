@@ -55,9 +55,10 @@ barrel exports (`DEFAULT_<VENDOR>_EVENT_MAP`, not a generic alias); the
 `.env.example` block (`env.schema.ts` derives keys from `APPS` — never edit it) —
 and the collision check live in the **`vendor-scaffolder`** skill. Never scaffold
 by hand.
+
 Verify wiring with `pnpm verify` (or `pnpm install && pnpm -r typecheck`).
 
-## Context & decisions (read before non-trivial work)
+## Context & decisions (pull on demand)
 
 Durable context lives in `docs/agent/context/`. **Pull it on demand** — consult
 [`context/INDEX.md`](./docs/agent/context/INDEX.md), a linked ADR, or an app's
