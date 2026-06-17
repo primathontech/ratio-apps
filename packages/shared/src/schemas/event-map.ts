@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { DEFAULT_EVENT_MAP, DEFAULT_TEMPLATE_EVENT_MAP } from '../constants/_template-events';
+import { DEFAULT_MOENGAGE_EVENT_MAP } from '../constants/moengage-events';
 import { OPEN_STORE_EVENT_NAMES, type OpenStoreEventName } from '../constants/openstore-events';
 
 /**
@@ -33,12 +34,14 @@ export type EventMap = z.infer<typeof eventMapSchema>;
 
 /**
  * Build a fully-defaulted event map (used at install time and when the merchant
- * resets to defaults). Seeds every OpenStore event from the template's default
- * map. A real vendor with multiple event dialects can reintroduce a `vendor`
- * argument here and branch on it.
+ * resets to defaults). The optional `vendor` argument selects the per-vendor
+ * source map: `'moengage'` uses Title Case MoEngage names; all other vendors
+ * (posthog, meta, google, _template) use the template's snake_case names.
+ * No-argument callers get the template map for full back-compat.
  */
-export function buildDefaultEventMap(): EventMap {
-  const source: Record<OpenStoreEventName, string> = DEFAULT_TEMPLATE_EVENT_MAP;
+export function buildDefaultEventMap(vendor?: 'posthog' | 'moengage'): EventMap {
+  const source: Record<OpenStoreEventName, string> =
+    vendor === 'moengage' ? DEFAULT_MOENGAGE_EVENT_MAP : DEFAULT_TEMPLATE_EVENT_MAP;
   return Object.fromEntries(
     OPEN_STORE_EVENT_NAMES.map((k) => [k, { enabled: true, name: source[k] }]),
   ) as EventMap;

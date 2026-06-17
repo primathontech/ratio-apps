@@ -4,7 +4,7 @@ import { envSchema, loadEnv } from '@/config/env.schema';
 // Buffer.alloc(32).toString('base64') is `'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='`
 // — exactly 44 chars, matches the strict `/^[A-Za-z0-9+/]{43}=$/` shape.
 //
-// env.schema derives per-app keys from APPS (currently `google` and `meta`).
+// env.schema derives per-app keys from APPS (currently `google`, `meta`, `posthog`, `moengage`).
 const validEnv = {
   NODE_ENV: 'development',
   LOG_LEVEL: 'info',
@@ -25,6 +25,20 @@ const validEnv = {
   RATIO_META_CLIENT_SECRET: 'meta_secret',
   RATIO_META_CALLBACK_URL: 'http://localhost:3000/meta/api/v1/oauth/callback',
   RATIO_META_ADMIN_BASE_URL: 'http://localhost:5173',
+  // `posthog` app keys (derived from the APPS tuple — required by the schema).
+  RATIO_POSTHOG_DATABASE_URL: 'mysql://app:app@localhost:3306/posthog_app',
+  RATIO_POSTHOG_DATA_ENCRYPTION_KEY: Buffer.alloc(32).toString('base64'),
+  RATIO_POSTHOG_CLIENT_ID: 'posthog_id',
+  RATIO_POSTHOG_CLIENT_SECRET: 'posthog_secret',
+  RATIO_POSTHOG_CALLBACK_URL: 'http://localhost:3000/posthog/api/v1/oauth/callback',
+  RATIO_POSTHOG_ADMIN_BASE_URL: 'http://localhost:5173',
+  // `moengage` app keys (derived from the APPS tuple — required by the schema).
+  RATIO_MOENGAGE_DATABASE_URL: 'mysql://app:app@localhost:3306/moengage_app',
+  RATIO_MOENGAGE_DATA_ENCRYPTION_KEY: Buffer.alloc(32).toString('base64'),
+  RATIO_MOENGAGE_CLIENT_ID: 'moengage_id',
+  RATIO_MOENGAGE_CLIENT_SECRET: 'moengage_secret',
+  RATIO_MOENGAGE_CALLBACK_URL: 'http://localhost:3000/moengage/api/v1/oauth/callback',
+  RATIO_MOENGAGE_ADMIN_BASE_URL: 'http://localhost:5174',
 };
 
 describe('envSchema', () => {

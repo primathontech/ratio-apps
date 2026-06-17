@@ -12,6 +12,11 @@ export * from './schemas/google-config';
 export * from './constants/meta-events';
 export * from './schemas/meta-config';
 export * from './schemas/capi-ingest';
+// posthog + moengage vendors (scaffolded).
+export * from './constants/posthog-events';
+export * from './schemas/posthog-config';
+export * from './constants/moengage-events';
+export * from './schemas/moengage-config';
 // Schemas
 export * from './schemas/event-map';
 export * from './schemas/merchant';
