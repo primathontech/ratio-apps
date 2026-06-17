@@ -47,40 +47,47 @@ owns its own DB. (Full detail: **`house-conventions`**.)
 
 The repo currently has **four live vendors**: `google`, `meta`, `posthog`, and
 `moengage`. A fifth (or later) vendor `<slug>` is scaffolded by appending to the
-existing multi-entry `APPS` tuple — not replacing it. The full ordered checklist:
+existing multi-entry `APPS` tuple — not replacing it.
 
-1. Append `<slug>` to `APPS` in `apps/backend/src/config/apps.ts` (after `moengage`).
-2. Add the import statement + `REGISTERED_MODULES` entry + `imports[]` entry
-   (three additions) in `apps/backend/src/app.module.ts` (leaving the existing
-   four entries intact).
-3. Add `<slug>_app` / `<slug>_app_test` CREATE + GRANT to
-   `docker/mysql/init/01-database.sql`.
-4. Add shared barrel exports to `packages/shared/src/index.ts`
-   (`<slug>-events`, `<slug>-config`), exporting `DEFAULT_<VENDOR>_EVENT_MAP`
-   (not a generic alias).
-5. Add a `RATIO_<SLUG>_*` block to `.env.example` (env.schema.ts derives keys
-   from `APPS` automatically — never edit `env.schema.ts`).
-
-The exact step-by-step recipe and collision check (must not collide with
-`google|meta|posthog|moengage|_template`) live in **`vendor-scaffolder`**.
-Slug / env-key / DB-naming / `core/` / commit conventions live in
-**`house-conventions`**. The `vendor-scaffolder` skill (or `build-app` end-to-end)
-performs the scaffold deterministically — never by hand.
+The exact ordered recipe — append to `APPS`; the three `app.module.ts` additions;
+the `docker/mysql/init/01-database.sql` CREATE+GRANT; the `packages/shared/src/index.ts`
+barrel exports (`DEFAULT_<VENDOR>_EVENT_MAP`, not a generic alias); the
+`.env.example` block (`env.schema.ts` derives keys from `APPS` — never edit it) —
+and the collision check live in the **`vendor-scaffolder`** skill. Never scaffold
+by hand.
 Verify wiring with `pnpm verify` (or `pnpm install && pnpm -r typecheck`).
 
 ## Context & decisions (read before non-trivial work)
 
-Durable context lives in `docs/agent/context/` — skim
-[`context/INDEX.md`](./docs/agent/context/INDEX.md) and the relevant
-`docs/agent/apps/<slug>/CONTEXT.md` before changing an app. To persist a
-decision, learning, rule, or notable change, invoke the **`remember`** skill
-(it classifies + writes + indexes). Obey the Standing rules below.
+Durable context lives in `docs/agent/context/`. **Pull it on demand** — consult
+[`context/INDEX.md`](./docs/agent/context/INDEX.md), a linked ADR, or an app's
+`docs/agent/apps/<slug>/CONTEXT.md` only when your change touches that area and
+you need a prior decision. Do **not** pre-read `CHANGELOG.md` / `learnings.md` /
+every `CONTEXT.md`; prefer the smallest set of files that answers the question.
+To persist a decision, learning, rule, or notable change, invoke the
+**`remember`** skill (it classifies + writes + indexes). Obey the Standing rules
+below.
 
-**Making a change:** a *new vendor app* → the `build-app` skill. *Any other
-feature / bug / PR* → start with the **`brainstorm`** skill (it chains
-`brainstorm → write-plan → execute`, scales to size, and ends at the Definition
-of Done). Do not write code for a non-trivial change before its spec + plan are
-approved.
+**Making a change — classify first, then take the matching lane.** Classify the
+change by size before doing anything; take the lane that matches and do not
+over-process small work:
+
+| Tier | What it is | Lane |
+|---|---|---|
+| **Trivial** | one file, obvious, reversible (typo, copy/text, version bump, comment, tiny config) | **Just do it → `pnpm verify` → done.** No spec, plan, or gate. |
+| **Small** | a few files, clear approach, **no design choice** | **State a 1–3 line plan in chat → implement → `pnpm verify`.** No SPEC/PLAN docs; the inline plan is the checkpoint. |
+| **Feature** | multi-file, a real design choice, or risk | **`brainstorm` → `write-plan` → `execute`** (writes SPEC + PLAN, gates at each). |
+| **New vendor app** | a whole new vendor | **`build-app`** (five gates). |
+
+Tie-breakers (apply in order):
+- Unsure trivial vs small → treat as **small**.
+- Unsure small vs feature → ask "is there a design choice or real risk?" — if yes → **feature**.
+- A change touching `apps/backend/src/core/`, `apps/backend/src/config/apps.ts`,
+  `apps/backend/src/config/env.schema.ts`, the `APPS` tuple, OAuth/crypto/auth, DB
+  migrations, or deploy is **always feature** (high blast radius), regardless of
+  line count.
+- A bug whose root cause is not yet confirmed is **feature** until you reproduce
+  it and confirm the cause (never fix without a confirmed root cause).
 
 ## Standing rules
 
@@ -102,7 +109,10 @@ approved.
 `pnpm verify` = `pnpm -r lint && pnpm -r typecheck && pnpm -r test && pnpm -r build`
 (blocks on first failure) — the single command that proves work is green.
 
-**Definition of Done** — work is not done until:
+**Definition of Done** scales by tier. **Trivial / small** changes are done when
+`pnpm verify` is green — record a change-journal / `remember` entry ONLY if the
+change is genuinely notable (a behavior change worth future recall, never a
+typo). **Feature / new-vendor** work is not done until all five hold:
 1. `pnpm verify` is green;
 2. the change is recorded in the relevant change journal (feature context / definition-of-fix), notable changes only;
 3. `FEATURES.md` status is updated if a capability's lifecycle changed;
