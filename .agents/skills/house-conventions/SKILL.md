@@ -18,6 +18,11 @@ template (see `vendor-scaffolder`) — never hand-rolled from scratch. The templ
 compiles, wires, and demonstrates every pattern; deviating from its structure
 breaks the shared factory and the load-time assertions.
 
+`_template` is **never wired** into `APPS` or `REGISTERED_MODULES` — it lives on
+disk as a copy-source only (see `app.module.ts` note: "the `_template` golden
+module is intentionally NOT wired here"). **Never edit `_template` to build a
+vendor** — scaffold a copy.
+
 Inside the template, `// TEMPLATE:` marker comments flag exactly the spots a
 vendor customizes (the SDK call in `sdk/sdk.service.ts`, the config fields, etc.).
 After building a real vendor, **zero `// TEMPLATE:` markers** may remain.
@@ -41,16 +46,40 @@ A scaffolded vendor slug is **lowercase `[a-z0-9-]`** (letters, digits, dashes;
 e.g. `loyalty`, `klaviyo`, `gift-cards`). The leading-underscore form
 (`_template`) is **reserved for the boilerplate vendor only**.
 
+The **four live vendors** as of this writing are `google`, `meta`, `posthog`, and
+`moengage` (declared in `apps/backend/src/config/apps.ts` as
+`export const APPS = ['google', 'meta', 'posthog', 'moengage'] as const`).
+A new slug must not collide with any of these.
+
 The load-time guard in `apps/backend/src/config/apps.ts` accepts
 `/^[a-z0-9_-]+$/` (so `_template` passes), but production vendors must stay
 within plain `[a-z0-9-]` — the slug flows into runtime URL regexes (rate-limit
 matchers in `main.ts`), so no regex metacharacters.
 
+## Per-module DB naming: `<slug>_app`
+
+Every vendor gets **its own MySQL database**. The naming convention is
+`<slug>_app` (production) and `<slug>_app_test` (test). These are declared in
+`docker/mysql/init/01-database.sql` with one `CREATE DATABASE` + `GRANT` block
+per vendor. The four live vendors currently have:
+
+```
+google_app / google_app_test
+meta_app   / meta_app_test
+posthog_app / posthog_app_test
+moengage_app / moengage_app_test
+```
+
+When adding a new vendor, append a matching block for `<slug>_app` and
+`<slug>_app_test` to that file (see `vendor-scaffolder` Step 7). No cross-vendor
+shared tables — each module owns its own DB.
+
 ## Env-key derivation: `RATIO_<SLUG_UPPER>_*`
 
-`apps/backend/src/config/env.schema.ts` derives env keys **per slug in `APPS`** by
-uppercasing the slug. You do **not** edit `env.schema.ts` to add a vendor — adding
-the slug to `APPS` makes the schema require these keys automatically:
+`apps/backend/src/config/env.schema.ts` derives env keys **per slug in `APPS`**
+via a `.reduce` that uppercases each slug. You do **not** edit `env.schema.ts` to
+add a vendor — adding the slug to `APPS` makes the schema require these keys
+automatically for **every** entry in the tuple (currently all four live vendors):
 
 For a slug `<slug>` (uppercased to `<SLUG>`):
 
@@ -63,13 +92,20 @@ RATIO_<SLUG>_CALLBACK_URL          # must be a URL
 RATIO_<SLUG>_ADMIN_BASE_URL        # must be a URL
 ```
 
-Note the underscore arithmetic: slug `_template` uppercases to `_TEMPLATE`, so its
-keys are `RATIO__TEMPLATE_*` (double underscore). A plain slug `loyalty` →
-`RATIO_LOYALTY_*` (single). Generate an encryption key with:
+For example, the four live vendors produce keys prefixed `RATIO_GOOGLE_*`,
+`RATIO_META_*`, `RATIO_POSTHOG_*`, and `RATIO_MOENGAGE_*`.
+
+Note the underscore arithmetic: slug `_template` uppercases to `_TEMPLATE`, so
+its keys would be `RATIO__TEMPLATE_*` (double underscore). A plain slug `loyalty`
+→ `RATIO_LOYALTY_*` (single). Generate an encryption key with:
 
 ```bash
 node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 ```
+
+You only edit **`.env.example`** (placeholders) when adding a vendor — never
+`env.schema.ts`. The committed `docs/` and `.agents/` files (skills, contracts,
+AGENTS.md) ARE part of the repo and ARE committed — they are not gitignored.
 
 ## Commit format — conventional commits
 

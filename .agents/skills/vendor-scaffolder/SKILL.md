@@ -80,47 +80,123 @@ rsync -a --exclude node_modules --exclude dist --exclude coverage --exclude .tan
 
 ## Step 4 — Add the slug to APPS
 
-In `apps/backend/src/config/apps.ts` add `<slug>` to the `APPS` tuple:
+**Before you edit:** assert your new slug collides with none of the four live
+vendors (`google`, `meta`, `posthog`, `moengage`) and is not `_template`.
+
+In `apps/backend/src/config/apps.ts` **APPEND** `<slug>` to the existing
+four-entry `APPS` tuple — do NOT replace any existing entry:
 
 ```ts
-export const APPS = ['google', '<slug>'] as const;
+// Before (four live vendors as of this writing):
+export const APPS = ['google', 'meta', 'posthog', 'moengage'] as const;
+
+// After (append only — existing four entries stay intact):
+export const APPS = ['google', 'meta', 'posthog', 'moengage', '<slug>'] as const;
 ```
 
-(the array shown is the then-current APPS plus your new slug — do NOT re-add `_template`, which is excluded from the running backend.)
+`_template` is intentionally absent from `APPS` — it is the golden boilerplate
+kept on disk only as a copy-source; it is NOT a running vendor.
 
-The load-time guard accepts `/^[a-z0-9_-]+$/` (underscore reserved for `_template`); production vendor slugs must stay within `[a-z0-9-]`.
+The load-time guard in `apps.ts` accepts `/^[a-z0-9_-]+$/` (underscore reserved
+for `_template`); production vendor slugs must stay within `[a-z0-9-]`.
 
 ## Step 5 — Register the module in app.module.ts
 
-In `apps/backend/src/app.module.ts`:
-- `import { <Slug>Module } from './modules/<slug>/<slug>.module';`
-- Add to `REGISTERED_MODULES`: `['<slug>', <Slug>Module]`.
-- Add `<Slug>Module` to the `@Module({ imports: [...] })` array.
+In `apps/backend/src/app.module.ts` make **three** additions, leaving the
+existing four entries (`google`, `meta`, `posthog`, `moengage`) intact:
 
-**Both** the map and `imports[]` are required: a load-time assertion in
-`app.module.ts` throws `APPS contains '<slug>' but no <App>Module is registered`
-if the slug is in `APPS` without a registered module. (The `imports[]` array
-can't be generated from `APPS` because decorator args are static — hence the
-assertion.)
+1. **Import line** (at the top, alongside the existing four):
+   ```ts
+   import { <Slug>Module } from './modules/<slug>/<slug>.module';
+   ```
+
+2. **`REGISTERED_MODULES` map** — append a new entry:
+   ```ts
+   const REGISTERED_MODULES = new Map<string, unknown>([
+     ['google',    GoogleModule],
+     ['meta',      MetaModule],
+     ['posthog',   PosthogModule],
+     ['moengage',  MoengageModule],
+     ['<slug>',    <Slug>Module],   // ← append here
+   ]);
+   ```
+
+3. **`@Module({ imports: [...] })` array** — append the module:
+   ```ts
+   imports: [
+     // … ConfigModule, LoggerModule, HealthModule unchanged …
+     GoogleModule,
+     MetaModule,
+     PosthogModule,
+     MoengageModule,
+     <Slug>Module,   // ← append here
+   ],
+   ```
+
+**Both** `REGISTERED_MODULES` and `imports[]` are required. The load-time
+assertion in `app.module.ts` throws
+`AppModule: APPS contains '<slug>' but no <App>Module is registered`
+if the slug is in `APPS` but missing from the map. (`imports[]` can't be
+generated from `APPS` because decorator args are static — hence the assertion.)
 
 ## Step 6 — Shared schema/events (only if the PRD needs them)
 
-If the PRD's config differs from the template's example, add neutral shared files
-and export them from the barrel:
-- `packages/shared/src/schemas/<slug>-config.ts` (from `_template-config.ts`,
-  symbols renamed `Template`→`<Slug>`, including `<slug>ConfigInputSchema`).
-- `packages/shared/src/constants/<slug>-events.ts` if needed.
-- Export both from `packages/shared/src/index.ts`.
+Add vendor-specific shared files and export them from the barrel
+(`packages/shared/src/index.ts`). The four live vendors (`google`, `meta`,
+`posthog`, `moengage`) already follow this pattern — replicate it:
 
-If the template's config shape already fits, you may keep importing the
-`_template` shared schema for now and let `backend-builder` introduce a
-vendor-specific schema. Be consistent with the import paths you renamed in Step 2.
+**a) Events file** `packages/shared/src/constants/<slug>-events.ts`:
+- Export `DEFAULT_<VENDOR>_EVENT_MAP` (e.g. `DEFAULT_LOYALTY_EVENT_MAP`).
+- Do **NOT** re-export a generic `DEFAULT_EVENT_MAP` alias — only
+  `_template-events.ts` does that for back-compat; all real vendor files export
+  their own named constant (see `meta-events.ts`, `google-events.ts`).
+- If the vendor needs a distinct default map, add a `vendor?: '…' | '<slug>'`
+  branch to `buildDefaultEventMap` in `packages/shared/src/schemas/event-map.ts`
+  and import `DEFAULT_<VENDOR>_EVENT_MAP` there.
 
-## Step 7 — Add env keys to .env.example
+**b) Config file** `packages/shared/src/schemas/<slug>-config.ts`:
+- From `_template-config.ts`; rename `Template`→`<Slug>` everywhere, including
+  `<slug>ConfigInputSchema`.
+
+**c) Barrel exports** in `packages/shared/src/index.ts` — append after the
+existing four vendor blocks:
+```ts
+// <slug> vendor (scaffolded).
+export * from './constants/<slug>-events';
+export * from './schemas/<slug>-config';
+```
+
+If the template's config shape already fits, you may keep importing
+`_template-config` for now and let `backend-builder` introduce the
+vendor-specific schema. Be consistent with the import paths renamed in Step 2.
+
+## Step 7 — Add the DB databases to docker/mysql/init/01-database.sql
+
+Append a `<slug>_app` + `<slug>_app_test` CREATE and GRANT block to
+`docker/mysql/init/01-database.sql`, after the last existing vendor block
+(`moengage_app`). The file currently has five vendor blocks (including
+`_template_app`); your new block is the sixth:
+
+```sql
+CREATE DATABASE IF NOT EXISTS <slug>_app;
+CREATE DATABASE IF NOT EXISTS <slug>_app_test;
+```
+
+and (near the bottom, after the existing GRANTs):
+
+```sql
+GRANT ALL ON `<slug>_app`.*      TO 'app'@'%';
+GRANT ALL ON `<slug>_app_test`.* TO 'app'@'%';
+```
+
+This init script runs only on a fresh Docker volume; existing containers need
+a manual `CREATE DATABASE` if already running.
+
+## Step 9 — Add env keys to .env.example
 
 Add a `RATIO_<SLUG>_*` block to `.env.example` (placeholders only; secrets
-empty). `env.schema.ts` derives these from `APPS` automatically — you only edit
-`.env.example`, never `env.schema.ts`:
+empty). `env.schema.ts` derives these keys from `APPS` automatically via a
+`.reduce` — you only edit `.env.example`, **never `env.schema.ts`**:
 
 ```
 RATIO_<SLUG>_DATABASE_URL=mysql://app:app@localhost:3306/<slug>_app
@@ -134,7 +210,7 @@ RATIO_<SLUG>_ADMIN_BASE_URL=http://localhost:5173
 Remind the operator to add a real block to their local `.env` (with a generated
 encryption key) — never commit `.env`.
 
-## Step 8 — Prove it wires
+## Step 10 — Prove it wires
 
 ```bash
 pnpm install
@@ -145,7 +221,7 @@ Expected: PASS across backend, shared, and `apps/admin-<slug>`. If typecheck
 fails, you missed a rename in Step 2/3 — fix and re-run. Do not advance until the
 scaffold compiles.
 
-## Step 9 — Update STATE.json and hand back
+## Step 11 — Update STATE.json and hand back
 
 Via `context-keeper`: set `paths.module = "apps/backend/src/modules/<slug>"` and
 `paths.admin = "apps/admin-<slug>"`; append the scaffold files to `filesCreated`;

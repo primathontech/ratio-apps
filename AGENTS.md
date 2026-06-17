@@ -17,7 +17,9 @@ the flow.
 Do not introduce alternative frameworks for these concerns.
 
 - **Backend:** NestJS 11 + Fastify, Kysely query builder, MySQL. One process,
-  many modules.
+  many modules. Four live vendors: `google`, `meta`, `posthog`, `moengage`
+  (declared in `apps/backend/src/config/apps.ts` as
+  `APPS = ['google', 'meta', 'posthog', 'moengage'] as const`).
 - **Admin:** React 19 + Vite + TanStack Router (one SPA per vendor).
 - **Shared:** Zod schemas + event constants in `packages/shared`.
 - **Tooling:** pnpm workspaces, Node 22, Biome (lint + format), Vitest.
@@ -43,11 +45,26 @@ owns its own DB. (Full detail: **`house-conventions`**.)
 
 ## Add a new app
 
-Adding a vendor `<slug>` is a deterministic copy-rename-wire from `_template`,
-performed by the **`vendor-scaffolder`** skill (or `build-app` end-to-end) — never
-by hand. The exact ordered file list (`apps.ts` → `app.module.ts` → `.env.example`
-→ shared schema → admin) is the **`vendor-scaffolder`** skill's step-by-step
-recipe; slug / env-key / `core/` / commit conventions live in **`house-conventions`**.
+The repo currently has **four live vendors**: `google`, `meta`, `posthog`, and
+`moengage`. A fifth (or later) vendor `<slug>` is scaffolded by appending to the
+existing multi-entry `APPS` tuple — not replacing it. The full ordered checklist:
+
+1. Append `<slug>` to `APPS` in `apps/backend/src/config/apps.ts` (after `moengage`).
+2. Add `<Slug>Module` to **both** `REGISTERED_MODULES` and `imports[]` in
+   `apps/backend/src/app.module.ts` (leaving the existing four entries intact).
+3. Add `<slug>_app` / `<slug>_app_test` CREATE + GRANT to
+   `docker/mysql/init/01-database.sql`.
+4. Add shared barrel exports to `packages/shared/src/index.ts`
+   (`<slug>-events`, `<slug>-config`), exporting `DEFAULT_<VENDOR>_EVENT_MAP`
+   (not a generic alias).
+5. Add a `RATIO_<SLUG>_*` block to `.env.example` (env.schema.ts derives keys
+   from `APPS` automatically — never edit `env.schema.ts`).
+
+The exact step-by-step recipe and collision check (must not collide with
+`google|meta|posthog|moengage|_template`) live in **`vendor-scaffolder`**.
+Slug / env-key / DB-naming / `core/` / commit conventions live in
+**`house-conventions`**. The `vendor-scaffolder` skill (or `build-app` end-to-end)
+performs the scaffold deterministically — never by hand.
 Verify wiring with `pnpm verify` (or `pnpm install && pnpm -r typecheck`).
 
 ## Context & decisions (read before non-trivial work)
