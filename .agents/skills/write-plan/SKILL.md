@@ -7,6 +7,8 @@ when_to_use: Use after a change's SPEC.md (docs/agent/changes/<slug>/SPEC.md) ha
 # write-plan
 
 Turn the approved `SPEC.md` into a `PLAN.md` of TDD tasks. No code until GATE 2.
+This is the **feature lane** — reached only after `brainstorm`'s GATE 1. Trivial
+and small changes never come here (see AGENTS.md "Making a change").
 
 ## 1. Read the spec
 Read `docs/agent/changes/<slug>/SPEC.md`. If it is not approved, stop and route
@@ -14,8 +16,7 @@ back to `brainstorm`.
 
 ## 2. Map the files
 List the exact files to create/modify, each with one responsibility. Follow
-existing patterns and the `core/` boundary (extend core, never fork it). For a
-trivial change this is one or two files.
+existing patterns and the `core/` boundary (extend core, never fork it).
 
 ## 3. Write the plan
 Create `docs/agent/changes/<slug>/PLAN.md`:
@@ -37,8 +38,8 @@ Create `docs/agent/changes/<slug>/PLAN.md`:
 
 Rules: bite-sized steps (one action each); **complete code/commands in every
 step** (no "TBD", no "handle edge cases", no "similar to Task N"); exact paths;
-scale to size (a trivial change is ONE task). Commits only if a `.git` exists
-(today it does not — end tasks at `pnpm verify`).
+scale to size (a small feature is a few tasks). The repo is a git repo — commit
+per task, ending each task at `pnpm verify`.
 
 ## 4. Self-review
 Every SPEC acceptance criterion maps to a task; no placeholders; names/types are

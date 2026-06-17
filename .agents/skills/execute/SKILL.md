@@ -7,6 +7,9 @@ when_to_use: Use after a change's PLAN.md (docs/agent/changes/<slug>/PLAN.md) ha
 # execute
 
 Implement the approved `PLAN.md`. Test-first. End at the Definition of Done.
+This is the **feature lane** — reached only after `write-plan`'s GATE 2. (The
+tier-scaled Definition of Done in AGENTS.md governs how much bookkeeping a change
+needs.)
 
 ## 1. Mark in-flight
 Set the change as the Active task in `docs/agent/PROGRESS.md` (active task + next
