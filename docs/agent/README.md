@@ -119,7 +119,7 @@ All live under `.agents/skills/` (symlinked as `.claude/skills/`):
 | `house-conventions` | Reference — commit format, naming, `core/` boundary. |
 | `stack-patterns` | Reference — NestJS/Kysely + React/Vite patterns. |
 | `remember` | Persist durable context (decisions/learnings/rules/change-journal); single writer that updates the context index. |
-| `brainstorm` | Any feature/bug/PR: clarify + write docs/agent/changes/<slug>/SPEC.md (GATE 1). Step 1 of the change workflow. |
+| `brainstorm` | Feature-tier changes: clarify + write docs/agent/changes/<slug>/SPEC.md (GATE 1). Step 1 of the feature lane. |
 | `write-plan` | Turn an approved SPEC.md into a bite-sized TDD PLAN.md (GATE 2). Step 2 of the change workflow. |
 | `execute` | Implement an approved PLAN.md (subagent or inline) to the Definition of Done. Step 3 of the change workflow. |
 

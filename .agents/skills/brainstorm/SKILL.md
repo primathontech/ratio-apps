@@ -1,6 +1,6 @@
 ---
 name: brainstorm
-description: Turn a feature/bug/PR idea into an approved, written spec for this repo. Inherits repo context, asks clarifying questions one at a time, proposes an approach scaled to the change size, and writes docs/agent/changes/<slug>/SPEC.md — then STOPS at GATE 1 (spec sign-off). The first step of the repo's change workflow (brainstorm → write-plan → execute). Not for creating a whole new vendor app (use build-app for that).
+description: Turn a feature/bug/PR idea into an approved, written spec for this repo. Asks clarifying questions one at a time, proposes 2–3 approaches, and writes docs/agent/changes/<slug>/SPEC.md — then STOPS at GATE 1 (spec sign-off). The first step of the repo's change workflow (brainstorm → write-plan → execute). Not for creating a whole new vendor app (use build-app for that).
 when_to_use: Use for FEATURE-tier changes (multi-file, a real design choice, or risk) — the entry the AGENTS.md "Making a change" classifier routes to. Trivial and small changes do NOT come here (they use the fast lanes in AGENTS.md). A brand-new vendor app uses build-app.
 ---
 
@@ -34,7 +34,7 @@ genuinely don't apply):
 
 ```
 # <Change title> — spec
-- **Slug:** <slug>   **Type:** feature | fix | refactor   **Size:** trivial | small | feature
+- **Slug:** <slug>   **Type:** feature | fix | refactor   **Size:** feature
 - **Area:** <app slug / backend / shared / admin / docs>
 
 ## Problem / goal

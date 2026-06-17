@@ -1,6 +1,6 @@
 ---
 name: write-plan
-description: Turn an approved SPEC.md into a PLAN.md of bite-sized, test-driven, checkbox tasks with exact file paths — scaled to the change size — then STOP at GATE 2 (plan sign-off). The second step of the repo's change workflow (brainstorm → write-plan → execute).
+description: Turn an approved SPEC.md into a PLAN.md of bite-sized, test-driven, checkbox tasks with exact file paths, then STOP at GATE 2 (plan sign-off). The second step of the repo's change workflow (brainstorm → write-plan → execute).
 when_to_use: Use after a change's SPEC.md (docs/agent/changes/<slug>/SPEC.md) has been approved at GATE 1, to produce the implementation plan before any code is written.
 ---
 
