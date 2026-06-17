@@ -8,6 +8,7 @@ prefer editing through it over hand-editing.
 ## Decisions (ADRs)
 - [0001 — Multi-handler webhook dispatch](./decisions/0001-multi-handler-webhook-dispatch.md) — one module can handle N webhook topics (generic, backward-compatible core change).
 - [0002 — `_template` excluded from run/workspace](./decisions/0002-template-excluded-from-run-and-workspace.md) — kept on disk as scaffolder source; not built/run.
+- [0003 — Four-vendor monorepo consolidation](./decisions/0003-four-vendor-monorepo-consolidation.md) — ratio-apps unifies google/meta/posthog/moengage on one core; scaffolder recipe validated for 5th vendor.
 
 ## Learnings
 See [learnings.md](./learnings.md).

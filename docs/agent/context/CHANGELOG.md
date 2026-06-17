@@ -10,6 +10,18 @@ Definition of done / fix / Files / Links** lines. (See existing entries below.)
 
 ---
 
+### 2026-06-17 — change — Phase 2 consolidation complete + scaffolder dry-run validated
+- **What:** Ported meta, posthog, and moengage vendors into the repo alongside google (Phase 1 tasks 3–4), updated all harness skills to be multi-vendor-aware (Task 9), then dry-ran the `vendor-scaffolder` recipe against a throwaway `zzdryrun` slug to prove a 5th vendor wires cleanly (Task 10).
+- **Why:** Establish ratio-apps as the four-vendor unified monorepo with a validated, repeatable recipe for adding future vendors.
+- **Definition of done / fix:**
+  - `APPS = ['google', 'meta', 'posthog', 'moengage']` — four live vendors, all typechecking.
+  - Core reconciliation: `apps/backend/src/core/` is vendor-agnostic; each vendor owns an isolated module + DB.
+  - `buildDefaultEventMap(vendor?)` in `event-map.ts` has per-vendor branches for `meta` (Title-Case) and `moengage` (Title-Case); posthog/google use the snake_case default.
+  - `vendor-scaffolder` skill recipe validated end-to-end: scaffolded `zzdryrun`, wired all three `app.module.ts` points + APPS + DB SQL + shared events/config files + barrel exports, ran `pnpm --filter @ratio-app/backend typecheck` → **PASS** (no errors). Reverted completely (git status clean, zero `zzdryrun` matches in source).
+  - Recipe gap noted: Step 6 (shared events/config) IS required even for a trivial dry-run slug because `zzdryrun.bootstrap.ts` imports `DEFAULT_ZZDRYRUN_HOST` from `@ratio-app/shared/constants/zzdryrun-events`. The recipe correctly documents this step; no gap.
+  - `pnpm verify` green post-revert.
+- **Files:** `docs/agent/context/decisions/0003-four-vendor-monorepo-consolidation.md`, `docs/agent/context/CHANGELOG.md`, `docs/agent/context/INDEX.md`, `docs/agent/context/learnings.md`.
+
 ### 2026-06-11 — fix — Fresh-eyes review #2 fixes (non-deployment; deploy work deferred by owner)
 - **What:** Acted on a second, fresh-eyes full-depth review. Fixed the non-deployment findings; the broader deployment work was deferred to the owner (who will handle deploy), though a few already-applied, internally-consistent deploy edits were kept.
 - **Why:** Review #1 left gaps + introduced two small regressions; fresh eyes caught them.
