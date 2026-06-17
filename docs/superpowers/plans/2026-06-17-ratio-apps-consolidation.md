@@ -409,8 +409,8 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - [ ] **Step 1: Merge package.json scripts**
 
 Edit `ratio-apps/package.json` `scripts` to include the union of per-vendor scripts from all three repos (they're already namespaced — no collisions):
-- `dev:admin:google`, `dev:admin-meta`, `dev:admin:posthog`, `dev:admin:moengage`
-- `build:admin:google`, `build:admin-meta`, `build:admin:posthog`, `build:admin:moengage`
+- `dev:admin:google`, `dev:admin:meta`, `dev:admin:posthog`, `dev:admin:moengage`
+- `build:admin:google`, `build:admin:meta`, `build:admin:posthog`, `build:admin:moengage`
 - `migrate:google`, `migrate:meta`, `migrate:posthog`, `migrate:moengage` (and `migrate:down:*` siblings); set `"migrate": "pnpm migrate:google && pnpm migrate:meta && pnpm migrate:posthog && pnpm migrate:moengage"`
 - Keep posthog's `deploy:admin:posthog` / `deploy:admin:moengage` (S3/CloudFront) scripts verbatim.
 - Keep the shared `infra:*`, `dev:all`, `build:all`, `test`, `typecheck`, `lint`, `verify`, `format`, `deploy:docker`, `deploy:pm2` entries (already present from the analytics base).
