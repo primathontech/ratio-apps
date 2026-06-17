@@ -58,9 +58,9 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/_template/api': { target: 'http://localhost:3000', changeOrigin: true },
-      '/_template/sdk': { target: 'http://localhost:3000', changeOrigin: true },
-      '/_template/auth': { target: 'http://localhost:3000', changeOrigin: true },
+      '/meta/api': { target: 'http://localhost:3000', changeOrigin: true },
+      '/meta/sdk': { target: 'http://localhost:3000', changeOrigin: true },
+      '/meta/auth': { target: 'http://localhost:3000', changeOrigin: true },
     },
   },
   test: {
