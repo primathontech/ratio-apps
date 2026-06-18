@@ -17,6 +17,8 @@ import { ReconcileService } from './gmc/reconcile.service';
 import { GoogleAuthService } from './google-oauth/google-auth.service';
 import { GoogleConnectController } from './google-oauth/google-oauth.controller';
 import { GoogleOAuthHttp, type GoogleOAuthCreds } from './google-oauth/google-oauth.http';
+import { RatioOAuthHttp, type RatioOAuthCreds } from './google-oauth/ratio-oauth.http';
+import { RatioTokenProvider } from './google-oauth/ratio-token.provider';
 import { GoogleMerchantTokenGuard, GoogleWebhookSignatureGuard } from './guards';
 import { GOOGLE_DB_TOKEN, GoogleKyselyModule } from './kysely.module';
 import { GoogleMerchantsController } from './merchants/merchants.controller';
@@ -32,6 +34,8 @@ import {
   GOOGLE_OAUTH_CREDS,
   GOOGLE_OAUTH_HTTP,
   GOOGLE_RATIO,
+  GOOGLE_RATIO_OAUTH_CREDS,
+  GOOGLE_RATIO_OAUTH_HTTP,
   GOOGLE_RATIO_PRODUCTS,
   GOOGLE_WEB_PIXELS,
   GOOGLE_WEBHOOKS,
@@ -80,6 +84,7 @@ export {
     // Vendor services
     GoogleAuthService,
     RatioProductsService,
+    RatioTokenProvider,
     FeedSyncService,
     FeedQueryService,
     ReconcileService,
@@ -99,6 +104,20 @@ export {
     {
       provide: GOOGLE_OAUTH_HTTP,
       useFactory: (): GoogleOAuthHttp => new GoogleOAuthHttp(),
+    },
+    {
+      provide: GOOGLE_RATIO_OAUTH_HTTP,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<Env, true>): RatioOAuthHttp =>
+        new RatioOAuthHttp(config.get('RATIO_API_BASE_URL', { infer: true }) as string),
+    },
+    {
+      provide: GOOGLE_RATIO_OAUTH_CREDS,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<Env, true>): RatioOAuthCreds => ({
+        clientId: config.get('RATIO_GOOGLE_CLIENT_ID' as never, { infer: true }) as string,
+        clientSecret: config.get('RATIO_GOOGLE_CLIENT_SECRET' as never, { infer: true }) as string,
+      }),
     },
     {
       provide: GOOGLE_OAUTH_CREDS,

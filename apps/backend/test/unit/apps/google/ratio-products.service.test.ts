@@ -1,21 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { CryptoService } from '../../../../src/core/crypto/crypto.service';
-import type { KyselyClient } from '../../../../src/core/db/kysely-factory';
 import type { RatioClient } from '../../../../src/core/ratio-client/ratio.client';
-import type { GoogleDatabase } from '../../../../src/modules/google/db/types';
+import type { RatioTokenProvider } from '../../../../src/modules/google/google-oauth/ratio-token.provider';
 import { RatioProductsService } from '../../../../src/modules/google/gmc/ratio-products.service';
 
-/** Fake handle whose oauth_tokens select returns a row with an encrypted token. */
-function fakeHandle(row: { accessTokenEnc: string } | undefined): KyselyClient<GoogleDatabase> {
-  const chain = {
-    select: () => chain,
-    where: () => chain,
-    executeTakeFirst: async () => row,
-  };
-  return { db: { selectFrom: () => chain } } as unknown as KyselyClient<GoogleDatabase>;
+/** Fake token provider — yields a (refreshed) access token for the merchant. */
+function fakeTokens(token: string | (() => Promise<string>)): RatioTokenProvider {
+  const getAccessToken =
+    typeof token === 'function' ? vi.fn(token) : vi.fn(async () => token);
+  return { getAccessToken } as unknown as RatioTokenProvider;
 }
-
-const fakeCrypto = { decrypt: vi.fn().mockReturnValue('tok') } as unknown as CryptoService;
 
 const item = (id: string, name: string): Record<string, unknown> => ({
   id,
@@ -38,11 +31,7 @@ describe('RatioProductsService.listAll', () => {
     });
     const ratio = { request } as unknown as RatioClient;
 
-    const svc = new RatioProductsService(
-      fakeHandle({ accessTokenEnc: 'enc' }),
-      fakeCrypto,
-      ratio,
-    );
+    const svc = new RatioProductsService(fakeTokens('tok'), ratio);
 
     const products = await svc.listAll('m1');
 
@@ -61,14 +50,15 @@ describe('RatioProductsService.listAll', () => {
     }
   });
 
-  it('returns [] when the merchant has no token row', async () => {
+  it('propagates the token provider error when the merchant has no token', async () => {
     const request = vi.fn();
     const svc = new RatioProductsService(
-      fakeHandle(undefined),
-      fakeCrypto,
+      fakeTokens(async () => {
+        throw new Error('no Ratio oauth_tokens row for merchant m1');
+      }),
       { request } as unknown as RatioClient,
     );
-    expect(await svc.listAll('m1')).toEqual([]);
+    await expect(svc.listAll('m1')).rejects.toThrow('no Ratio oauth_tokens row');
     expect(request).not.toHaveBeenCalled();
   });
 });
