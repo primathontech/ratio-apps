@@ -56,6 +56,11 @@ export class MetaCatalogController {
     return { started: true };
   }
 
+  @Post('sync/stop')
+  stopSync(@CurrentMerchant() merchant: Merchant): { stopping: boolean } {
+    return this.catalog.requestStop(merchant.id);
+  }
+
   @Get('status')
   async status(@CurrentMerchant() merchant: Merchant): Promise<{ runs: unknown[] }> {
     return { runs: await this.catalog.getStatus(merchant.id) };

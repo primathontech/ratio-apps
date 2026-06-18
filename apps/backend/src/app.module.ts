@@ -52,11 +52,17 @@ for (const slug of APPS) {
     LoggerModule.forRoot({
       pinoHttp: {
         level: process.env.LOG_LEVEL ?? 'info',
-        ...(process.env.NODE_ENV === 'production'
-          ? {}
-          : {
-              transport: { target: 'pino-pretty', options: { singleLine: true, colorize: true } },
-            }),
+        // Human-readable single-line logs in dev OR whenever LOG_PRETTY=true
+        // (so it can be turned on for prod debugging without flipping NODE_ENV).
+        // Leave it off for real prod so a log aggregator gets structured JSON.
+        ...(process.env.NODE_ENV !== 'production' || process.env.LOG_PRETTY === 'true'
+          ? {
+              transport: {
+                target: 'pino-pretty',
+                options: { singleLine: true, colorize: true, ignore: 'pid,hostname,service' },
+              },
+            }
+          : {}),
         customProps: () => ({ service: 'ratio-app-backend' }),
         // Honor an incoming `x-request-id` so upstream proxies / clients can
         // pin a correlation id; otherwise mint one. pino exposes this as
@@ -84,6 +90,10 @@ for (const slug of APPS) {
             url: typeof req.url === 'string' ? req.url.split('?')[0] : req.url,
             id: req.id,
           }),
+          // Only the status code — the default res serializer dumps every
+          // response header (CORS/security/ratelimit), which buried the real
+          // app logs in noise.
+          res: (res: { statusCode?: number }) => ({ statusCode: res.statusCode }),
         },
         // `req.headers.*` paths intentionally omitted — the `serializers.req`
         // above never emits the `headers` field, so headers are dropped at

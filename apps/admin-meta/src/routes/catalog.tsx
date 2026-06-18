@@ -1,5 +1,6 @@
 import {
   Alert,
+  Button,
   Card,
   Input,
   PrimaryButton,
@@ -9,14 +10,15 @@ import {
   Tag,
   Typography,
 } from '@primathonos/orion';
-import { createFileRoute } from '@tanstack/react-router';
 import type { ComponentProps } from 'react';
+import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 import {
   type CatalogSyncRun,
   useCatalogConfig,
   useCatalogStatus,
   useSaveCatalogConfig,
+  useStopSync,
   useSyncNow,
 } from '@/hooks/useCatalog';
 import { useMerchant } from '@/hooks/useMerchant';
@@ -28,6 +30,8 @@ const STATUS_COLOR: Record<string, string> = {
   success: 'success',
   partial: 'warning',
   failed: 'error',
+  cancelled: 'default',
+  interrupted: 'default',
 };
 
 // Orion's Table erases the row generic — `render`/`rowKey` hand back `unknown`.
@@ -64,10 +68,12 @@ function CatalogPage() {
   const { data: merchant } = useMerchant();
   const save = useSaveCatalogConfig();
   const syncNow = useSyncNow();
+  const stopSync = useStopSync();
 
   const [catalogId, setCatalogId] = useState('');
   const [catalogAccessToken, setCatalogAccessToken] = useState('');
   const [syncEnabled, setSyncEnabled] = useState(false);
+  const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
     if (!config) return;
@@ -77,6 +83,9 @@ function CatalogPage() {
 
   // Poll sync runs only while catalog is configured.
   const { data: status } = useCatalogStatus(Boolean(config?.catalogId));
+  const isRunning = status?.runs?.[0]?.status === 'running';
+  const runs = status?.runs ?? [];
+  const visibleRuns = showAll ? runs.slice(0, 10) : runs.slice(0, 5);
 
   if (isLoading) return <Typography.Text>Loading…</Typography.Text>;
 
@@ -141,7 +150,9 @@ function CatalogPage() {
             <Alert
               type="success"
               message={
-                save.data?.initialSyncStarted ? 'Saved. Initial full sync started.' : 'Saved.'
+                save.data?.initialSyncStarted
+                  ? 'Saved. Initial full sync started.'
+                  : 'Saved.'
               }
               showIcon
             />
@@ -149,28 +160,46 @@ function CatalogPage() {
 
           <div style={{ textAlign: 'right' }}>
             <Space>
-              <PrimaryButton
-                onClick={() => syncNow.mutate()}
-                loading={syncNow.isPending}
-                disabled={!config?.catalogId || !config?.hasCatalogToken}
-                ghost
-              >
-                Sync Now
-              </PrimaryButton>
+              {isRunning ? (
+                <PrimaryButton
+                  onClick={() => stopSync.mutate()}
+                  loading={stopSync.isPending}
+                  danger
+                  ghost
+                >
+                  Stop Sync
+                </PrimaryButton>
+              ) : (
+                <PrimaryButton
+                  onClick={() => syncNow.mutate()}
+                  loading={syncNow.isPending}
+                  disabled={!config?.catalogId || !config?.hasCatalogToken}
+                  ghost
+                >
+                  Sync Now
+                </PrimaryButton>
+              )}
               <PrimaryButton onClick={onSave} loading={save.isPending} disabled={!catalogId}>
                 Save
               </PrimaryButton>
             </Space>
           </div>
-          {syncNow.isSuccess && (
+          {syncNow.isSuccess && !isRunning && (
             <Alert type="info" message="Sync started in background." showIcon />
+          )}
+          {stopSync.isSuccess && (
+            <Alert type="warning" message="Stop requested — sync will halt after the current page." showIcon />
           )}
         </Space>
       </Card>
 
       {feedUrl && (
         <Card title="Data feed URL" size="small">
-          <Typography.Paragraph copyable code style={{ wordBreak: 'break-all', marginBottom: 0 }}>
+          <Typography.Paragraph
+            copyable
+            code
+            style={{ wordBreak: 'break-all', marginBottom: 0 }}
+          >
             {feedUrl}
           </Typography.Paragraph>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
@@ -182,12 +211,19 @@ function CatalogPage() {
       <Card title="Recent syncs" size="small">
         <Table
           rowKey={(record) => String(asRun(record).id)}
-          dataSource={status?.runs ?? []}
+          dataSource={visibleRuns}
           pagination={false}
           size="small"
           locale={{ emptyText: 'No syncs yet' }}
           columns={SYNC_COLUMNS}
         />
+        {runs.length > 5 && (
+          <div style={{ textAlign: 'center', marginTop: 8 }}>
+            <Button type="link" onClick={() => setShowAll((v) => !v)}>
+              {showAll ? 'Show less' : `Show more (${Math.min(runs.length, 10) - 5})`}
+            </Button>
+          </div>
+        )}
       </Card>
     </Space>
   );

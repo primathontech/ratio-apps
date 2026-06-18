@@ -39,11 +39,7 @@ const FAILURE_COLUMNS: ComponentProps<typeof Table>['columns'] = [
     title: 'Example message',
     dataIndex: 'lastMessage',
     render: (_v, record) => (
-      <Typography.Text
-        type="secondary"
-        style={{ fontSize: 12 }}
-        ellipsis={{ tooltip: asFailure(record).lastMessage }}
-      >
+      <Typography.Text type="secondary" style={{ fontSize: 12 }} ellipsis={{ tooltip: asFailure(record).lastMessage }}>
         {asFailure(record).lastMessage}
       </Typography.Text>
     ),
@@ -53,12 +49,7 @@ const FAILURE_COLUMNS: ComponentProps<typeof Table>['columns'] = [
 export function CapiStatsPanel({ days = 30 }: { days?: number }) {
   const { data, isLoading, error } = useCapiStats(days);
 
-  if (isLoading)
-    return (
-      <Card title="Event delivery">
-        <Typography.Text>Loading…</Typography.Text>
-      </Card>
-    );
+  if (isLoading) return <Card title="Event delivery"><Typography.Text>Loading…</Typography.Text></Card>;
   if (error || !data) {
     return (
       <Card title="Event delivery">
@@ -68,27 +59,13 @@ export function CapiStatsPanel({ days = 30 }: { days?: number }) {
   }
 
   const ratePct = data.successRate === null ? '—' : `${(data.successRate * 100).toFixed(1)}%`;
-  const rateColor =
-    data.successRate === null
-      ? undefined
-      : data.successRate >= 0.99
-        ? '#34a853'
-        : data.successRate >= 0.9
-          ? '#f6a609'
-          : '#d93025';
+  const rateColor = data.successRate === null ? undefined : data.successRate >= 0.99 ? '#34a853' : data.successRate >= 0.9 ? '#f6a609' : '#d93025';
 
   return (
-    <Card
-      title="Event delivery"
-      extra={<Typography.Text type="secondary">last {days} days</Typography.Text>}
-    >
+    <Card title="Event delivery" extra={<Typography.Text type="secondary">last {days} days</Typography.Text>}>
       <Space direction="vertical" size="large" style={{ display: 'flex' }}>
         <Space size="large" wrap>
-          <Statistic
-            title="Success rate"
-            value={ratePct}
-            {...(rateColor ? { valueStyle: { color: rateColor } } : {})}
-          />
+          <Statistic title="Success rate" value={ratePct} {...(rateColor ? { valueStyle: { color: rateColor } } : {})} />
           <Statistic title="Dispatched" value={data.totals.dispatched} />
           <Statistic title="Failed (retried)" value={data.totals.failed} />
           <Statistic title="Batches" value={data.totals.batches} />
@@ -106,12 +83,8 @@ export function CapiStatsPanel({ days = 30 }: { days?: number }) {
               pagination={false}
               size="small"
             />
-            <Typography.Text
-              type="secondary"
-              style={{ fontSize: 12, display: 'block', marginTop: 6 }}
-            >
-              Failed batches are retried automatically (Meta dedupes on event&nbsp;ID), so these are
-              an error signal, not lost events.
+            <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
+              Failed batches are retried automatically (Meta dedupes on event&nbsp;ID), so these are an error signal, not lost events.
             </Typography.Text>
           </div>
         ) : (

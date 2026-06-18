@@ -22,18 +22,29 @@ export class CatalogSourceService {
    * Stream products page-by-page (bounded memory): `onPage` is awaited for each
    * page before the next is fetched. Used by full-sync and the feed so we never
    * load a whole catalog into memory.
+   *
+   * os-item paginates by `page` + `limit` (1-based; no cursor). We request fixed
+   * pages and stop when a page returns fewer than `limit` rows (the last page).
+   * `isCancelled` lets a long sync be stopped between pages.
    */
-  async eachPage(merchantId: string, onPage: (products: OsItemProduct[]) => Promise<void>): Promise<number> {
+  async eachPage(
+    merchantId: string,
+    onPage: (products: OsItemProduct[]) => Promise<void>,
+    isCancelled?: () => boolean,
+  ): Promise<number> {
     const base = itemApiBase();
-    let cursor: string | undefined;
     let total = 0;
 
-    for (let page = 0; page < CatalogSourceService.MAX_PAGES; page++) {
+    for (let page = 1; page <= CatalogSourceService.MAX_PAGES; page++) {
+      if (isCancelled?.()) {
+        this.logger.warn({ msg: 'os-item paging cancelled', merchantId, page });
+        break;
+      }
       const params = new URLSearchParams({
         storeId: merchantId,
         limit: String(CatalogSourceService.PAGE),
+        page: String(page),
       });
-      if (cursor) params.set('cursor', cursor);
 
       const res = await fetch(`${base}/api/v1/admin/products?${params.toString()}`, {
         headers: { 'gk-merchant-id': merchantId, accept: 'application/json' },
@@ -48,8 +59,8 @@ export class CatalogSourceService {
         total += batch.length;
         await onPage(batch);
       }
-      cursor = this.extractCursor(body);
-      if (!cursor || batch.length === 0) break;
+      // Fewer than a full page → that was the last page.
+      if (batch.length < CatalogSourceService.PAGE) break;
     }
 
     this.logger.log({ msg: 'streamed os-item products', merchantId, count: total });
@@ -66,14 +77,5 @@ export class CatalogSourceService {
     return (candidate as unknown[]).filter((p): p is OsItemProduct => {
       return Boolean(p && typeof p === 'object' && 'id' in (p as object));
     });
-  }
-
-  private extractCursor(body: Record<string, unknown>): string | undefined {
-    const pageInfo = body.pageInfo as Record<string, unknown> | undefined;
-    const next =
-      body.next_cursor ?? body.cursor ?? pageInfo?.nextCursor ?? pageInfo?.endCursor;
-    const hasNext = pageInfo?.hasNextPage;
-    if (hasNext === false) return undefined;
-    return typeof next === 'string' && next ? next : undefined;
   }
 }
