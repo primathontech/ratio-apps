@@ -12,9 +12,17 @@ this module. Standing context first; dated change journal below (newest first).
 - **Web Pixels API is Draft** → registration is guarded and records
   `pending_api`; the script-tag endpoint (`/google/sdk/:merchantId.js`) is the
   working delivery path.
-- **Webhook topics are slash-form** (`products/create|update|delete`,
-  `app/uninstalled`) — TRD open item R1, verify against a live delivery.
-- **Ratio prices are integer paise** — convert to major units for GMC.
+- **Webhook envelope** is `{ event_type, merchant_id, product }` (slash-form
+  topics; no delivery id/timestamp) — R1 RESOLVED. Core dedupes by
+  `<event_type>:<product.id>` (retry-windowed). Webhook `product` is snake_case;
+  REST `GET /products` is camelCase + `{ success, data[], pagination }` — two
+  normalizers (`parseWebhookProduct` / `parseRestProduct`).
+- **Ratio prices are rupees (major units)** — pass through to GMC, do NOT divide
+  by 100. (Supersedes the earlier paise note; re-confirm live before go-live.)
+- **Product sync is durable** — webhooks enqueue onto the `google-product-sync`
+  SQS queue (+ DLQ via redrive); `GoogleProductSyncWorker` (gated by
+  `GOOGLE_SYNC_WORKER_ENABLED`) drains it to GMC. Force sync stays synchronous via
+  the Content API `custombatch`. Ratio access tokens are refreshed + rotated.
 - **Secrets:** GMC service-account key + Google OAuth tokens are encrypted at
   rest; config GET returns `hasGmcKey`, never the value.
 - **Local dev:** dummy merchant id `dev-merchant` is seeded in `google_app`;
@@ -22,6 +30,29 @@ this module. Standing context first; dated change journal below (newest first).
   `apps/backend/.env → ../../.env`.
 
 ## Change journal
+
+### 2026-06-18 — feature — GMC product sync hardening + core webhook envelope fix
+- **Core webhooks (all modules):** envelope migrated to the real
+  `{ event_type, merchant_id, product }` contract (the old `{id,event,timestamp,
+  merchantId,data}` schema 400'd every real delivery). Routing on `event_type`,
+  dedupe derived `<event_type>:<product.id>` into `webhook_log.ratio_webhook_id`,
+  retry-windowed on `received_at` (~3h) + idempotent handlers. Skew check removed
+  (no timestamp). Signature guard (`x-openstore-signature`) was already correct.
+- **Two product normalizers:** `parseWebhookProduct` (snake_case webhook shape:
+  `variant_id`/`sku_id`/`option1-3`+`options[]`/`warehouseQt` sum/`images[].url`)
+  and `parseRestProduct` (camelCase REST: `name`/`inventory.quantity`/`images[].src`).
+  **Prices are rupees — ÷100 removed everywhere.**
+- **`RatioProductsService`:** reads `{ success, data, pagination }`, pages via
+  `totalPages`, queries `status=active&published=true&show_variants=true`.
+- **Ratio token refresh:** `RatioOAuthHttp` + `RatioTokenProvider` refresh and
+  persist rotated access/refresh tokens (1h expiry) so sync survives past the hour.
+- **Durable sync:** `QueueService` lifted to `core/queue`; webhook handlers enqueue
+  `{op, merchantId, product|productId}` onto `google-product-sync` (replacing the
+  in-process `queueMicrotask`); `GoogleProductSyncWorker` drains it. `products/update`
+  on a non-sellable (non-active/unpublished) product → delete from GMC.
+- **Open items:** exact products path + oauth base URL (operator confirms);
+  price-unit re-confirm against a live response before merge.
+- Spec/plan: `docs/agent/changes/gmc-product-sync/`.
 
 ### 2026-06-17 — fix — GMC service-account key fallback for OAuth merchants
 - **Bug:** the GMC section showed the green "Authorized — no service-account key needed"
