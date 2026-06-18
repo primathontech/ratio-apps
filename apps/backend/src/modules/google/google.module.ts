@@ -11,6 +11,7 @@ import type { GoogleDatabase } from './db/types';
 import { DiscoveryService } from './discovery/discovery.service';
 import { FeedQueryService } from './gmc/feed-query.service';
 import { FeedSyncService } from './gmc/feed-sync.service';
+import { GoogleProductSyncWorker } from './gmc/google-product-sync.worker';
 import { GmcValidationService } from './gmc/gmc-validation.service';
 import { GoogleFeedController } from './gmc/feed.controller';
 import { RatioProductsService } from './gmc/ratio-products.service';
@@ -94,6 +95,8 @@ export {
     PixelRegistrationService,
     // Durable SQS queue (product webhooks enqueue; a worker drains it)
     QueueService,
+    // Worker that drains `google-product-sync` → GMC (self-gates on GOOGLE_SYNC_WORKER_ENABLED)
+    GoogleProductSyncWorker,
     // Webhook handlers (one per subscribed topic)
     GoogleAppUninstalledHandler,
     GoogleProductCreatedHandler,
