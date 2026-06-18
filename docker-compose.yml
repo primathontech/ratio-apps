@@ -25,6 +25,31 @@ services:
       timeout: 5s
       retries: 10
 
+  # ── meta Phase 2 infra ──────────────────────────────────────────────────
+  # Events queue (SQS-compatible). The backend auto-creates meta-capi +
+  # meta-capi-dlq on boot. Matches SQS_ENDPOINT=http://localhost:9324 in .env.
+  elasticmq:
+    image: softwaremill/elasticmq-native:1.6.11
+    container_name: ratio-app-elasticmq
+    restart: unless-stopped
+    ports:
+      - "9324:9324"
+      - "9325:9325"
+
+  # Cache / webhook idempotency. Matches REDIS_URL=redis://localhost:6385.
+  # Host port 6385 avoids clashing with any native Redis on 6379.
+  redis:
+    image: redis:7-alpine
+    container_name: ratio-app-redis
+    restart: unless-stopped
+    ports:
+      - "6385:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   backend:
     build:
       context: .
