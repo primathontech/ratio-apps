@@ -4,7 +4,7 @@ import type { DatabaseWithMerchants } from '../../../core/merchants/merchant.typ
 import type { DatabaseWithWebhookLog } from '../../../core/webhooks/webhook-log.types';
 import type { WebhookHandler } from '../../../core/webhooks/webhooks.types';
 import { FeedSyncService } from '../gmc/feed-sync.service';
-import { parseRatioProduct } from '../gmc/parse-ratio-product';
+import { parseWebhookProduct } from '../gmc/parse-ratio-product';
 import { GOOGLE_WEBHOOK_TOPICS } from './topics';
 
 /**
@@ -27,7 +27,7 @@ export class GoogleProductCreatedHandler implements WebhookHandler {
     _trx: Transaction<DatabaseWithMerchants & DatabaseWithWebhookLog>,
   ): Promise<void> {
     if (!merchantId) return;
-    const product = parseRatioProduct(data);
+    const product = parseWebhookProduct(data);
     if (!product) {
       this.logger.warn({ msg: 'products/create with unparseable payload — skipped', merchantId });
       return;
