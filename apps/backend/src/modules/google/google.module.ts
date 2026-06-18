@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import type { Env } from '../../config/env.schema';
 import { createAppProviders } from '../../core/factories/app-module.factory';
+import { QueueService } from '../../core/queue/queue.service';
 import { GoogleBootstrap } from './google.bootstrap';
 import { GoogleConfigController } from './config/config.controller';
 import { GoogleConfigService } from './config/config.service';
@@ -91,6 +92,8 @@ export {
     GmcValidationService,
     DiscoveryService,
     PixelRegistrationService,
+    // Durable SQS queue (product webhooks enqueue; a worker drains it)
+    QueueService,
     // Webhook handlers (one per subscribed topic)
     GoogleAppUninstalledHandler,
     GoogleProductCreatedHandler,

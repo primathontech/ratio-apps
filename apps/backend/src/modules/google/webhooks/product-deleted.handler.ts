@@ -3,16 +3,20 @@ import type { Transaction } from 'kysely';
 import type { DatabaseWithMerchants } from '../../../core/merchants/merchant.types';
 import type { DatabaseWithWebhookLog } from '../../../core/webhooks/webhook-log.types';
 import type { WebhookHandler } from '../../../core/webhooks/webhooks.types';
-import { FeedSyncService } from '../gmc/feed-sync.service';
+import { QueueService } from '../../../core/queue/queue.service';
+import {
+  GOOGLE_QUEUE_NAMES,
+  type GoogleSyncMessage,
+} from '../gmc/google-product-sync.queue';
 import { GOOGLE_WEBHOOK_TOPICS } from './topics';
 
-/** `products/delete` → remove the product (+ variants) from GMC. Deferred (R5). */
+/** `products/delete` → enqueue a GMC delete on the durable SQS queue. Deferred (R5). */
 @Injectable()
 export class GoogleProductDeletedHandler implements WebhookHandler {
   readonly topic = GOOGLE_WEBHOOK_TOPICS.productsDelete;
   private readonly logger = new Logger(GoogleProductDeletedHandler.name);
 
-  constructor(private readonly feedSync: FeedSyncService) {}
+  constructor(private readonly queue: QueueService) {}
 
   async handle(
     data: Record<string, unknown>,
@@ -29,6 +33,7 @@ export class GoogleProductDeletedHandler implements WebhookHandler {
       this.logger.warn({ msg: 'products/delete with no product id — skipped', merchantId });
       return;
     }
-    this.feedSync.enqueueDelete(merchantId, productId);
+    const msg: GoogleSyncMessage = { op: 'delete', merchantId, productId };
+    await this.queue.sendBatch(GOOGLE_QUEUE_NAMES.sync, [msg]);
   }
 }
