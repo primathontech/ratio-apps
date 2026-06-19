@@ -1,66 +1,160 @@
 import type { RatioProduct, RatioVariant } from './product-mapper';
 
-/** Ratio money fields are integer paise; GMC wants major units (₹). */
-const paiseToMajor = (paise: unknown): number | null =>
-  typeof paise === 'number' ? paise / 100 : null;
-
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 
+/** Prices on the Ratio/OpenStore platform are RUPEES (major units) — pass
+ * numbers through unchanged. (No paise→major division.) */
+const num = (v: unknown): number | null => (typeof v === 'number' ? v : null);
+
+const slugify = (s: string): string =>
+  s
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
 /**
- * Parse a `products/*` webhook payload (or a `GET /products` item) into the
- * mapper's `RatioProduct`. Accepts either the bare product or a `{ product }`
- * envelope. Returns null when the payload has no usable id/title.
+ * Parse a WEBHOOK `product` object into the mapper's {@link RatioProduct}.
  *
- * Shared by the product webhook handlers and {@link RatioProductsService} so the
- * paise→major + variant normalization lives in one place.
+ * The webhook shape uses snake-case keys (`body_html`, `product_type`,
+ * `variant_id`, `sku_id`, `compare_at_price`), positional `option1/2/3` values
+ * resolved against product-level `options[].name`, and per-warehouse stock in
+ * `warehouseQt[].quantity` (summed). Images come from `images[].url`, falling
+ * back to the top-level `imageUrl`. Returns null when there is no id or title.
  */
-export function parseRatioProduct(data: Record<string, unknown>): RatioProduct | null {
-  const raw = (
-    typeof data.product === 'object' && data.product ? data.product : data
-  ) as Record<string, unknown>;
-  const id = str(raw.id);
-  const title = str(raw.title);
-  const handle = str(raw.handle);
+export function parseWebhookProduct(product: Record<string, unknown>): RatioProduct | null {
+  const id = str(product.id);
+  const title = str(product.title);
   if (!id || !title) return null;
 
-  const rawVariants = Array.isArray(raw.variants) ? (raw.variants as Record<string, unknown>[]) : [];
+  // Product-level option names, indexed by position (option1 → optionNames[0]).
+  const optionNames: (string | null)[] = Array.isArray(product.options)
+    ? (product.options as Record<string, unknown>[]).map((o) => str(o.name))
+    : [];
+
+  const rawVariants = Array.isArray(product.variants)
+    ? (product.variants as Record<string, unknown>[])
+    : [];
+
   const variants: RatioVariant[] =
     rawVariants.length > 0
-      ? rawVariants.map((v) => ({
-          id: str(v.id) ?? id,
-          price: paiseToMajor(v.price),
-          compareAtPrice: paiseToMajor(v.compare_at_price),
-          sku: str(v.sku),
-          barcode: str(v.barcode),
-          inventoryQuantity: typeof v.inventory_quantity === 'number' ? v.inventory_quantity : null,
-          ...(typeof v.options === 'object' && v.options
-            ? { options: v.options as Record<string, string> }
-            : {}),
-        }))
+      ? rawVariants.map((v) => {
+          const options: Record<string, string> = {};
+          for (const [i, key] of (['option1', 'option2', 'option3'] as const).entries()) {
+            const value = str(v[key]);
+            const name = optionNames[i];
+            if (value !== null && name) options[name] = value;
+          }
+          const warehouses = Array.isArray(v.warehouseQt)
+            ? (v.warehouseQt as Record<string, unknown>[])
+            : [];
+          const inventoryQuantity = warehouses.reduce(
+            (sum, w) => sum + (typeof w.quantity === 'number' ? w.quantity : 0),
+            0,
+          );
+          return {
+            id: str(v.variant_id) ?? id,
+            price: num(v.price),
+            compareAtPrice: num(v.compare_at_price),
+            sku: str(v.sku_id),
+            barcode: str(v.barcode),
+            inventoryQuantity,
+            ...(Object.keys(options).length > 0 ? { options } : {}),
+          };
+        })
       : [
           {
             id,
-            price: paiseToMajor(raw.price),
-            compareAtPrice: paiseToMajor(raw.compare_at_price),
-            sku: str(raw.sku),
-            barcode: str(raw.barcode),
+            price: num(product.price),
+            compareAtPrice: num(product.compare_at_price),
+            sku: str(product.sku),
+            barcode: str(product.barcode),
             inventoryQuantity: null,
           },
         ];
 
-  const images = Array.isArray(raw.images)
-    ? (raw.images as Record<string, unknown>[])
+  let images = Array.isArray(product.images)
+    ? (product.images as Record<string, unknown>[])
+        .map((img) => ({ src: str(img.url) ?? '' }))
+        .filter((img) => img.src.length > 0)
+    : [];
+  if (images.length === 0) {
+    const fallback = str(product.imageUrl);
+    if (fallback) images = [{ src: fallback }];
+  }
+
+  return {
+    id,
+    title,
+    description: str(product.body_html),
+    handle: str(product.handle) ?? id,
+    vendor: str(product.vendor),
+    productType: str(product.product_type),
+    images,
+    variants,
+  };
+}
+
+/**
+ * Parse a REST `GET /products` item into the mapper's {@link RatioProduct}.
+ *
+ * The REST shape uses camel-case keys (`name`, `productType`, `compareAtPrice`),
+ * an `inventory.quantity` object, an `options` object kept as-is, and images in
+ * `images[].src`. `handle` falls back to a slug of `name`, then the id. Returns
+ * null when there is no id or name.
+ */
+export function parseRestProduct(item: Record<string, unknown>): RatioProduct | null {
+  const id = str(item.id);
+  const name = str(item.name);
+  if (!id || !name) return null;
+
+  const rawVariants = Array.isArray(item.variants)
+    ? (item.variants as Record<string, unknown>[])
+    : [];
+
+  const variants: RatioVariant[] =
+    rawVariants.length > 0
+      ? rawVariants.map((v) => {
+          const inventory =
+            typeof v.inventory === 'object' && v.inventory
+              ? (v.inventory as Record<string, unknown>)
+              : null;
+          return {
+            id: str(v.id) ?? id,
+            price: num(v.price),
+            compareAtPrice: num(v.compareAtPrice),
+            sku: str(v.sku),
+            barcode: str(v.barcode),
+            inventoryQuantity: inventory ? num(inventory.quantity) : null,
+            ...(typeof v.options === 'object' && v.options
+              ? { options: v.options as Record<string, string> }
+              : {}),
+          };
+        })
+      : [
+          {
+            id,
+            price: num(item.price),
+            compareAtPrice: num(item.compareAtPrice),
+            sku: str(item.sku),
+            barcode: str(item.barcode),
+            inventoryQuantity: null,
+          },
+        ];
+
+  const images = Array.isArray(item.images)
+    ? (item.images as Record<string, unknown>[])
         .map((img) => ({ src: str(img.src) ?? '' }))
         .filter((img) => img.src.length > 0)
     : [];
 
   return {
     id,
-    title,
-    description: str(raw.body_html),
-    handle: handle ?? id,
-    vendor: str(raw.vendor),
-    productType: str(raw.product_type),
+    title: name,
+    description: str(item.description),
+    handle: str(item.handle) ?? slugify(name) ?? id,
+    vendor: str(item.vendor),
+    productType: str(item.productType),
     images,
     variants,
   };

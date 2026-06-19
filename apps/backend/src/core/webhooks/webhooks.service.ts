@@ -3,8 +3,9 @@ import { type Kysely, sql, type Transaction } from 'kysely';
 import type { DatabaseWithMerchants, MerchantRow } from '../merchants/merchant.types';
 import type { DatabaseWithWebhookLog } from './webhook-log.types';
 import {
+  WEBHOOK_DEDUPE_WINDOW_MS,
   WEBHOOK_MAX_PAYLOAD_BYTES,
-  WEBHOOK_MAX_SKEW_MS,
+  deriveWebhookId,
   type WebhookEnvelope,
   type WebhookHandler,
 } from './webhooks.types';
@@ -101,7 +102,7 @@ export class WebhooksService<DB extends DatabaseWithMerchants & DatabaseWithWebh
    *   which by construction differs from any registered handler.topic.
    *
    * Topic-mismatch fast-path (perf):
-   *   When the envelope's `event` doesn't match the registered
+   *   When the envelope's `event_type` doesn't match the registered
    *   `handler.topic`, we fold `processed_at = NOW()` directly into the
    *   INSERT IGNORE — skipping the trailing UPDATE round-trip. Most
    *   inbound deliveries hit this path (a single registered handler.topic
@@ -109,35 +110,32 @@ export class WebhooksService<DB extends DatabaseWithMerchants & DatabaseWithWebh
    *   UPDATE per delivery adds up at volume. We also skip the merchant
    *   FOR UPDATE lock on this path since no handler will mutate the row.
    *
-   * Idempotency / dedupe contract (unchanged):
-   *   - `webhook_log` has a UNIQUE constraint on `ratio_webhook_id`. We
-   *     `INSERT IGNORE` first; the request that wins the INSERT is solely
-   *     responsible for invoking the handler. Every losing request returns
-   *     immediately as a no-op (HTTP 200) — regardless of whether the
-   *     winner has finished yet.
-   *   - This closes the double-execution race: a loser that arrives while
-   *     the winner is still mid-handler would see `processed_at = NULL`
-   *     and re-run the handler. Now the loser exits before touching the
-   *     handler — we do NOT peek at `processed_at` on the loser path.
-   *   - Idempotent retries by Ratio still work: Ratio assigns a fresh
-   *     `ratio_webhook_id` to each delivery attempt, so a real retry from
-   *     the upstream produces a new INSERT and re-runs the handler. Only
-   *     duplicate fan-out of the SAME delivery id is deduped here.
+   * Idempotency / dedupe contract (retry-windowed):
+   *   The real OpenStore contract has NO per-delivery id — dedupe is by
+   *   `deriveWebhookId(envelope)` = `<event_type>:<product.id|none>`, stored
+   *   in `webhook_log.ratio_webhook_id` (UNIQUE). We `INSERT IGNORE` first;
+   *   the request that wins the INSERT runs the handler.
+   *   - On a collision (`!isNew`) we read the existing row's `received_at`.
+   *     If it is OLDER than `WEBHOOK_DEDUPE_WINDOW_MS`, this is a legitimate
+   *     new event for the same key (e.g. a real second update to the same
+   *     product) — we re-run the (idempotent) handler and refresh
+   *     `received_at` so the window slides forward. If it is WITHIN the
+   *     window, this is the platform retrying the same delivery (~2h retry
+   *     span) and we return as a no-op.
+   *   - This rests on handlers being idempotent: re-running a handler for the
+   *     same product is safe, so a permanent unique key (which would wrongly
+   *     skip a real second update) is intentionally NOT used.
    */
   async dispatch(envelope: WebhookEnvelope): Promise<void> {
-    const age = Date.now() - envelope.timestamp.getTime();
-    if (Math.abs(age) > WEBHOOK_MAX_SKEW_MS) {
-      throw new BadRequestException({
-        message: 'webhook timestamp out of acceptable window',
-        error_code: 'WEBHOOK_STALE',
-      });
-    }
+    const ratioWebhookId = deriveWebhookId(envelope);
+    const topic = envelope.event_type;
+    const product = envelope.product ?? {};
 
     // mysql2 doesn't auto-serialize JS objects to JSON columns — it would
     // send `[object Object]` and MySQL rejects with "Invalid JSON text".
     // Pre-stringify, matching the same pattern config.service.ts uses for the
-    // `_template_configs.events` / `_template_configs.events` JSON columns.
-    const payloadJson = JSON.stringify(envelope.data);
+    // `_template_configs.events` JSON column.
+    const payloadJson = JSON.stringify(product);
 
     // App-layer payload-size guard. Rejects pathological/abusive bodies
     // before we ever open a transaction or hit MySQL's max_allowed_packet.
@@ -156,7 +154,7 @@ export class WebhooksService<DB extends DatabaseWithMerchants & DatabaseWithWebh
       // non-locking (mismatch fast-path). With multiple registered handlers,
       // routing is an exact `topic` lookup — identical semantics to the old
       // single-handler equality check, just generalized to N topics.
-      const matchedHandler = this.handlersByTopic.get(envelope.event);
+      const matchedHandler = this.handlersByTopic.get(topic);
       const isMatch = matchedHandler !== undefined;
 
       // Merchant lookup MUST live inside the trx alongside the log insert,
@@ -172,19 +170,20 @@ export class WebhooksService<DB extends DatabaseWithMerchants & DatabaseWithWebh
       // read — this avoids a lock upgrade later (the handler would
       // otherwise issue its own FOR UPDATE on the same row, forcing
       // InnoDB to upgrade a non-locking S-lock to an X-lock).
-      const merchant: MerchantRow | null = envelope.merchantId
+      const merchantId = envelope.merchant_id ?? null;
+      const merchant: MerchantRow | null = merchantId
         ? (((await (isMatch
             ? trx
                 .selectFrom('merchants')
                 .selectAll()
-                .where('id', '=', envelope.merchantId)
+                .where('id', '=', merchantId)
                 .forUpdate()
                 .limit(1)
                 .executeTakeFirst()
             : trx
                 .selectFrom('merchants')
                 .selectAll()
-                .where('id', '=', envelope.merchantId)
+                .where('id', '=', merchantId)
                 .limit(1)
                 .executeTakeFirst())) ?? null) as MerchantRow | null)
         : null;
@@ -199,8 +198,8 @@ export class WebhooksService<DB extends DatabaseWithMerchants & DatabaseWithWebh
       const insertResults = await trx
         .insertInto('webhook_log')
         .values({
-          ratioWebhookId: envelope.id,
-          topic: envelope.event,
+          ratioWebhookId,
+          topic,
           payload: payloadJson as unknown as Record<string, unknown>,
           signatureOk: true,
           merchantId: merchant?.id ?? null,
@@ -212,10 +211,50 @@ export class WebhooksService<DB extends DatabaseWithMerchants & DatabaseWithWebh
       const first = insertResults[0] as { numInsertedOrUpdatedRows?: bigint } | undefined;
       const isNew = (first?.numInsertedOrUpdatedRows ?? 0n) > 0n;
 
-      // Lost the dedupe race — another request owns this envelope. Do NOT
-      // peek at `processed_at`: if the winner is still mid-handler, that
-      // column is NULL and we'd race-run the handler a second time.
-      if (!isNew) return;
+      // Lost the INSERT — a row with this derived key already exists. Because
+      // the contract carries no per-delivery id, a collision is EITHER the
+      // platform retrying this same delivery (suppress) OR a legitimately new
+      // event for the same `(event_type, product.id)` that simply lands on
+      // the same key (re-run). We disambiguate with a retry window keyed off
+      // the existing row's `received_at` (datetime(3)):
+      //   - received_at within WEBHOOK_DEDUPE_WINDOW_MS → retry → no-op.
+      //   - received_at older than the window → new event → re-run the
+      //     (idempotent) handler and slide `received_at` forward.
+      if (!isNew) {
+        const existing = (await trx
+          .selectFrom('webhook_log')
+          .select('receivedAt')
+          .where('ratioWebhookId', '=', ratioWebhookId)
+          .limit(1)
+          .executeTakeFirst()) as { receivedAt?: Date | string | null } | undefined;
+
+        const receivedAt = existing?.receivedAt ? new Date(existing.receivedAt) : null;
+        const withinWindow =
+          receivedAt !== null && Date.now() - receivedAt.getTime() <= WEBHOOK_DEDUPE_WINDOW_MS;
+
+        // A retry inside the window (or a topic-mismatch collision — no
+        // handler to re-run anyway) is a no-op.
+        if (withinWindow || !isMatch) return;
+
+        // Outside the window: treat as a new event and re-run the handler.
+        await (matchedHandler as WebhookHandler).handle(
+          product,
+          merchant?.id ?? null,
+          trx as Transaction<WebhookLogDb>,
+        );
+
+        // Slide the dedupe window forward and re-stamp processed_at so the
+        // next retry of THIS event is suppressed for another full window.
+        await trx
+          .updateTable('webhook_log')
+          .set({
+            receivedAt: sql`CURRENT_TIMESTAMP(3)`,
+            processedAt: sql`CURRENT_TIMESTAMP(3)`,
+          } as never)
+          .where('ratioWebhookId', '=', ratioWebhookId)
+          .execute();
+        return;
+      }
 
       // Topic-mismatch fast-path: the INSERT above already stamped
       // processed_at; no handler will run and no trailing UPDATE is
@@ -225,7 +264,7 @@ export class WebhooksService<DB extends DatabaseWithMerchants & DatabaseWithWebh
       // `matchedHandler` is defined here: isMatch === true implies a hit, and
       // the two early returns above cover the !isNew and !isMatch paths.
       await (matchedHandler as WebhookHandler).handle(
-        envelope.data,
+        product,
         merchant?.id ?? null,
         trx as Transaction<WebhookLogDb>,
       );
@@ -233,7 +272,7 @@ export class WebhooksService<DB extends DatabaseWithMerchants & DatabaseWithWebh
       await trx
         .updateTable('webhook_log')
         .set({ processedAt: sql`CURRENT_TIMESTAMP(3)` } as never)
-        .where('ratioWebhookId', '=', envelope.id)
+        .where('ratioWebhookId', '=', ratioWebhookId)
         .execute();
     });
   }

@@ -55,6 +55,13 @@ const baseEnv = z.object({
   RATIO_GOOGLE_GOOGLE_CLIENT_SECRET: emptyAsUndefined(z.string().min(1)),
   RATIO_GOOGLE_GOOGLE_REDIRECT_URI: emptyAsUndefined(z.string().url()),
 
+  // GOOGLE_SYNC_WORKER_ENABLED: gates the GoogleProductSyncWorker that drains the
+  // `google-product-sync` SQS queue and pushes products to GMC. Default 'false'
+  // so a deployment opts in explicitly (only one replica need run the worker).
+  // The worker reads this off process.env directly; declared here so unknown-key
+  // stripping in validate() keeps it on process.env.
+  GOOGLE_SYNC_WORKER_ENABLED: z.enum(['true', 'false']).default('false'),
+
   // ─── meta app: Meta Graph API base for Conversions API dispatch ───────────
   // Defaults to the real Graph API; override with a local mock URL for testing.
   // Declared here so @nestjs/config keeps it on process.env (unknown keys are

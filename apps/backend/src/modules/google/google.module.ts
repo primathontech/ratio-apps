@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import type { Env } from '../../config/env.schema';
 import { createAppProviders } from '../../core/factories/app-module.factory';
+import { QueueService } from '../../core/queue/queue.service';
 import { GoogleBootstrap } from './google.bootstrap';
 import { GoogleConfigController } from './config/config.controller';
 import { GoogleConfigService } from './config/config.service';
@@ -10,6 +11,7 @@ import type { GoogleDatabase } from './db/types';
 import { DiscoveryService } from './discovery/discovery.service';
 import { FeedQueryService } from './gmc/feed-query.service';
 import { FeedSyncService } from './gmc/feed-sync.service';
+import { GoogleProductSyncWorker } from './gmc/google-product-sync.worker';
 import { GmcValidationService } from './gmc/gmc-validation.service';
 import { GoogleFeedController } from './gmc/feed.controller';
 import { RatioProductsService } from './gmc/ratio-products.service';
@@ -17,6 +19,8 @@ import { ReconcileService } from './gmc/reconcile.service';
 import { GoogleAuthService } from './google-oauth/google-auth.service';
 import { GoogleConnectController } from './google-oauth/google-oauth.controller';
 import { GoogleOAuthHttp, type GoogleOAuthCreds } from './google-oauth/google-oauth.http';
+import { RatioOAuthHttp, type RatioOAuthCreds } from './google-oauth/ratio-oauth.http';
+import { RatioTokenProvider } from './google-oauth/ratio-token.provider';
 import { GoogleMerchantTokenGuard, GoogleWebhookSignatureGuard } from './guards';
 import { GOOGLE_DB_TOKEN, GoogleKyselyModule } from './kysely.module';
 import { GoogleMerchantsController } from './merchants/merchants.controller';
@@ -32,6 +36,8 @@ import {
   GOOGLE_OAUTH_CREDS,
   GOOGLE_OAUTH_HTTP,
   GOOGLE_RATIO,
+  GOOGLE_RATIO_OAUTH_CREDS,
+  GOOGLE_RATIO_OAUTH_HTTP,
   GOOGLE_RATIO_PRODUCTS,
   GOOGLE_WEB_PIXELS,
   GOOGLE_WEBHOOKS,
@@ -80,12 +86,17 @@ export {
     // Vendor services
     GoogleAuthService,
     RatioProductsService,
+    RatioTokenProvider,
     FeedSyncService,
     FeedQueryService,
     ReconcileService,
     GmcValidationService,
     DiscoveryService,
     PixelRegistrationService,
+    // Durable SQS queue (product webhooks enqueue; a worker drains it)
+    QueueService,
+    // Worker that drains `google-product-sync` → GMC (self-gates on GOOGLE_SYNC_WORKER_ENABLED)
+    GoogleProductSyncWorker,
     // Webhook handlers (one per subscribed topic)
     GoogleAppUninstalledHandler,
     GoogleProductCreatedHandler,
@@ -99,6 +110,20 @@ export {
     {
       provide: GOOGLE_OAUTH_HTTP,
       useFactory: (): GoogleOAuthHttp => new GoogleOAuthHttp(),
+    },
+    {
+      provide: GOOGLE_RATIO_OAUTH_HTTP,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<Env, true>): RatioOAuthHttp =>
+        new RatioOAuthHttp(config.get('RATIO_API_BASE_URL', { infer: true }) as string),
+    },
+    {
+      provide: GOOGLE_RATIO_OAUTH_CREDS,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<Env, true>): RatioOAuthCreds => ({
+        clientId: config.get('RATIO_GOOGLE_CLIENT_ID' as never, { infer: true }) as string,
+        clientSecret: config.get('RATIO_GOOGLE_CLIENT_SECRET' as never, { infer: true }) as string,
+      }),
     },
     {
       provide: GOOGLE_OAUTH_CREDS,

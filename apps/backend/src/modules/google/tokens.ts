@@ -22,3 +22,7 @@ export const GOOGLE_OAUTH_CREDS = Symbol.for('ratio-app:google:oauth-creds');
 export const GOOGLE_RATIO_PRODUCTS = Symbol.for('ratio-app:google:ratio-products');
 /** The `WebPixelsApi` seam — the (Draft) Web Pixels registration API. */
 export const GOOGLE_WEB_PIXELS = Symbol.for('ratio-app:google:web-pixels');
+/** The `RatioOAuthHttp` seam (fetch-based) — refreshes/rotates the Ratio merchant token. */
+export const GOOGLE_RATIO_OAUTH_HTTP = Symbol.for('ratio-app:google:ratio-oauth-http');
+/** Ratio app OAuth client creds (RATIO_GOOGLE_CLIENT_ID/SECRET), read from env. */
+export const GOOGLE_RATIO_OAUTH_CREDS = Symbol.for('ratio-app:google:ratio-oauth-creds');

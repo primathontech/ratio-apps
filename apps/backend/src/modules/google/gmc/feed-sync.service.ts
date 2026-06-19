@@ -23,11 +23,10 @@ type SyncType = 'webhook' | 'auto' | 'reconcile' | 'initial' | 'manual';
  * Pushes the Ratio catalog to Google Merchant Center via the Content API and
  * keeps `google_feed_items` / `google_sync_log` in step.
  *
- * Webhook handlers call {@link enqueuePush} / {@link enqueueDelete}, which write
- * the feed item synchronously (so the handler's transaction commits fast — the
- * Ratio 5s budget, TRD R5) and defer the network push to a microtask AFTER the
- * 200 ack. Bulk paths ({@link initialSync}, {@link forceSync}) batch via
- * `products.custombatch` in chunks of 1000.
+ * Per-product webhook work is enqueued on a durable SQS queue by the webhook
+ * handlers and drained by a separate worker that calls {@link syncProduct} /
+ * {@link deleteProduct}. Bulk paths ({@link initialSync}, {@link forceSync})
+ * batch via `products.custombatch` in chunks of 1000.
  */
 @Injectable()
 export class FeedSyncService {
@@ -38,24 +37,6 @@ export class FeedSyncService {
     private readonly auth: GoogleAuthService,
     @Inject(GOOGLE_RATIO_PRODUCTS) private readonly products: RatioProductsPort,
   ) {}
-
-  /** Defer a single-product push past the webhook ack (fire-and-forget). */
-  enqueuePush(merchantId: string, product: RatioProduct, syncType: SyncType = 'webhook'): void {
-    queueMicrotask(() => {
-      this.syncProduct(merchantId, product, syncType).catch((err) =>
-        this.logger.error({ msg: 'deferred product push failed', merchantId, err: `${err}` }),
-      );
-    });
-  }
-
-  /** Defer a delete past the webhook ack. */
-  enqueueDelete(merchantId: string, productId: string): void {
-    queueMicrotask(() => {
-      this.deleteProduct(merchantId, productId).catch((err) =>
-        this.logger.error({ msg: 'deferred product delete failed', merchantId, err: `${err}` }),
-      );
-    });
-  }
 
   /** Map + push one product's variants; records per-offer feed status. */
   async syncProduct(
