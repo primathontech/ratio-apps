@@ -5,7 +5,7 @@ import type { KyselyClient } from '../../../core/db/kysely-factory';
 import { MetaConfigService } from '../config/config.service';
 import type { MetaDatabase } from '../db/types';
 import { META_DB_TOKEN } from '../kysely.module';
-import { CatalogBatchService, type CatalogBatchRequest } from './catalog-batch.service';
+import { CatalogBatchService, type CatalogBatchRequest, type CatalogFailure } from './catalog-batch.service';
 import { CatalogSourceService } from './catalog-source.service';
 import { CatalogTransformerService } from './catalog-transformer.service';
 import type { OsItemProduct } from './catalog.types';
@@ -74,6 +74,7 @@ export class CatalogService implements OnModuleInit {
     const live = new Set<string>();
     let sent = 0;
     let failed = 0;
+    const allFailures: CatalogFailure[] = [];
     try {
       const total = await this.source.eachPage(
         merchantId,
@@ -82,6 +83,7 @@ export class CatalogService implements OnModuleInit {
           const r = await this.applyOps(merchantId, products.map((product) => ({ action: 'upsert', product }) as CatalogOp), force);
           sent += r.sent;
           failed += r.failed;
+          allFailures.push(...r.failures);
         },
         () => this.cancelling.has(merchantId),
       );
@@ -98,16 +100,17 @@ export class CatalogService implements OnModuleInit {
           const r = await this.applyOps(merchantId, orphans.map((sourceProductId) => ({ action: 'delete', sourceProductId }) as CatalogOp));
           sent += r.sent;
           failed += r.failed;
+          allFailures.push(...r.failures);
         }
       }
 
       const status = cancelled ? 'cancelled' : failed ? 'partial' : 'success';
-      await this.finishLog(logId, status, total, sent, failed);
+      await this.finishLog(logId, status, total, sent, failed, allFailures);
       this.logger.log({ msg: cancelled ? 'full sync cancelled' : 'full sync complete', merchantId, total, sent, failed, orphans: orphanCount });
       return { total, sent, failed };
     } catch (err) {
       this.logger.error({ msg: 'full sync failed', merchantId, err });
-      await this.finishLog(logId, 'failed', null, sent, failed);
+      await this.finishLog(logId, 'failed', null, sent, failed, allFailures);
       throw err;
     } finally {
       this.running.delete(merchantId);
@@ -140,11 +143,11 @@ export class CatalogService implements OnModuleInit {
   // ── shared core ─────────────────────────────────────────────────────────────
   // `force` = hard sync: re-send every product even if its content hash is
   // unchanged (the manual "Force resync" path; webhooks/normal sync leave it false).
-  async applyOps(merchantId: string, ops: CatalogOp[], force = false): Promise<{ sent: number; failed: number; skipped: number }> {
+  async applyOps(merchantId: string, ops: CatalogOp[], force = false): Promise<{ sent: number; failed: number; skipped: number; failures: CatalogFailure[] }> {
     const cfg = await this.configs.getCatalogConfig(merchantId);
     if (!cfg || !cfg.syncEnabled) {
       this.logger.warn({ msg: 'catalog op skipped — not configured / disabled', merchantId });
-      return { sent: 0, failed: 0, skipped: ops.length };
+      return { sent: 0, failed: 0, skipped: ops.length, failures: [] };
     }
 
     const requests: CatalogBatchRequest[] = [];
@@ -193,13 +196,13 @@ export class CatalogService implements OnModuleInit {
 
     if (!requests.length) {
       this.logger.log({ msg: 'catalog sync: nothing to push — all products unchanged', merchantId });
-      return { sent: 0, failed: 0, skipped };
+      return { sent: 0, failed: 0, skipped, failures: [] };
     }
 
     this.logger.log({ msg: `catalog sync: sending ${requests.length} items to Meta`, merchantId, catalogId: cfg.catalogId });
     const res = await this.batch.send(cfg.catalogId, cfg.catalogAccessToken, requests);
     this.logger.log({ msg: `catalog sync: Meta response → accepted ${res.sent}, rejected ${res.failed}`, merchantId });
-    const failedSet = new Set(res.failedIds);
+    const failedSet = new Set(res.failures.map((f) => f.retailerId));
 
     // Only record items Meta actually accepted as `synced`. Items that failed
     // are recorded as `error` (lastStatus != 'synced') so the next sync RETRIES
@@ -213,7 +216,7 @@ export class CatalogService implements OnModuleInit {
     const okDeletes = deletedRetailerIds.filter((id) => !failedSet.has(id));
     if (okDeletes.length) await this.markDeleted(merchantId, okDeletes);
 
-    return { sent: res.sent, failed: res.failed, skipped };
+    return { sent: res.sent, failed: res.failed, skipped, failures: res.failures };
   }
 
   async getStatus(merchantId: string, limit = 10) {
@@ -296,7 +299,14 @@ export class CatalogService implements OnModuleInit {
     return Number(res.insertId ?? 0);
   }
 
-  private async finishLog(id: number, status: string, total: number | null, success: number | null, errors: number | null) {
+  private async finishLog(
+    id: number,
+    status: string,
+    total: number | null,
+    success: number | null,
+    errors: number | null,
+    failures: CatalogFailure[] = [],
+  ) {
     if (!id) return;
     await this.handle.db
       .updateTable('catalog_sync_log')
@@ -305,6 +315,9 @@ export class CatalogService implements OnModuleInit {
         totalProducts: total,
         successCount: success,
         errorCount: errors,
+        // Persist the per-item failure reasons (capped) into the `errors` JSON
+        // column so the admin can show WHY products failed — not just a count.
+        errors: JSON.stringify(failures.slice(0, 100)),
         completedAt: sql<Date>`CURRENT_TIMESTAMP(3)`,
       })
       .where('id', '=', id)

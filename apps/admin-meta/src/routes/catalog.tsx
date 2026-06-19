@@ -5,6 +5,7 @@ import {
   Dropdown,
   Input,
   MoreOutlined,
+  Popover,
   PrimaryButton,
   Space,
   Switch,
@@ -53,7 +54,35 @@ const SYNC_COLUMNS: ComponentProps<typeof Table>['columns'] = [
   },
   { key: 'totalProducts', title: 'Total', dataIndex: 'totalProducts' },
   { key: 'successCount', title: 'Synced', dataIndex: 'successCount' },
-  { key: 'errorCount', title: 'Errors', dataIndex: 'errorCount' },
+  {
+    key: 'errorCount',
+    title: 'Errors',
+    dataIndex: 'errorCount',
+    render: (_value, record) => {
+      const r = asRun(record);
+      const n = r.errorCount ?? 0;
+      if (!n) return 0;
+      const errs = r.errors ?? [];
+      if (!errs.length) return n; // count only (e.g. older runs with no detail)
+      return (
+        <Popover
+          title={`${n} failed`}
+          content={
+            <div style={{ maxWidth: 440, maxHeight: 300, overflow: 'auto' }}>
+              {errs.map((e) => (
+                <div key={e.retailerId} style={{ marginBottom: 6, fontSize: 12 }}>
+                  <Typography.Text code>{e.retailerId}</Typography.Text>
+                  <div style={{ color: '#d93025' }}>{e.error}</div>
+                </div>
+              ))}
+            </div>
+          }
+        >
+          <Typography.Link>{n}</Typography.Link>
+        </Popover>
+      );
+    },
+  },
   {
     key: 'startedAt',
     title: 'Started',

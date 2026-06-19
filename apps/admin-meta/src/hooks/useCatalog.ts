@@ -24,6 +24,11 @@ export interface CatalogSaveResult {
   initialSyncStarted: boolean;
 }
 
+export interface CatalogFailure {
+  retailerId: string;
+  error: string;
+}
+
 export interface CatalogSyncRun {
   id?: number;
   trigger?: string;
@@ -31,6 +36,8 @@ export interface CatalogSyncRun {
   totalProducts?: number | null;
   successCount?: number | null;
   errorCount?: number | null;
+  // Per-item failure reasons (from catalog_sync_log.errors JSON), newest run.
+  errors?: CatalogFailure[] | null;
   startedAt?: string;
   completedAt?: string | null;
 }
