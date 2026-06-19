@@ -2,7 +2,9 @@ import {
   Alert,
   Button,
   Card,
+  Dropdown,
   Input,
+  MoreOutlined,
   PrimaryButton,
   Space,
   Switch,
@@ -170,14 +172,33 @@ function CatalogPage() {
                   Stop Sync
                 </PrimaryButton>
               ) : (
-                <PrimaryButton
-                  onClick={() => syncNow.mutate()}
-                  loading={syncNow.isPending}
-                  disabled={!config?.catalogId || !config?.hasCatalogToken}
-                  ghost
-                >
-                  Sync Now
-                </PrimaryButton>
+                <Space.Compact>
+                  <PrimaryButton
+                    onClick={() => syncNow.mutate(false)}
+                    loading={syncNow.isPending}
+                    disabled={!config?.catalogId || !config?.hasCatalogToken}
+                    ghost
+                  >
+                    Sync Now
+                  </PrimaryButton>
+                  <Dropdown
+                    menu={{
+                      items: [
+                        { key: 'force', label: 'Force resync (re-send all products)' },
+                      ],
+                      onClick: ({ key }: { key: string }) => {
+                        if (key === 'force') syncNow.mutate(true);
+                      },
+                    }}
+                  >
+                    <PrimaryButton
+                      ghost
+                      icon={<MoreOutlined />}
+                      disabled={!config?.catalogId || !config?.hasCatalogToken}
+                      aria-label="more sync options"
+                    />
+                  </Dropdown>
+                </Space.Compact>
               )}
               <PrimaryButton onClick={onSave} loading={save.isPending} disabled={!catalogId}>
                 Save

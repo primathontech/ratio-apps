@@ -66,8 +66,8 @@ export class CatalogService implements OnModuleInit {
   }
 
   /** Full sync: stream os-item pages → push each page → delete orphans. */
-  async fullSync(merchantId: string, trigger = 'manual'): Promise<{ total: number; sent: number; failed: number }> {
-    this.logger.log({ msg: `catalog full sync started (trigger: ${trigger})`, merchantId });
+  async fullSync(merchantId: string, trigger = 'manual', force = false): Promise<{ total: number; sent: number; failed: number }> {
+    this.logger.log({ msg: `catalog full sync started (trigger: ${trigger}${force ? ', force' : ''})`, merchantId });
     const logId = await this.startLog(merchantId, trigger);
     this.running.add(merchantId);
     this.cancelling.delete(merchantId); // clear any stale flag from a prior run
@@ -79,7 +79,7 @@ export class CatalogService implements OnModuleInit {
         merchantId,
         async (products) => {
           for (const p of products) live.add(p.id);
-          const r = await this.applyOps(merchantId, products.map((product) => ({ action: 'upsert', product }) as CatalogOp));
+          const r = await this.applyOps(merchantId, products.map((product) => ({ action: 'upsert', product }) as CatalogOp), force);
           sent += r.sent;
           failed += r.failed;
         },
@@ -127,15 +127,20 @@ export class CatalogService implements OnModuleInit {
     return { stopping: true };
   }
 
-  /** Fire a full sync in the background (for "Sync Now" / auto-sync on enable). */
-  startFullSyncInBackground(merchantId: string, trigger = 'manual'): void {
-    void this.fullSync(merchantId, trigger).catch((err) =>
+  /**
+   * Fire a full sync in the background (for "Sync Now" / auto-sync on enable).
+   * `force` re-pushes every product, bypassing the content-hash skip.
+   */
+  startFullSyncInBackground(merchantId: string, trigger = 'manual', force = false): void {
+    void this.fullSync(merchantId, trigger, force).catch((err) =>
       this.logger.error({ msg: 'background full sync error', merchantId, err }),
     );
   }
 
   // ── shared core ─────────────────────────────────────────────────────────────
-  async applyOps(merchantId: string, ops: CatalogOp[]): Promise<{ sent: number; failed: number; skipped: number }> {
+  // `force` = hard sync: re-send every product even if its content hash is
+  // unchanged (the manual "Force resync" path; webhooks/normal sync leave it false).
+  async applyOps(merchantId: string, ops: CatalogOp[], force = false): Promise<{ sent: number; failed: number; skipped: number }> {
     const cfg = await this.configs.getCatalogConfig(merchantId);
     if (!cfg || !cfg.syncEnabled) {
       this.logger.warn({ msg: 'catalog op skipped — not configured / disabled', merchantId });
@@ -165,7 +170,7 @@ export class CatalogService implements OnModuleInit {
     const existing = await this.loadItems(merchantId, [...desired.keys()]);
     for (const [retailerId, d] of desired) {
       const prev = existing.get(retailerId);
-      if (prev?.contentHash === d.hash && prev.lastStatus === 'synced') {
+      if (!force && prev?.contentHash === d.hash && prev.lastStatus === 'synced') {
         skipped += 1;
         continue;
       }

@@ -79,8 +79,14 @@ export function useCatalogStatus(enabled: boolean) {
 
 export function useSyncNow() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: () => api<{ started: boolean }>('POST', '/api/v1/catalog/sync'),
+  // TVariables = boolean: pass true for a hard sync (re-push every product,
+  // ignore the content-hash skip), false for a normal incremental sync.
+  return useMutation<{ started: boolean; force: boolean }, Error, boolean>({
+    mutationFn: (force) =>
+      api<{ started: boolean; force: boolean }>(
+        'POST',
+        `/api/v1/catalog/sync${force ? '?force=true' : ''}`,
+      ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.catalogStatus() });
     },
