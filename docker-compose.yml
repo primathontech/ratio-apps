@@ -49,6 +49,19 @@ services:
     # no shell/wget/curl, so any exec-based check fails (reads "unhealthy" even
     # though the broker is up). The backend gates on `service_started` instead.
 
+  localstack:
+    image: localstack/localstack:3
+    container_name: ratio-app-localstack
+    environment:
+      SERVICES: kinesis,s3
+    ports:
+      - "4566:4566"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
   backend:
     build:
       context: .

@@ -11,6 +11,10 @@ import { MetaCapiStatsController } from './capi/capi-stats.controller';
 import { CapiStatsService } from './capi/capi-stats.service';
 import { MetaCapiController } from './capi/capi.controller';
 import { MetaCapiService } from './capi/capi.service';
+import { MetaCapiConsumer } from './capi/capi-consumer';
+import { ShardLeaseRepository } from './capi/shard-lease.repository';
+import { CapiRateLimiter } from './capi/rate-limit';
+import { CapiDlq } from './capi/dlq';
 import { MetaCapiWorker } from './queue/capi.worker';
 import { QueueService } from './queue/queue.service';
 import { MetaProductWebhookController } from './webhooks/product-webhook.controller';
@@ -26,6 +30,7 @@ import { MetaOAuthController } from './oauth/oauth.controller';
 import { MetaSdkController } from './sdk/sdk.controller';
 import { MetaSdkService } from './sdk/sdk.service';
 import { META_CRYPTO, META_MERCHANTS, META_OAUTH, META_RATIO, META_WEBHOOKS } from './tokens';
+import { StreamService } from '../../core/stream/stream.service';
 import { MetaAppUninstalledHandler } from './webhooks/app-uninstalled.handler';
 import { MetaWebhooksController } from './webhooks/webhooks.controller';
 
@@ -75,8 +80,22 @@ export {
     CapiStatsService,
     // Phase 1 scale + Phase 2 catalog infra
     QueueService,
+    StreamService,
     RedisService,
     MetaCapiWorker,
+    // Task 9: Kinesis CAPI consumer + deps
+    ShardLeaseRepository,
+    // CapiRateLimiter's 2nd ctor param (perMinute) has a default and is NOT a
+    // DI token — Nest would try to resolve index [1] and crash with
+    // UnknownDependenciesException. Construct it via a factory with only
+    // RedisService so the env-driven default budget applies.
+    {
+      provide: CapiRateLimiter,
+      useFactory: (redis: RedisService) => new CapiRateLimiter(redis),
+      inject: [RedisService],
+    },
+    CapiDlq,
+    MetaCapiConsumer,
     // Phase 2 catalog services + worker + guard
     CatalogTransformerService,
     CatalogBatchService,

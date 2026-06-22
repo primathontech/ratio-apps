@@ -81,6 +81,21 @@ const baseEnv = z.object({
   // Declared here so @nestjs/config keeps it on process.env (unknown keys are
   // stripped by the validate() step).
   FACEBOOK_CAPI_BASE_URL: z.string().url().default('https://graph.facebook.com/v21.0'),
+
+  // ─── Meta CAPI streaming pipeline (Kinesis) ───────────────────────────────
+  KINESIS_STREAM_NAME: z.string().default('meta-capi'),
+  KINESIS_ENDPOINT: z.string().url().optional(),
+  S3_ENDPOINT: z.string().url().optional(),
+  META_CAPI_DLQ_BUCKET: z.string().default('meta-capi-dlq'),
+  // Bus selector for the ingest edge: 'sqs' (today), 'kinesis' (new), or 'both'
+  // (dual-write during migration). The consumer reads kinesis regardless.
+  META_CAPI_BUS: z.enum(['sqs', 'kinesis', 'both']).default('sqs'),
+  // Gate the Kinesis consumer (runs only under the worker entrypoint).
+  META_CAPI_CONSUMER_ENABLED: z.enum(['true', 'false']).default('false'),
+  // Max events packed into one aggregated Kinesis record (cost lever).
+  META_CAPI_AGG_MAX: z.coerce.number().int().min(1).max(500).default(100),
+  // Static whale fan-out: "merchantA:8,merchantB:4". Empty = every merchant B=1.
+  META_CAPI_WHALE_BUCKETS: z.string().default(''),
 });
 
 // builds the schema for a given module subset (baseEnv + each module's RATIO_<UPPER>_* block)

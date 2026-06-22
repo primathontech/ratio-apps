@@ -1,4 +1,4 @@
-import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleInit, type OnModuleDestroy } from '@nestjs/common';
 import { CapiStatsService, classifyCapiError } from '../capi/capi-stats.service';
 import { MetaCapiService, type CapiContext, type RawCapiEvent } from '../capi/capi.service';
 import { QUEUE_NAMES, QueueService } from './queue.service';
@@ -32,7 +32,7 @@ interface Buffer {
  * Runs only when META_WORKER_ENABLED=true.
  */
 @Injectable()
-export class MetaCapiWorker implements OnModuleInit {
+export class MetaCapiWorker implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MetaCapiWorker.name);
   private running = false;
   private readonly buffers = new Map<string, Buffer>();
@@ -46,6 +46,10 @@ export class MetaCapiWorker implements OnModuleInit {
     private readonly capi: MetaCapiService,
     private readonly stats: CapiStatsService,
   ) {}
+
+  onModuleDestroy(): void {
+    this.running = false;
+  }
 
   onModuleInit(): void {
     if (process.env.META_WORKER_ENABLED !== 'true') {

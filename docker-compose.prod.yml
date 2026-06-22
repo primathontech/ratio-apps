@@ -16,7 +16,7 @@ services:
       SERVE_STATIC: "false"
       RATIO_GOOGLE_DATABASE_URL: mysql://app:app@mysql:3306/google_app
     depends_on: { mysql: { condition: service_healthy } }
-  svc-meta:                 # ingest API (HTTP)
+  svc-meta:                 # ingest API (HTTP) — produces to Kinesis
     <<: *svc
     environment:
       ENABLED_MODULES: meta
@@ -24,6 +24,22 @@ services:
       RATIO_META_DATABASE_URL: mysql://app:app@mysql:3306/meta_app
       REDIS_URL: redis://redis:6385
       SQS_ENDPOINT: http://elasticmq:9324
+      META_CAPI_BUS: kinesis
+      KINESIS_STREAM_NAME: meta-capi
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  svc-meta-capi:            # Kinesis consumer (no HTTP)
+    <<: *svc
+    command: ["node", "apps/backend/dist/apps/backend/src/main.worker.js"]
+    environment:
+      ENABLED_MODULES: meta
+      META_CAPI_CONSUMER_ENABLED: "true"
+      RATIO_META_DATABASE_URL: mysql://app:app@mysql:3306/meta_app
+      REDIS_URL: redis://redis:6385
+      KINESIS_STREAM_NAME: meta-capi
+      META_CAPI_DLQ_BUCKET: meta-capi-dlq
     depends_on:
       mysql: { condition: service_healthy }
       redis: { condition: service_healthy }

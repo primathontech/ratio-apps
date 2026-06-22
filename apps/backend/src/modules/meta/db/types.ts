@@ -82,6 +82,21 @@ interface MetaCapiFailuresTable {
   lastAt: Generated<Date>;
 }
 
+/**
+ * Kinesis shard lease + checkpoint. One row per (stream, shard_id).
+ * owner / leased_until track which worker holds the lease (NULL = unclaimed).
+ * checkpoint_seq is the last successfully processed sequence number (NULL = not yet started).
+ * updated_at auto-refreshes on every write. See migration 0006.
+ */
+export interface MetaCapiShardLeaseTable {
+  stream: string;
+  shardId: string;
+  owner: string | null;
+  leasedUntil: Date | null;
+  checkpointSeq: string | null;
+  updatedAt: Generated<Date>;
+}
+
 export interface MetaDatabase {
   merchants: BaseMerchantsTable;
   oauth_tokens: BaseOauthTokensTable;
@@ -91,6 +106,7 @@ export interface MetaDatabase {
   catalog_items: CatalogItemsTable;
   meta_capi_stats: MetaCapiStatsTable;
   meta_capi_failures: MetaCapiFailuresTable;
+  meta_capi_shard_leases: MetaCapiShardLeaseTable;
 }
 
 export type MetaMerchantRow = Selectable<BaseMerchantsTable>;
@@ -99,3 +115,4 @@ export type CatalogItemRow = Selectable<CatalogItemsTable>;
 export type CatalogSyncLogRow = Selectable<CatalogSyncLogTable>;
 export type MetaCapiStatsRow = Selectable<MetaCapiStatsTable>;
 export type MetaCapiFailureRow = Selectable<MetaCapiFailuresTable>;
+export type MetaCapiShardLeaseRow = Selectable<MetaCapiShardLeaseTable>;
