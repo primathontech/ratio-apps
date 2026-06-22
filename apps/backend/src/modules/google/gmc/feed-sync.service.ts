@@ -223,6 +223,18 @@ export class FeedSyncService {
       }
     }
     await this.writeSyncLog(merchantId, syncType, offers.length, updated, errored);
+    // Completion visibility: a successful GMC push is otherwise silent, so log
+    // the outcome (products fetched → offers → pushed/errored) for every sync.
+    this.logger.log({
+      msg: 'fullSync complete',
+      merchantId,
+      syncType,
+      products: catalog.length,
+      offers: offers.length,
+      syncable: syncable.length,
+      updated,
+      errored,
+    });
     return { updated, errored };
   }
 

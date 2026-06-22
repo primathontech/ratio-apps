@@ -108,15 +108,24 @@ export function parseWebhookProduct(product: Record<string, unknown>): RatioProd
 /**
  * Parse a REST `GET /products` item into the mapper's {@link RatioProduct}.
  *
- * The REST shape uses camel-case keys (`name`, `productType`, `compareAtPrice`),
- * an `inventory.quantity` object, an `options` object kept as-is, and images in
- * `images[].src`. `handle` falls back to a slug of `name`, then the id. Returns
- * null when there is no id or name.
+ * The REST list returns the platform's Shopify-shaped product JSON (verified
+ * live on QA, and the same on every environment): snake_case product keys
+ * (`title`, `body_html`, `product_type`), variants with `id` / `sku` /
+ * `price` / `compare_at_price` / `barcode` / `inventory_quantity` + positional
+ * `option1/2/3` resolved against product-level `options[].name`, and images in
+ * `images[].src` (with a per-variant `imageUrl` fallback). Prices are PAISE.
+ * `handle` falls back to a slug of `title`, then the id. Returns null without
+ * an id or title.
  */
 export function parseRestProduct(item: Record<string, unknown>): RatioProduct | null {
   const id = str(item.id);
-  const name = str(item.name);
-  if (!id || !name) return null;
+  const title = str(item.title);
+  if (!id || !title) return null;
+
+  // Product-level option names, indexed by position (option1 → optionNames[0]).
+  const optionNames: (string | null)[] = Array.isArray(item.options)
+    ? (item.options as Record<string, unknown>[]).map((o) => str(o.name))
+    : [];
 
   const rawVariants = Array.isArray(item.variants)
     ? (item.variants as Record<string, unknown>[])
@@ -125,46 +134,55 @@ export function parseRestProduct(item: Record<string, unknown>): RatioProduct | 
   const variants: RatioVariant[] =
     rawVariants.length > 0
       ? rawVariants.map((v) => {
-          const inventory =
-            typeof v.inventory === 'object' && v.inventory
-              ? (v.inventory as Record<string, unknown>)
-              : null;
+          const options: Record<string, string> = {};
+          for (const [i, key] of (['option1', 'option2', 'option3'] as const).entries()) {
+            const value = str(v[key]);
+            const name = optionNames[i];
+            // Skip Shopify's synthetic single-variant placeholder.
+            if (value !== null && value !== 'Default Title' && name && name !== 'Title') {
+              options[name] = value;
+            }
+          }
           return {
             id: str(v.id) ?? id,
             price: paiseToMajor(v.price),
-            compareAtPrice: paiseToMajor(v.compareAtPrice),
+            compareAtPrice: paiseToMajor(v.compare_at_price),
             sku: str(v.sku),
             barcode: str(v.barcode),
-            inventoryQuantity: inventory ? num(inventory.quantity) : null,
-            ...(typeof v.options === 'object' && v.options
-              ? { options: v.options as Record<string, string> }
-              : {}),
+            inventoryQuantity: num(v.inventory_quantity),
+            ...(Object.keys(options).length > 0 ? { options } : {}),
           };
         })
       : [
           {
             id,
             price: paiseToMajor(item.price),
-            compareAtPrice: paiseToMajor(item.compareAtPrice),
+            compareAtPrice: paiseToMajor(item.compare_at_price),
             sku: str(item.sku),
             barcode: str(item.barcode),
-            inventoryQuantity: null,
+            inventoryQuantity: num(item.inventory_quantity),
           },
         ];
 
-  const images = Array.isArray(item.images)
+  let images = Array.isArray(item.images)
     ? (item.images as Record<string, unknown>[])
         .map((img) => ({ src: str(img.src) ?? '' }))
         .filter((img) => img.src.length > 0)
     : [];
+  if (images.length === 0) {
+    // Per-variant image, then product-level imageUrl.
+    const v0 = rawVariants[0];
+    const fallback = (v0 ? str(v0.imageUrl) : null) ?? str(item.imageUrl);
+    if (fallback) images = [{ src: fallback }];
+  }
 
   return {
     id,
-    title: name,
-    description: str(item.description),
-    handle: str(item.handle) ?? slugify(name) ?? id,
+    title,
+    description: str(item.body_html),
+    handle: str(item.handle) ?? slugify(title) ?? id,
     vendor: str(item.vendor),
-    productType: str(item.productType),
+    productType: str(item.product_type),
     images,
     variants,
   };

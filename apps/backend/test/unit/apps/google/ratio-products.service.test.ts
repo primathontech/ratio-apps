@@ -9,44 +9,66 @@ function fakeTokens(token: string | (() => Promise<string>)): RatioTokenProvider
   return { getAccessToken } as unknown as RatioTokenProvider;
 }
 
-const item = (id: string, name: string): Record<string, unknown> => ({
+// Shopify-shaped item (the live QA shape) under the `products` envelope key.
+const item = (id: string): Record<string, unknown> => ({
   id,
-  name,
+  title: `Product ${id}`,
   status: 'active',
   vendor: 'Brand',
-  variants: [{ id: `v-${id}`, price: 2999, inventory: { quantity: 50 } }],
+  product_type: 'Apparel',
+  variants: [{ id: `v-${id}`, price: 2999, sku: `SKU-${id}`, inventory_quantity: 50 }],
   images: [{ src: `https://cdn.example.com/${id}.jpg` }],
 });
 
 describe('RatioProductsService.listAll', () => {
-  it('pages the envelope and maps each item via parseRestProduct (paise → rupees)', async () => {
-    const paths: string[] = [];
-    const request = vi.fn().mockImplementation(async (path: string) => {
-      paths.push(path);
-      if (path.includes('page=1')) {
-        return { success: true, data: [item('p1', 'One')], pagination: { page: 1, totalPages: 2 } };
-      }
-      return { success: true, data: [item('p2', 'Two')], pagination: { page: 2, totalPages: 2 } };
+  it('uses all=true and returns the whole catalog in a single call', async () => {
+    const request = vi.fn().mockResolvedValue({
+      products: [item('p1'), item('p2'), item('p3')],
+      pagination: { total: 3, limit: 10, page: 1, totalPages: 1, hasNext: false },
     });
-    const ratio = { request } as unknown as RatioClient;
-
-    const svc = new RatioProductsService(fakeTokens('tok'), ratio);
+    const svc = new RatioProductsService(fakeTokens('tok'), {
+      request,
+    } as unknown as RatioClient);
 
     const products = await svc.listAll('m1');
 
-    expect(products).toHaveLength(2);
-    expect(products[0].id).toBe('p1');
-    expect(products[1].id).toBe('p2');
-    // Paise (2999) divide to rupees (29.99); inventory from inventory.quantity.
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(String(request.mock.calls[0]?.[0])).toContain('all=true');
+    expect(products.map((p) => p.id).sort()).toEqual(['p1', 'p2', 'p3']);
+    // Prices still paise → rupees.
     expect(products[0].variants[0].price).toBe(29.99);
-    expect(products[0].variants[0].inventoryQuantity).toBe(50);
+  });
 
-    expect(request).toHaveBeenCalledTimes(2);
-    for (const p of paths) {
-      expect(p).toContain('status=active');
-      expect(p).toContain('published=true');
-      expect(p).toContain('show_variants=true');
-    }
+  it('falls back to OFFSET paging when all=true is ignored (returns one page)', async () => {
+    const TOTAL = 25;
+    const pageOf = (offset: number): Record<string, unknown>[] => {
+      const out: Record<string, unknown>[] = [];
+      for (let i = offset; i < Math.min(offset + 10, TOTAL); i++) out.push(item(`p${i}`));
+      return out;
+    };
+    const paths: string[] = [];
+    const request = vi.fn().mockImplementation(async (path: string) => {
+      paths.push(path);
+      // The endpoint ignores `all` and only ever returns the first 10 for it...
+      if (path.includes('all=true')) {
+        return { products: pageOf(0), pagination: { total: TOTAL, limit: 10 } };
+      }
+      // ...but honors `offset` for real slicing.
+      const offset = Number(/offset=(\d+)/.exec(path)?.[1] ?? '0');
+      return { products: pageOf(offset), pagination: { total: TOTAL, limit: 10 } };
+    });
+    const svc = new RatioProductsService(fakeTokens('tok'), {
+      request,
+    } as unknown as RatioClient);
+
+    const products = await svc.listAll('m1');
+
+    // 1 all=true call + offset 0/10/20 = 4 calls; deduped to 25 unique products.
+    expect(request).toHaveBeenCalledTimes(4);
+    expect(paths.some((p) => p.includes('all=true'))).toBe(true);
+    expect(paths.filter((p) => p.includes('offset=')).length).toBe(3);
+    expect(products).toHaveLength(TOTAL);
+    expect(new Set(products.map((p) => p.id)).size).toBe(TOTAL);
   });
 
   it('propagates the token provider error when the merchant has no token', async () => {

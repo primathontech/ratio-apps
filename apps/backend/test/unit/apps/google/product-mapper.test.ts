@@ -165,10 +165,10 @@ describe('mapProduct — multi-variant', () => {
       { value: '1099.00', currency: 'INR' },
       { value: '1199.00', currency: 'INR' },
     ]);
-    expect(offers.map((o) => [o.gmc!.color, o.gmc!.size])).toEqual([
-      ['Red', 'M'],
-      ['Blue', 'M'],
-      ['Red', 'L'],
+    expect(offers.map((o) => [o.gmc!.color, o.gmc!.sizes])).toEqual([
+      ['Red', ['M']],
+      ['Blue', ['M']],
+      ['Red', ['L']],
     ]);
   });
 });

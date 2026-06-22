@@ -79,7 +79,9 @@ export interface GmcProduct {
   gtin?: string;
   mpn?: string;
   color?: string;
-  size?: string;
+  // GMC Content API v2.1 uses `sizes` (ARRAY), not a singular `size` — the API
+  // rejects the latter with "Unknown name size", which 400s the whole batch.
+  sizes?: string[];
   googleProductCategory?: string;
   // GMC Content API v2.1 uses `productTypes` (ARRAY), not a singular
   // `productType` — the API rejects the latter with "Unknown name productType".
@@ -292,7 +294,7 @@ function mapVariant(
   if (gtin !== undefined) gmc.gtin = gtin;
   if (mpn !== undefined) gmc.mpn = mpn;
   if (color !== undefined) gmc.color = color;
-  if (size !== undefined) gmc.size = size;
+  if (size !== undefined) gmc.sizes = [size];
   if (config.googleProductCategory) {
     gmc.googleProductCategory = config.googleProductCategory;
   }
