@@ -125,7 +125,20 @@ export class MetaCapiService {
       return { received: events.length, dispatched: 0, failed: 0, errors: [] };
     }
 
-    const allowed = events.filter((e) => this.levelAllows(config.dataSharingLevel, e.event_name));
+    // Per-event toggle (admin "turn off PageView" etc.). config.events is keyed
+    // by OS event name; each entry carries { enabled, name } where `name` is the
+    // Meta event name we dispatch under. Authoritative server-side enforcement:
+    // an event is dropped if its Meta name is present in the config but disabled.
+    // An empty/absent map means "no toggles" → allow all (backward compatible:
+    // older configs and direct callers that carry no event map are unaffected).
+    const eventEntries = Object.values(config.events ?? {}) as { enabled: boolean; name: string }[];
+    const enabledMeta = new Set(eventEntries.filter((e) => e.enabled && e.name).map((e) => e.name));
+    const knownMeta = new Set(eventEntries.filter((e) => e.name).map((e) => e.name));
+    const isEventEnabled = (name: string): boolean => !knownMeta.has(name) || enabledMeta.has(name);
+
+    const allowed = events.filter(
+      (e) => isEventEnabled(e.event_name) && this.levelAllows(config.dataSharingLevel, e.event_name),
+    );
     if (!allowed.length) {
       this.logger.warn({
         msg: 'CAPI dispatch - no events pass data sharing level',
@@ -272,6 +285,14 @@ export class MetaCapiService {
         // 4xx = bad request — no point retrying, data won't change
         if (res.status >= 400 && res.status < 500) {
           const text = await res.text().catch(() => '');
+          this.logger.error({
+            msg: 'CAPI Meta response (4xx rejected)',
+            pixelId,
+            attempt,
+            status: res.status,
+            mode: testEventCode ? 'test' : 'normal',
+            body: text.slice(0, 2000),
+          });
           throw new Error(`Meta CAPI ${res.status} (non-retryable): ${text.slice(0, 500)}`);
         }
 
@@ -279,10 +300,46 @@ export class MetaCapiService {
           // 5xx — retryable
           const text = await res.text().catch(() => '');
           lastErr = new Error(`Meta CAPI ${res.status}: ${text.slice(0, 500)}`);
-          this.logger.warn({ msg: 'CAPI dispatch retryable error', pixelId, attempt, status: res.status });
+          this.logger.warn({
+            msg: 'CAPI Meta response (5xx retryable)',
+            pixelId,
+            attempt,
+            status: res.status,
+            mode: testEventCode ? 'test' : 'normal',
+            body: text.slice(0, 2000),
+          });
           continue;
         }
 
+        // 2xx — but a 200 does NOT guarantee acceptance. Meta returns the count
+        // of events it actually ingested (events_received) plus any per-event
+        // warnings in `messages`. Log the FULL raw body so a "success" with
+        // events_received:0 (e.g. an event type dropped while others pass) or
+        // any warning is visible in pm2 logs.
+        const raw = await res.text().catch(() => '');
+        let json: {
+          events_received?: number;
+          messages?: unknown[];
+          fbtrace_id?: string;
+        } | null = null;
+        try {
+          json = raw ? JSON.parse(raw) : null;
+        } catch {
+          json = null;
+        }
+        this.logger.log({
+          msg: 'CAPI Meta response (2xx)',
+          pixelId,
+          attempt,
+          status: res.status,
+          mode: testEventCode ? 'test' : 'normal',
+          eventCount: data.length,
+          eventsReceived: json?.events_received,
+          accepted: json?.events_received === data.length,
+          messages: json?.messages ?? [],
+          fbtraceId: json?.fbtrace_id,
+          body: raw.slice(0, 2000),
+        });
         return; // success
       } catch (err) {
         const isAbort = err instanceof Error && err.name === 'AbortError';
