@@ -1,0 +1,73 @@
+name: ratio-app-prod
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on: [svc-google, svc-meta, svc-posthog, svc-moengage]
+    ports: ["8080:80"]
+    volumes:
+      - ./docker/nginx/prod.conf:/etc/nginx/conf.d/default.conf:ro
+
+  svc-google: &svc
+    image: ratio-app-backend:dev
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      ENABLED_MODULES: google
+      SERVE_STATIC: "false"
+      RATIO_GOOGLE_DATABASE_URL: mysql://app:app@mysql:3306/google_app
+    depends_on: { mysql: { condition: service_healthy } }
+  svc-meta:                 # ingest API (HTTP)
+    <<: *svc
+    environment:
+      ENABLED_MODULES: meta
+      SERVE_STATIC: "false"
+      RATIO_META_DATABASE_URL: mysql://app:app@mysql:3306/meta_app
+      REDIS_URL: redis://redis:6385
+      SQS_ENDPOINT: http://elasticmq:9324
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+  svc-posthog:
+    <<: *svc
+    environment:
+      ENABLED_MODULES: posthog
+      SERVE_STATIC: "false"
+      RATIO_POSTHOG_DATABASE_URL: mysql://app:app@mysql:3306/posthog_app
+  svc-moengage:
+    <<: *svc
+    environment:
+      ENABLED_MODULES: moengage
+      SERVE_STATIC: "false"
+      RATIO_MOENGAGE_DATABASE_URL: mysql://app:app@mysql:3306/moengage_app
+
+  svc-worker:
+    <<: *svc
+    command: ["node", "apps/backend/dist/apps/backend/src/main.worker.js"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticmq:
+        condition: service_started
+    environment:
+      ENABLED_MODULES: google,meta
+      GOOGLE_SYNC_WORKER_ENABLED: "true"
+      META_WORKER_ENABLED: "true"
+      RATIO_GOOGLE_DATABASE_URL: mysql://app:app@mysql:3306/google_app
+      RATIO_META_DATABASE_URL: mysql://app:app@mysql:3306/meta_app
+      SQS_ENDPOINT: http://elasticmq:9324
+      REDIS_URL: redis://redis:6385
+
+  # Brokers — containers here for a self-contained prod-shape demo. In real
+  # cloud prod, point the *_DATABASE_URL / SQS_ENDPOINT / REDIS_URL env at
+  # managed RDS / SQS / ElastiCache and delete these three services.
+  mysql:
+    extends: { file: docker-compose.yml, service: mysql }
+  redis:
+    extends: { file: docker-compose.yml, service: redis }
+  elasticmq:
+    extends: { file: docker-compose.yml, service: elasticmq }
+
+volumes:
+  mysql_data: {}

@@ -25,6 +25,30 @@ services:
       timeout: 5s
       retries: 10
 
+  redis:
+    image: redis:7-alpine
+    container_name: ratio-app-redis
+    restart: unless-stopped
+    command: ["redis-server", "--port", "6385"]
+    ports:
+      - "6385:6385"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6385", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  elasticmq:
+    image: softwaremill/elasticmq-native:latest
+    container_name: ratio-app-elasticmq
+    restart: unless-stopped
+    ports:
+      - "9324:9324"
+      - "9325:9325"
+    # No healthcheck: the elasticmq-native image is a minimal GraalVM binary with
+    # no shell/wget/curl, so any exec-based check fails (reads "unhealthy" even
+    # though the broker is up). The backend gates on `service_started` instead.
+
   backend:
     build:
       context: .
@@ -35,6 +59,10 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticmq:
+        condition: service_started
     env_file: .env
     environment:
       # API-only: the backend serves no static UI (admin deployed separately).
@@ -45,6 +73,18 @@ services:
       RATIO_META_DATABASE_URL: mysql://app:app@mysql:3306/meta_app
       RATIO_POSTHOG_DATABASE_URL: mysql://app:app@mysql:3306/posthog_app
       RATIO_MOENGAGE_DATABASE_URL: mysql://app:app@mysql:3306/moengage_app
+      # Inside the compose network, reach the broker/cache by SERVICE NAME, not
+      # localhost (127.0.0.1 inside the container is the container itself). These
+      # override the localhost values in .env, which are correct only for a
+      # backend run as a local host process.
+      SQS_ENDPOINT: http://elasticmq:9324
+      REDIS_URL: redis://redis:6385
+      WEBHOOK_SIGNATURE_OPTIONAL: "true"
+      # Fallback storefront domain for GMC product links when a merchant hasn't
+      # set one in the admin (config "Store URL"). MUST match the store verified
+      # in Merchant Center, or GMC flags "Mismatched online store URL". Uncomment
+      # and set to your sandbox's verified domain to make products eligible to show.
+      # GMC_STORE_URL: "shop.yourstore.com"
     ports:
       - "3000:3000"
     healthcheck:

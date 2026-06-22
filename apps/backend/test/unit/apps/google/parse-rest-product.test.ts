@@ -14,8 +14,9 @@ const sample = (): Record<string, unknown> => ({
       id: 'variant-uuid-1',
       name: 'Small / Blue',
       sku: 'TSHIRT-S-BLU',
-      price: 29.99,
-      compareAtPrice: 39.99,
+      // Platform sends PAISE (integer minor units) → parser divides by 100.
+      price: 2999,
+      compareAtPrice: 3999,
       inventory: { quantity: 50, policy: 'deny' },
       options: { size: 'Small', color: 'Blue' },
     },
@@ -54,7 +55,7 @@ describe('parseRestProduct', () => {
     expect(p!.handle).toBe('custom-handle');
   });
 
-  it('maps variants without dividing prices', () => {
+  it('divides paise prices to major units (rupees)', () => {
     const p = parseRestProduct(sample());
     const v = p!.variants[0];
     expect(v.id).toBe('variant-uuid-1');
@@ -67,9 +68,7 @@ describe('parseRestProduct', () => {
 
   it('maps images from images[].src', () => {
     const p = parseRestProduct(sample());
-    expect(p!.images).toEqual([
-      { src: 'https://cdn.example.com/products/tshirt-blue.jpg' },
-    ]);
+    expect(p!.images).toEqual([{ src: 'https://cdn.example.com/products/tshirt-blue.jpg' }]);
   });
 
   it('returns null without id or name', () => {
@@ -84,8 +83,8 @@ describe('parseRestProduct', () => {
   it('synthesizes a single variant from product-level fields when variants empty', () => {
     const data = sample();
     data.variants = [];
-    data.price = 19.99;
-    data.compareAtPrice = 24.99;
+    data.price = 1999;
+    data.compareAtPrice = 2499;
     data.sku = 'TSHIRT-DEF';
     const p = parseRestProduct(data);
     expect(p!.variants).toHaveLength(1);

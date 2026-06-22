@@ -10,8 +10,9 @@ const sample = (): Record<string, unknown> => ({
   vendor: 'AudioTech Inc',
   product_type: 'Electronics',
   tags: 'audio,headphones,wireless',
-  price: 199.99,
-  compare_at_price: 299.99,
+  // Platform sends PAISE (integer minor units) → parser divides by 100.
+  price: 19999,
+  compare_at_price: 29999,
   sku: 'AUD-HDP-PRE-001',
   barcode: '8901234567890',
   imageUrl: 'https://cdn.example.com/products/headphones-main.jpg',
@@ -33,8 +34,8 @@ const sample = (): Record<string, unknown> => ({
       sku_id: 'VAR-HDP-BLK-001',
       external_id: 'EXT-VAR-BLK-001',
       barcode: '8901234567891',
-      price: 199.99,
-      compare_at_price: 299.99,
+      price: 19999,
+      compare_at_price: 29999,
       cost: 80.0,
       option1: 'Black',
       option2: null,
@@ -57,7 +58,7 @@ describe('parseWebhookProduct', () => {
     expect(p!.productType).toBe('Electronics');
   });
 
-  it('maps variants without dividing prices', () => {
+  it('divides paise prices to major units (rupees)', () => {
     const p = parseWebhookProduct(sample());
     const v = p!.variants[0];
     expect(v.id).toBe('var-001');
@@ -79,9 +80,7 @@ describe('parseWebhookProduct', () => {
 
   it('maps images from images[].url', () => {
     const p = parseWebhookProduct(sample());
-    expect(p!.images).toEqual([
-      { src: 'https://cdn.example.com/products/headphones-main.jpg' },
-    ]);
+    expect(p!.images).toEqual([{ src: 'https://cdn.example.com/products/headphones-main.jpg' }]);
   });
 
   it('sums multiple warehouse quantities', () => {
@@ -98,9 +97,7 @@ describe('parseWebhookProduct', () => {
     const data = sample();
     data.images = [];
     const p = parseWebhookProduct(data);
-    expect(p!.images).toEqual([
-      { src: 'https://cdn.example.com/products/headphones-main.jpg' },
-    ]);
+    expect(p!.images).toEqual([{ src: 'https://cdn.example.com/products/headphones-main.jpg' }]);
   });
 
   it('returns null without id or title', () => {
@@ -123,5 +120,6 @@ describe('parseWebhookProduct', () => {
     expect(v.compareAtPrice).toBe(299.99);
     expect(v.sku).toBe('AUD-HDP-PRE-001');
     expect(v.barcode).toBe('8901234567890');
+    // product-level paise prices also divide on the synthesized variant
   });
 });

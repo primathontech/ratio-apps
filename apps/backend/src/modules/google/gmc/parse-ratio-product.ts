@@ -2,9 +2,19 @@ import type { RatioProduct, RatioVariant } from './product-mapper';
 
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 
-/** Prices on the Ratio/OpenStore platform are RUPEES (major units) — pass
- * numbers through unchanged. (No paise→major division.) */
 const num = (v: unknown): number | null => (typeof v === 'number' ? v : null);
+
+/**
+ * Prices on the Ratio/OpenStore platform arrive in PAISE (integer minor units),
+ * e.g. `155900` = ₹1,559.00. GMC needs major units, so divide by 100. Verified
+ * against a live webhook (an OSMO combo priced 155900/209800 = ₹1,559/₹2,098).
+ * This restores the original 2026-06-08 paise finding that a later change
+ * mistakenly "corrected" to rupees off synthetic test fixtures.
+ */
+const paiseToMajor = (v: unknown): number | null => {
+  const n = num(v);
+  return n === null ? null : n / 100;
+};
 
 const slugify = (s: string): string =>
   s
@@ -54,8 +64,8 @@ export function parseWebhookProduct(product: Record<string, unknown>): RatioProd
           );
           return {
             id: str(v.variant_id) ?? id,
-            price: num(v.price),
-            compareAtPrice: num(v.compare_at_price),
+            price: paiseToMajor(v.price),
+            compareAtPrice: paiseToMajor(v.compare_at_price),
             sku: str(v.sku_id),
             barcode: str(v.barcode),
             inventoryQuantity,
@@ -65,8 +75,8 @@ export function parseWebhookProduct(product: Record<string, unknown>): RatioProd
       : [
           {
             id,
-            price: num(product.price),
-            compareAtPrice: num(product.compare_at_price),
+            price: paiseToMajor(product.price),
+            compareAtPrice: paiseToMajor(product.compare_at_price),
             sku: str(product.sku),
             barcode: str(product.barcode),
             inventoryQuantity: null,
@@ -121,8 +131,8 @@ export function parseRestProduct(item: Record<string, unknown>): RatioProduct | 
               : null;
           return {
             id: str(v.id) ?? id,
-            price: num(v.price),
-            compareAtPrice: num(v.compareAtPrice),
+            price: paiseToMajor(v.price),
+            compareAtPrice: paiseToMajor(v.compareAtPrice),
             sku: str(v.sku),
             barcode: str(v.barcode),
             inventoryQuantity: inventory ? num(inventory.quantity) : null,
@@ -134,8 +144,8 @@ export function parseRestProduct(item: Record<string, unknown>): RatioProduct | 
       : [
           {
             id,
-            price: num(item.price),
-            compareAtPrice: num(item.compareAtPrice),
+            price: paiseToMajor(item.price),
+            compareAtPrice: paiseToMajor(item.compareAtPrice),
             sku: str(item.sku),
             barcode: str(item.barcode),
             inventoryQuantity: null,

@@ -102,6 +102,7 @@ function makeRow(overrides: Partial<GoogleConfigRow> = {}): GoogleConfigRow {
     enhancedConversionsEnabled: false,
     gmcEnabled: false,
     gmcMerchantId: null,
+    gmcStoreUrl: null,
     gmcServiceAccountKeyEnc: null,
     gmcTargetCountry: 'IN',
     gmcContentLanguage: 'en',
@@ -167,9 +168,9 @@ describe('GoogleConfigService (AC1: config encrypt + redact)', () => {
     // ...and a real round-trip recovers the original.
     expect(crypto.decrypt(storedEnc)).toBe(plaintext);
     // ODKU set must carry the same encrypted column on update.
-    expect(crypto.decrypt(fake.recorder.onDuplicateKeyUpdate?.gmcServiceAccountKeyEnc as string)).toBe(
-      plaintext,
-    );
+    expect(
+      crypto.decrypt(fake.recorder.onDuplicateKeyUpdate?.gmcServiceAccountKeyEnc as string),
+    ).toBe(plaintext);
   });
 
   it('get redacts secrets (hasGmcKey:true, no raw key field on the output)', async () => {
@@ -220,6 +221,20 @@ describe('GoogleConfigService (AC1: config encrypt + redact)', () => {
     const out = await svc.getByMerchantId('mer_1');
 
     expect(out.needsReconnect).toBe(true);
+  });
+
+  it('upsert persists gmcStoreUrl and get returns it', async () => {
+    const fake = makeFakeHandle({
+      configRow: makeRow({ gmcStoreUrl: 'shop.merchant.com' }),
+      credRow: undefined,
+    });
+    const svc = new GoogleConfigService(fake.handle, crypto);
+
+    await svc.upsert('mer_1', makeInput({ gmcStoreUrl: 'shop.merchant.com' }));
+    expect(fake.recorder.insertedValues?.gmcStoreUrl).toBe('shop.merchant.com');
+
+    const out = await svc.getByMerchantId('mer_1');
+    expect(out.gmcStoreUrl).toBe('shop.merchant.com');
   });
 
   it('coerces TINYINT boolean columns (ga4Enabled: 1 → true)', async () => {

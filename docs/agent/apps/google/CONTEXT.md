@@ -17,8 +17,14 @@ this module. Standing context first; dated change journal below (newest first).
   `<event_type>:<product.id>` (retry-windowed). Webhook `product` is snake_case;
   REST `GET /products` is camelCase + `{ success, data[], pagination }` — two
   normalizers (`parseWebhookProduct` / `parseRestProduct`).
-- **Ratio prices are rupees (major units)** — pass through to GMC, do NOT divide
-  by 100. (Supersedes the earlier paise note; re-confirm live before go-live.)
+- **Ratio prices are integer PAISE (minor units)** — `paiseToMajor` (÷100) in
+  BOTH normalizers before mapping to GMC. Verified 2026-06-22 against a live
+  webhook (₹1,559 arrived as `155900`). The 2026-06-18 "rupees" note was off
+  synthetic fixtures and is reversed.
+- **GMC `link`** = `https://<storeDomain>/products/<handle>`, where `storeDomain`
+  is the merchant's `gmc_store_url` config (admin "Store URL" field) → `GMC_STORE_URL`
+  env → placeholder. Must match the GMC-verified store or Google flags "Mismatched
+  online store URL".
 - **Product sync is durable** — webhooks enqueue onto the `google-product-sync`
   SQS queue (+ DLQ via redrive); `GoogleProductSyncWorker` (gated by
   `GOOGLE_SYNC_WORKER_ENABLED`) drains it to GMC. Force sync stays synchronous via
@@ -41,7 +47,7 @@ this module. Standing context first; dated change journal below (newest first).
 - **Two product normalizers:** `parseWebhookProduct` (snake_case webhook shape:
   `variant_id`/`sku_id`/`option1-3`+`options[]`/`warehouseQt` sum/`images[].url`)
   and `parseRestProduct` (camelCase REST: `name`/`inventory.quantity`/`images[].src`).
-  **Prices are rupees — ÷100 removed everywhere.**
+  **Prices were ÷100-removed here, then RE-ADDED 2026-06-22 — see paise note above.**
 - **`RatioProductsService`:** reads `{ success, data, pagination }`, pages via
   `totalPages`, queries `status=active&published=true&show_variants=true`.
 - **Ratio token refresh:** `RatioOAuthHttp` + `RatioTokenProvider` refresh and

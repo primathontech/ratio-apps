@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { APPS } from './apps';
+import { resolveEnabledModules } from './enabled-modules';
 
 /**
  * Wrap an optional env var so a present-but-EMPTY string (`KEY=` in a .env, which
@@ -44,6 +45,11 @@ const baseEnv = z.object({
     .default('false')
     .transform((s) => s === 'true'),
 
+  // Skip webhook signature verification when no signature header is present
+  // (the Ratio sandbox sends unsigned webhooks). Default 'false' = enforce in
+  // production. Set 'true' on a sandbox/dev deployment that runs NODE_ENV=production.
+  WEBHOOK_SIGNATURE_OPTIONAL: z.enum(['true', 'false']).default('false'),
+
   // ─── google app: Google's own OAuth client ────────────────────────────────
   // The `google` vendor connects merchants to Google (Analytics/Ads/Merchant
   // Center) via Google's OAuth. These creds are distinct from the Ratio app
@@ -62,6 +68,14 @@ const baseEnv = z.object({
   // stripping in validate() keeps it on process.env.
   GOOGLE_SYNC_WORKER_ENABLED: z.enum(['true', 'false']).default('false'),
 
+  // GMC_STORE_URL: deployment-wide fallback storefront domain for GMC product
+  // links, used when a merchant's `google_configs.gmc_store_url` is unset. Bare
+  // host (`shop.example.com`) or full URL — the feed mapper normalizes it. Read
+  // off process.env in FeedSyncService; declared here so it survives unknown-key
+  // stripping in validate(). Unset → links fall back to a non-routable
+  // placeholder (sync still records SYNCED, but GMC flags a URL mismatch).
+  GMC_STORE_URL: emptyAsUndefined(z.string()),
+
   // ─── meta app: Meta Graph API base for Conversions API dispatch ───────────
   // Defaults to the real Graph API; override with a local mock URL for testing.
   // Declared here so @nestjs/config keeps it on process.env (unknown keys are
@@ -69,41 +83,51 @@ const baseEnv = z.object({
   FACEBOOK_CAPI_BASE_URL: z.string().url().default('https://graph.facebook.com/v21.0'),
 });
 
-export const envSchema = APPS.reduce((schema, app) => {
-  const upper = app.toUpperCase();
-  return z.object({
-    ...schema.shape,
-    [`RATIO_${upper}_DATABASE_URL`]: z.string().min(1),
-    // Encryption key validation in three layers:
-    //   1. `.transform(trim)` strips accidental whitespace (the most common
-    //      paste-from-clipboard failure mode).
-    //   2. Strict regex `/^[A-Za-z0-9+/]{43}=$/` rejects anything that isn't
-    //      EXACTLY a canonical 44-char base64-encoded 32 bytes — whitespace,
-    //      non-base64 chars, and over-long inputs that Node's permissive
-    //      base64 parser would silently truncate to a valid 32-byte buffer.
-    //   3. Decode-length check is belt-and-suspenders; the regex already
-    //      guarantees 32 bytes for any string that matches.
-    [`RATIO_${upper}_DATA_ENCRYPTION_KEY`]: z
-      .string()
-      .min(1, `RATIO_${upper}_DATA_ENCRYPTION_KEY is required`)
-      .transform((s) => s.trim())
-      .refine((k) => /^[A-Za-z0-9+/]{43}=$/.test(k), {
-        message: `RATIO_${upper}_DATA_ENCRYPTION_KEY must be 44-char base64 (32 bytes)`,
-      })
-      .refine((k) => Buffer.from(k, 'base64').length === 32, {
-        message: `RATIO_${upper}_DATA_ENCRYPTION_KEY decode-length mismatch`,
-      }),
-    [`RATIO_${upper}_CLIENT_ID`]: z.string().min(1),
-    [`RATIO_${upper}_CLIENT_SECRET`]: z.string().min(1),
-    [`RATIO_${upper}_CALLBACK_URL`]: z.string().url(),
-    [`RATIO_${upper}_ADMIN_BASE_URL`]: z.string().url(),
-  });
-}, baseEnv);
+// builds the schema for a given module subset (baseEnv + each module's RATIO_<UPPER>_* block)
+function buildEnvSchema(apps: readonly string[]) {
+  return apps.reduce((schema, app) => {
+    const upper = app.toUpperCase();
+    return z.object({
+      ...schema.shape,
+      [`RATIO_${upper}_DATABASE_URL`]: z.string().min(1),
+      // Encryption key validation in three layers:
+      //   1. `.transform(trim)` strips accidental whitespace (the most common
+      //      paste-from-clipboard failure mode).
+      //   2. Strict regex `/^[A-Za-z0-9+/]{43}=$/` rejects anything that isn't
+      //      EXACTLY a canonical 44-char base64-encoded 32 bytes — whitespace,
+      //      non-base64 chars, and over-long inputs that Node's permissive
+      //      base64 parser would silently truncate to a valid 32-byte buffer.
+      //   3. Decode-length check is belt-and-suspenders; the regex already
+      //      guarantees 32 bytes for any string that matches.
+      [`RATIO_${upper}_DATA_ENCRYPTION_KEY`]: z
+        .string()
+        .min(1, `RATIO_${upper}_DATA_ENCRYPTION_KEY is required`)
+        .transform((s) => s.trim())
+        .refine((k) => /^[A-Za-z0-9+/]{43}=$/.test(k), {
+          message: `RATIO_${upper}_DATA_ENCRYPTION_KEY must be 44-char base64 (32 bytes)`,
+        })
+        .refine((k) => Buffer.from(k, 'base64').length === 32, {
+          message: `RATIO_${upper}_DATA_ENCRYPTION_KEY decode-length mismatch`,
+        }),
+      [`RATIO_${upper}_CLIENT_ID`]: z.string().min(1),
+      [`RATIO_${upper}_CLIENT_SECRET`]: z.string().min(1),
+      [`RATIO_${upper}_CALLBACK_URL`]: z.string().url(),
+      [`RATIO_${upper}_ADMIN_BASE_URL`]: z.string().url(),
+    });
+  }, baseEnv);
+}
+
+// Full superset — used for the `Env` type AND the existing envSchema.safeParse tests.
+export const envSchema = buildEnvSchema(APPS);
 
 export type Env = z.infer<typeof envSchema>;
 
 export function loadEnv(raw: Record<string, unknown> = process.env): Env {
-  const parsed = envSchema.safeParse(raw);
+  const enabled = resolveEnabledModules(
+    typeof raw.ENABLED_MODULES === 'string' ? raw.ENABLED_MODULES : undefined,
+  );
+  const schema = buildEnvSchema(enabled);
+  const parsed = schema.safeParse(raw);
   if (!parsed.success) {
     const issues = parsed.error.issues
       .map((i: { path: PropertyKey[]; message: string }) => `  - ${i.path.join('.')}: ${i.message}`)

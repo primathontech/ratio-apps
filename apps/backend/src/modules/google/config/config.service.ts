@@ -4,8 +4,8 @@ import { sql } from 'kysely';
 import type { CryptoService } from '../../../core/crypto/crypto.service';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
 import type { GoogleConfigRow, GoogleDatabase } from '../db/types';
-import { GOOGLE_CRYPTO } from '../tokens';
 import { GOOGLE_DB_TOKEN } from '../kysely.module';
+import { GOOGLE_CRYPTO } from '../tokens';
 
 /**
  * Per-merchant Google config CRUD. Backed by `google_configs`, keyed by
@@ -77,6 +77,7 @@ export class GoogleConfigService {
       enhancedConversionsEnabled: input.enhancedConversionsEnabled,
       gmcEnabled: input.gmcEnabled,
       gmcMerchantId: input.gmcMerchantId ?? null,
+      gmcStoreUrl: input.gmcStoreUrl ?? null,
       gmcTargetCountry: input.gmcTargetCountry,
       gmcContentLanguage: input.gmcContentLanguage,
       gmcCurrency: input.gmcCurrency,
@@ -132,6 +133,7 @@ export class GoogleConfigService {
       enhancedConversionsEnabled: Boolean(row.enhancedConversionsEnabled),
       gmcEnabled: Boolean(row.gmcEnabled),
       gmcMerchantId: row.gmcMerchantId,
+      gmcStoreUrl: row.gmcStoreUrl,
       gmcTargetCountry: row.gmcTargetCountry,
       gmcContentLanguage: row.gmcContentLanguage,
       gmcCurrency: row.gmcCurrency,

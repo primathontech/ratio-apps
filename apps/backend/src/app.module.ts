@@ -2,41 +2,20 @@ import { randomUUID } from 'node:crypto';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { LoggerModule } from 'nestjs-pino';
-import { APPS } from './config/apps';
+import { resolveEnabledModules } from './config/enabled-modules';
 import { loadEnv } from './config/env.schema';
 import { HealthModule } from './core/health/health.module';
-// Per-module Kysely setup: each <App>Module imports its own kysely.module.ts.
-// The legacy top-level KyselyModule was removed in Phase A.
-// NOTE: the `_template` golden module is intentionally NOT wired here — it stays
-// on disk only as the source the `vendor-scaffolder` skill copies. Only real
-// vendor apps in APPS are registered + run.
-import { GoogleModule } from './modules/google/google.module';
-import { MetaModule } from './modules/meta/meta.module';
-import { PosthogModule } from './modules/posthog/posthog.module';
-import { MoengageModule } from './modules/moengage/moengage.module';
+import { MODULE_REGISTRY } from './module-registry';
 
 // Re-export the canonical APPS tuple so call sites can keep importing it
 // from the AppModule barrel. The source of truth lives in `./config/apps.ts`
 // (loaded early by env.schema; pulling it from here would risk a cycle).
 export { APPS, type AppSlug } from './config/apps';
 
-/**
- * Sanity check: every slug in APPS must have a concrete <App>Module wired
- * here. The imports[] array below cannot be generated from APPS (decorator
- * args are static), so this load-time assertion catches the human-error
- * case of adding a slug to APPS without registering its module.
- */
-const REGISTERED_MODULES = new Map<string, unknown>([
-  ['google', GoogleModule],
-  ['meta', MetaModule],
-  ['posthog', PosthogModule],
-  ['moengage', MoengageModule],
-]);
-for (const slug of APPS) {
-  if (!REGISTERED_MODULES.has(slug)) {
-    throw new Error(`AppModule: APPS contains '${slug}' but no <App>Module is registered`);
-  }
-}
+// Mounted modules for THIS process (default: all). resolveEnabledModules reads
+// process.env.ENABLED_MODULES at module-load (dotenv has already run in main.ts/
+// main.worker.ts), so the decorator's imports[] is computed once at boot.
+const ENABLED_MODULE_CLASSES = resolveEnabledModules().map((slug) => MODULE_REGISTRY.get(slug)!);
 
 @Module({
   imports: [
@@ -106,10 +85,7 @@ for (const slug of APPS) {
       },
     }),
     HealthModule,
-    GoogleModule,
-    MetaModule,
-    PosthogModule,
-    MoengageModule,
+    ...(ENABLED_MODULE_CLASSES as never[]),
   ],
 })
 export class AppModule {}

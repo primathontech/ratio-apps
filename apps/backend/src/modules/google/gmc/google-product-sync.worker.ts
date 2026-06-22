@@ -1,4 +1,4 @@
-import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleInit, type OnModuleDestroy } from '@nestjs/common';
 import { QueueService } from '../../../core/queue/queue.service';
 import { FeedSyncService } from './feed-sync.service';
 import { GOOGLE_QUEUE_NAMES, type GoogleSyncMessage } from './google-product-sync.queue';
@@ -22,7 +22,7 @@ import { GOOGLE_QUEUE_NAMES, type GoogleSyncMessage } from './google-product-syn
  * Runs only when GOOGLE_SYNC_WORKER_ENABLED=true.
  */
 @Injectable()
-export class GoogleProductSyncWorker implements OnModuleInit {
+export class GoogleProductSyncWorker implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(GoogleProductSyncWorker.name);
   private running = false;
 
@@ -34,6 +34,12 @@ export class GoogleProductSyncWorker implements OnModuleInit {
     private readonly queue: QueueService,
     private readonly feedSync: FeedSyncService,
   ) {}
+
+  onModuleDestroy(): void {
+    // Stop the loop; the in-flight drainOnce() finishes (un-acked messages
+    // redeliver, no loss), then loop() exits.
+    this.running = false;
+  }
 
   onModuleInit(): void {
     if (process.env.GOOGLE_SYNC_WORKER_ENABLED !== 'true') {
