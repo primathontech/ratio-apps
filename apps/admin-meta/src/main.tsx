@@ -1,6 +1,6 @@
 import { OrionProvider } from '@primathonos/orion';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { createRouter, RouterProvider } from '@tanstack/react-router';
+import { createRouter, Navigate, RouterProvider } from '@tanstack/react-router';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { routeTree } from './routeTree.gen';
@@ -12,7 +12,13 @@ const queryClient = new QueryClient({
   },
 });
 
-const router = createRouter({ routeTree, defaultPreload: 'intent' });
+const router = createRouter({
+  routeTree,
+  defaultPreload: 'intent',
+  // When the dashboard opens the app at any path that isn't a known route,
+  // land on Overview ("/") instead of a bare "Not Found" screen.
+  defaultNotFoundComponent: () => <Navigate to="/" replace />,
+});
 
 declare module '@tanstack/react-router' {
   interface Register {
