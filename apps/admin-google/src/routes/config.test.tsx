@@ -78,11 +78,17 @@ describe('ConfigForm', () => {
     expect(screen.getByPlaceholderText('G-XXXXXXXXXX')).toBeInTheDocument();
   });
 
-  it('shows the "configured" hint for the secret field when hasGmcKey and keeps it empty', async () => {
+  it('shows a configured state (no textarea) when hasGmcKey, and reveals an empty textarea on Replace', async () => {
     routeApi(makeConfig({ hasGmcKey: true }));
     renderWithProviders(<ConfigPage />);
-    await waitFor(() => expect(screen.getByText(/Key configured/)).toBeInTheDocument());
-    const textarea = screen.getByPlaceholderText(/service_account/) as HTMLTextAreaElement;
+    // Configured state: success message, no secret textarea echoed back.
+    await waitFor(() =>
+      expect(screen.getByText(/Service account key configured/)).toBeInTheDocument(),
+    );
+    expect(screen.queryByPlaceholderText(/service_account/)).not.toBeInTheDocument();
+    // Opting to replace reveals an empty textarea.
+    fireEvent.click(screen.getByRole('button', { name: /Replace key/ }));
+    const textarea = (await screen.findByPlaceholderText(/service_account/)) as HTMLTextAreaElement;
     expect(textarea.value).toBe('');
   });
 

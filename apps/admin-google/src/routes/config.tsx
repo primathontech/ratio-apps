@@ -509,6 +509,10 @@ function GmcSection({
   // service-account key path so the merchant can still connect a Merchant Center.
   const merchantId = form.watch('gmcMerchantId');
   const oauthGmcActive = isOAuth && !!merchantId;
+  // When a key is already stored we never echo it back (it's a secret), so show
+  // a clear "configured" state instead of an empty box that looks unset. The
+  // textarea only appears when there's no key yet, or the user opts to replace.
+  const [replacingKey, setReplacingKey] = useState(false);
   return (
     <Card title="Google Merchant Center">
       <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
@@ -592,24 +596,51 @@ function GmcSection({
             <FieldRow
               label="Service Account Key (JSON)"
               error={form.formState.errors.gmcServiceAccountKey?.message}
-              hint={
-                hasGmcKey
-                  ? 'Key configured ✓ (enter a new key to replace)'
-                  : 'Paste the service-account JSON. Stored encrypted; never displayed back. Not needed if you connect with Google above.'
-              }
+              {...(hasGmcKey && !replacingKey
+                ? {}
+                : {
+                    hint: 'Paste the service-account JSON. Stored encrypted; never displayed back. Not needed if you connect with Google above.',
+                  })}
             >
-              <Controller
-                control={form.control}
-                name="gmcServiceAccountKey"
-                render={({ field }) => (
-                  <Input.TextArea
-                    {...field}
-                    value={field.value ?? ''}
-                    rows={4}
-                    placeholder='{ "type": "service_account", ... }'
+              {hasGmcKey && !replacingKey ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <Alert
+                    type="success"
+                    showIcon
+                    style={{ flex: 1 }}
+                    message="Service account key configured"
+                    description="Stored encrypted and never displayed. Replace it only to rotate the key."
                   />
-                )}
-              />
+                  <Button onClick={() => setReplacingKey(true)}>Replace key</Button>
+                </div>
+              ) : (
+                <>
+                  <Controller
+                    control={form.control}
+                    name="gmcServiceAccountKey"
+                    render={({ field }) => (
+                      <Input.TextArea
+                        {...field}
+                        value={field.value ?? ''}
+                        rows={4}
+                        placeholder='{ "type": "service_account", ... }'
+                      />
+                    )}
+                  />
+                  {hasGmcKey && (
+                    <Button
+                      type="link"
+                      style={{ paddingLeft: 0 }}
+                      onClick={() => {
+                        form.setValue('gmcServiceAccountKey', '');
+                        setReplacingKey(false);
+                      }}
+                    >
+                      Cancel — keep existing key
+                    </Button>
+                  )}
+                </>
+              )}
             </FieldRow>
             <ValidateButton
               onValidate={() =>
