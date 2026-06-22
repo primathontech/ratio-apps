@@ -46,6 +46,16 @@ export interface MapperConfig {
   googleProductCategory?: string | null;
 }
 
+/**
+ * GMC Content API v2.1 `Price` — a structured `{ value, currency }` object, NOT
+ * a "12.00 INR" string. The API rejects the string form with
+ * `Invalid value at 'body.price' (…v2p1.Price)`.
+ */
+export interface GmcPrice {
+  value: string;
+  currency: string;
+}
+
 /** A Google Content API for Shopping v2.1 product object. */
 export interface GmcProduct {
   id: string;
@@ -55,9 +65,9 @@ export interface GmcProduct {
   link: string;
   imageLink: string;
   additionalImageLinks?: string[];
-  price: string;
-  salePrice?: string;
-  maximumRetailPrice?: string;
+  price: GmcPrice;
+  salePrice?: GmcPrice;
+  maximumRetailPrice?: GmcPrice;
   availability: 'in_stock' | 'out_of_stock';
   condition: 'new' | 'refurbished' | 'used';
   brand?: string;
@@ -69,9 +79,13 @@ export interface GmcProduct {
   gtin?: string;
   mpn?: string;
   color?: string;
-  size?: string;
+  // GMC Content API v2.1 uses `sizes` (ARRAY), not a singular `size` — the API
+  // rejects the latter with "Unknown name size", which 400s the whole batch.
+  sizes?: string[];
   googleProductCategory?: string;
-  productType?: string;
+  // GMC Content API v2.1 uses `productTypes` (ARRAY), not a singular
+  // `productType` — the API rejects the latter with "Unknown name productType".
+  productTypes?: string[];
 }
 
 /** The status of a single mapped offer. */
@@ -136,16 +150,13 @@ function parsePrice(price: string | number | null | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** Format a numeric amount as a GMC money string, e.g. '999.00 INR'. */
-function formatMoney(amount: number, currency: string): string {
-  return `${amount.toFixed(2)} ${currency}`;
+/** Format a numeric amount as a GMC `Price` object, e.g. { value: '999.00', currency: 'INR' }. */
+function formatMoney(amount: number, currency: string): GmcPrice {
+  return { value: amount.toFixed(2), currency };
 }
 
 /** Case-insensitive lookup of a variant option (e.g. 'color', 'size'). */
-function findOption(
-  options: Record<string, string> | undefined,
-  key: string,
-): string | undefined {
+function findOption(options: Record<string, string> | undefined, key: string): string | undefined {
   if (!options) return undefined;
   const lowerKey = key.toLowerCase();
   for (const [k, v] of Object.entries(options)) {
@@ -165,12 +176,10 @@ function findOption(
  * @param config Mapping configuration (store, locale, currency, defaults).
  * @returns One {@link MappedOffer} per variant.
  */
-export function mapProduct(
-  product: RatioProduct,
-  config: MapperConfig,
-): MappedOffer[] {
+export function mapProduct(product: RatioProduct, config: MapperConfig): MappedOffer[] {
   const itemGroupId = `${config.storePrefix}:${product.id}`;
   const images = product.images ?? [];
+  // Link = the merchant's configured/verified store domain + product handle.
   const link = `https://${config.storeDomain}/products/${product.handle}`;
 
   return product.variants.map((variant) =>
@@ -233,9 +242,9 @@ function mapVariant(
 
   // --- Pricing ---
   const compareAt = parsePrice(variant.compareAtPrice ?? null);
-  let price = formatMoney(priceValue, config.currency);
-  let salePrice: string | undefined;
-  let maximumRetailPrice: string | undefined;
+  const price = formatMoney(priceValue, config.currency);
+  let salePrice: GmcPrice | undefined;
+  let maximumRetailPrice: GmcPrice | undefined;
   if (compareAt !== null) {
     maximumRetailPrice = formatMoney(compareAt, config.currency);
     if (compareAt > priceValue) {
@@ -245,14 +254,11 @@ function mapVariant(
 
   // --- Availability ---
   const qty = variant.inventoryQuantity ?? 0;
-  const availability: 'in_stock' | 'out_of_stock' =
-    qty > 0 ? 'in_stock' : 'out_of_stock';
+  const availability: 'in_stock' | 'out_of_stock' = qty > 0 ? 'in_stock' : 'out_of_stock';
 
   // --- Images --- (an empty image list already returned ERROR above)
   const imageLink = shared.images[0]?.src ?? '';
-  const additionalImageLinks = shared.images
-    .slice(1, 10)
-    .map((img) => img.src);
+  const additionalImageLinks = shared.images.slice(1, 10).map((img) => img.src);
 
   // --- Options ---
   const color = findOption(variant.options, 'color');
@@ -288,11 +294,11 @@ function mapVariant(
   if (gtin !== undefined) gmc.gtin = gtin;
   if (mpn !== undefined) gmc.mpn = mpn;
   if (color !== undefined) gmc.color = color;
-  if (size !== undefined) gmc.size = size;
+  if (size !== undefined) gmc.sizes = [size];
   if (config.googleProductCategory) {
     gmc.googleProductCategory = config.googleProductCategory;
   }
-  if (product.productType) gmc.productType = product.productType;
+  if (product.productType) gmc.productTypes = [product.productType];
 
   return {
     offerId,

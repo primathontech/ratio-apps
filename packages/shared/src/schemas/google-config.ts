@@ -71,6 +71,12 @@ export const googleConfigInputSchema = z.object({
   // Google Merchant Center
   gmcEnabled: z.boolean().default(false),
   gmcMerchantId: gmcMerchantIdSchema.nullable().optional(),
+  /**
+   * Verified storefront domain for product links (bare host like
+   * `shop.example.com` or a full `https://…` URL). Must match the store
+   * verified in Merchant Center or GMC flags "Mismatched online store URL".
+   */
+  gmcStoreUrl: z.string().max(255).nullable().optional(),
   /** Write-only service-account JSON key (manual-config path). */
   gmcServiceAccountKey: z.string().nullable().optional(),
   gmcTargetCountry: countryCodeSchema.default('IN'),
@@ -117,6 +123,7 @@ export const googleConfigSchema = z.object({
 
   gmcEnabled: z.boolean(),
   gmcMerchantId: z.string().nullable(),
+  gmcStoreUrl: z.string().nullable(),
   gmcTargetCountry: z.string(),
   gmcContentLanguage: z.string(),
   gmcCurrency: z.string(),

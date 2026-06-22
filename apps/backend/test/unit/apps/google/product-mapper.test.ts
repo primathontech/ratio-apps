@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  type MapperConfig,
   mapProduct,
+  type RatioProduct,
   stripHtml,
   truncate,
-  type MapperConfig,
-  type RatioProduct,
 } from '../../../../src/modules/google/gmc/product-mapper';
 
 const config: MapperConfig = {
@@ -51,7 +51,7 @@ describe('mapProduct — required attributes', () => {
     expect(gmc.title).toBe('Cool Shirt');
     expect(gmc.link).toBe('https://shop.example.com/products/cool-shirt');
     expect(gmc.imageLink).toBe('https://img/1.jpg');
-    expect(gmc.price).toBe('999.00 INR');
+    expect(gmc.price).toEqual({ value: '999.00', currency: 'INR' });
     expect(gmc.availability).toBe('in_stock');
     expect(gmc.condition).toBe('new');
     expect(gmc.brand).toBe('AcmeWear');
@@ -60,7 +60,7 @@ describe('mapProduct — required attributes', () => {
     expect(gmc.targetCountry).toBe('IN');
     expect(gmc.identifierExists).toBe(true);
     expect(gmc.itemGroupId).toBe('acme:p1');
-    expect(gmc.productType).toBe('Apparel');
+    expect(gmc.productTypes).toEqual(['Apparel']);
     expect(gmc.additionalImageLinks).toEqual(['https://img/2.jpg']);
   });
 
@@ -87,7 +87,7 @@ describe('mapProduct — pricing', () => {
       ],
     });
     const [offer] = mapProduct(product, config);
-    expect(offer.gmc!.maximumRetailPrice).toBe('1299.00 INR');
+    expect(offer.gmc!.maximumRetailPrice).toEqual({ value: '1299.00', currency: 'INR' });
   });
 
   it('sets salePrice when on sale (compareAtPrice > price)', () => {
@@ -103,9 +103,9 @@ describe('mapProduct — pricing', () => {
       ],
     });
     const [offer] = mapProduct(product, config);
-    expect(offer.gmc!.price).toBe('999.00 INR');
-    expect(offer.gmc!.salePrice).toBe('999.00 INR');
-    expect(offer.gmc!.maximumRetailPrice).toBe('1299.00 INR');
+    expect(offer.gmc!.price).toEqual({ value: '999.00', currency: 'INR' });
+    expect(offer.gmc!.salePrice).toEqual({ value: '999.00', currency: 'INR' });
+    expect(offer.gmc!.maximumRetailPrice).toEqual({ value: '1299.00', currency: 'INR' });
   });
 
   it('does not set salePrice when compareAtPrice <= price', () => {
@@ -122,7 +122,7 @@ describe('mapProduct — pricing', () => {
     });
     const [offer] = mapProduct(product, config);
     expect(offer.gmc!.salePrice).toBeUndefined();
-    expect(offer.gmc!.maximumRetailPrice).toBe('999.00 INR');
+    expect(offer.gmc!.maximumRetailPrice).toEqual({ value: '999.00', currency: 'INR' });
   });
 });
 
@@ -159,20 +159,16 @@ describe('mapProduct — multi-variant', () => {
     const groupIds = offers.map((o) => o.gmc!.itemGroupId);
     expect(new Set(groupIds)).toEqual(new Set(['acme:p1']));
 
-    expect(offers.map((o) => o.offerId)).toEqual([
-      'acme:v1',
-      'acme:v2',
-      'acme:v3',
-    ]);
+    expect(offers.map((o) => o.offerId)).toEqual(['acme:v1', 'acme:v2', 'acme:v3']);
     expect(offers.map((o) => o.gmc!.price)).toEqual([
-      '999.00 INR',
-      '1099.00 INR',
-      '1199.00 INR',
+      { value: '999.00', currency: 'INR' },
+      { value: '1099.00', currency: 'INR' },
+      { value: '1199.00', currency: 'INR' },
     ]);
-    expect(offers.map((o) => [o.gmc!.color, o.gmc!.size])).toEqual([
-      ['Red', 'M'],
-      ['Blue', 'M'],
-      ['Red', 'L'],
+    expect(offers.map((o) => [o.gmc!.color, o.gmc!.sizes])).toEqual([
+      ['Red', ['M']],
+      ['Blue', ['M']],
+      ['Red', ['L']],
     ]);
   });
 });
@@ -252,9 +248,7 @@ describe('mapProduct — WARNING conditions', () => {
 
   it('identifierExists false when neither GTIN nor SKU present', () => {
     const product = baseProduct({
-      variants: [
-        { id: 'v1', price: '999', barcode: null, inventoryQuantity: 1 },
-      ],
+      variants: [{ id: 'v1', price: '999', barcode: null, inventoryQuantity: 1 }],
     });
     const [offer] = mapProduct(product, config);
     expect(offer.gmc!.identifierExists).toBe(false);

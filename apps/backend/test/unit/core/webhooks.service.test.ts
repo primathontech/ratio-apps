@@ -292,6 +292,56 @@ describe('WebhooksService.dispatch', () => {
     expect(typeof (trxArg as { insertInto?: unknown }).insertInto).toBe('function');
   });
 
+  // ---- per-delivery id (x-webhook-id) dedup ----
+
+  it('deduplicates by delivery id: same delivery-id on same envelope runs handler only once', async () => {
+    // First dispatch: INSERT wins, handler runs.
+    const fakeFirst = makeFakeKysely({ inserted: true, merchant: merchantRow });
+    const handlerFirst = makeHandler();
+    const svcFirst = new WebhooksService<DB>({ db: fakeFirst.db, handler: handlerFirst });
+    await svcFirst.dispatch(envelope(), 'delivery-A');
+    expect(handlerFirst.handle).toHaveBeenCalledTimes(1);
+
+    // Second dispatch: same delivery-id → INSERT loses (duplicate key), row is
+    // fresh within the window → suppress as a retry (no-op).
+    const fakeSecond = makeFakeKysely({
+      inserted: false,
+      merchant: merchantRow,
+      existingReceivedAt: new Date(), // within the window
+    });
+    const handlerSecond = makeHandler();
+    const svcSecond = new WebhooksService<DB>({ db: fakeSecond.db, handler: handlerSecond });
+    await svcSecond.dispatch(envelope(), 'delivery-A');
+    expect(handlerSecond.handle).not.toHaveBeenCalled();
+    expect(fakeSecond.updates).toBe(0);
+  });
+
+  it('different delivery-ids for same product run handler twice (real second update is NOT dropped)', async () => {
+    // delivery-A: INSERT wins, handler runs.
+    const fakeA = makeFakeKysely({ inserted: true, merchant: merchantRow });
+    const handlerA = makeHandler();
+    const svcA = new WebhooksService<DB>({ db: fakeA.db, handler: handlerA });
+    await svcA.dispatch(envelope(), 'delivery-A');
+    expect(handlerA.handle).toHaveBeenCalledTimes(1);
+
+    // delivery-B: different key → INSERT also wins (distinct row), handler runs again.
+    const fakeB = makeFakeKysely({ inserted: true, merchant: merchantRow });
+    const handlerB = makeHandler();
+    const svcB = new WebhooksService<DB>({ db: fakeB.db, handler: handlerB });
+    await svcB.dispatch(envelope(), 'delivery-B');
+    expect(handlerB.handle).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to content-key dedup when no delivery id is supplied (no-deliveryId path still works)', async () => {
+    const fake = makeFakeKysely({ inserted: true, merchant: merchantRow });
+    const svc = new WebhooksService<DB>({ db: fake.db, handler });
+    // No deliveryId argument — should still dispatch correctly via content key.
+    await svc.dispatch(envelope());
+    expect(handler.handle).toHaveBeenCalledTimes(1);
+    expect(fake.inserts).toBe(1);
+    expect(fake.updates).toBe(1);
+  });
+
   // ---- deriveWebhookId ----
 
   it('derives <event_type>:<product.id> when a product id is present', () => {

@@ -99,6 +99,31 @@ export class GoogleAuthService {
   }
 
   /**
+   * Disconnect the Google account: drop the stored OAuth credentials and flip
+   * the config back to manual so the merchant can enter GA4 / Ads / Merchant
+   * Center IDs by hand. The integration toggles + IDs the merchant already set
+   * are left untouched — only the connection itself is severed.
+   */
+  async disconnect(merchantId: string): Promise<void> {
+    await this.handle.db
+      .deleteFrom('google_credentials')
+      .where('merchantId', '=', merchantId)
+      .execute();
+
+    await this.handle.db
+      .updateTable('google_configs')
+      .set({
+        connectionMethod: 'manual',
+        googleAccountEmail: null,
+        updatedAt: sql`CURRENT_TIMESTAMP(3)`,
+      } as never)
+      .where('merchantId', '=', merchantId)
+      .execute();
+
+    this.logger.log({ msg: 'google account disconnected', merchantId });
+  }
+
+  /**
    * Resolve a token for GMC Content API calls. Prefers a stored GMC
    * service-account key when present — this lets an OAuth-connected merchant
    * still reach a Merchant Center their Google login can't access (e.g. when

@@ -98,3 +98,32 @@ To add a vendor manually, follow the recipe in [`AGENTS.md`](./AGENTS.md).
   per-module DB isolation, single-artifact deploy.
 - **[`docs/agent/`](./docs/agent/)** — agentic flow, PRD template, `STATE.json`
   schema.
+
+
+
+claude --resume db488dea-98f5-406b-a78b-0498b7cbee80
+
+## Deployment topology
+
+One image, behaviour chosen by env (no `ROLE` var — the entrypoint is the role):
+
+- **Dev:** `docker compose up` → one `backend` (`ENABLED_MODULES=all`), workers in-process.
+- **Prod:** `docker compose -f docker-compose.prod.yml up` → nginx + one API service per module
+  (`svc-google` …, each `ENABLED_MODULES=<slug>`) + `svc-worker`
+  (`main.worker.js`, `*_WORKER_ENABLED=true`).
+
+`ENABLED_MODULES` (default `all`) selects mounted modules and scopes env validation.
+API entry: `main.js`. Worker entry: `main.worker.js`. Lift the prod compose onto
+ECS/EKS unchanged by pointing the datastore env at managed RDS/SQS/ElastiCache.
+
+### Meta CAPI Pipeline
+
+The Meta Conversions API (CAPI) pipeline scales from SQS to Kinesis with a phased cutover strategy. See [`docs/agent/apps/meta/CAPI-PIPELINE.md`](./docs/agent/apps/meta/CAPI-PIPELINE.md) for the operational runbook (phased `META_CAPI_BUS` flip: `sqs` → `both` → `kinesis`; DLQ reading; whale-bucket tuning; local dev with LocalStack; deferred items).
+
+**Key env knobs:**
+- `META_CAPI_BUS` (default `sqs`): `sqs`, `kinesis`, or `both` (dual-write for parity testing).
+- `META_CAPI_CONSUMER_ENABLED` (default `false`): enable Kinesis shard consumer (lease-based polling, batching, dispatch, DLQ).
+- `KINESIS_STREAM_NAME` (default `meta-capi`): stream name.
+- `META_CAPI_DLQ_BUCKET` (default `meta-capi-dlq`): S3 bucket for non-retryable events.
+- `META_CAPI_AGG_MAX` (default `100`): max events per Kinesis record.
+- `META_CAPI_WHALE_BUCKETS` (default empty): whale merchant shard routing (`merchantId:B,...`).

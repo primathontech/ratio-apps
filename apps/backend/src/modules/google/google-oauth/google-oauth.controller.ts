@@ -1,4 +1,4 @@
-import { Controller, Get, Inject, Query, Res, UseGuards } from '@nestjs/common';
+import { Controller, Get, Inject, Post, Query, Res, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { FastifyReply } from 'fastify';
 import type { Env } from '../../../config/env.schema';
@@ -25,6 +25,18 @@ export class GoogleConnectController {
   @UseGuards(GoogleMerchantTokenGuard)
   connect(@CurrentMerchant() merchant: Merchant): { url: string } {
     return { url: this.auth.buildAuthUrl(merchant.id) };
+  }
+
+  /**
+   * Disconnect the Google account: clears stored OAuth credentials and reverts
+   * the config to manual. Merchant-guarded; the SPA calls it with its Bearer
+   * header, then refetches the config to render the not-connected (manual) state.
+   */
+  @Post('disconnect')
+  @UseGuards(GoogleMerchantTokenGuard)
+  async disconnect(@CurrentMerchant() merchant: Merchant): Promise<{ disconnected: true }> {
+    await this.auth.disconnect(merchant.id);
+    return { disconnected: true };
   }
 
   @Get('callback')

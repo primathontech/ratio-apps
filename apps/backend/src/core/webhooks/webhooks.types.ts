@@ -13,9 +13,12 @@ import type { DatabaseWithWebhookLog } from './webhook-log.types';
 export const WEBHOOK_MAX_PAYLOAD_BYTES = 64 * 1024;
 
 /**
- * Retry-windowed dedupe window. The real OpenStore contract carries NO
- * per-delivery id — dedupe is by `(merchant_id, product.id, event_type)`.
- * The platform retries a failed/unacked delivery for roughly 2 hours, so a
+ * Retry-windowed dedupe window — FALLBACK only, used when no per-delivery
+ * `x-webhook-id` header is present on the inbound request.
+ *
+ * When a delivery arrives without a per-delivery id, dedupe falls back to
+ * `deriveWebhookId(envelope)` = `<event_type>:<product.id|none>`. The
+ * platform retries a failed/unacked delivery for roughly 2 hours, so a
  * second delivery of the SAME derived key inside this window is almost
  * certainly a retry and is suppressed. A delivery of the same key OUTSIDE
  * the window is treated as a legitimately new event (e.g. a real second
@@ -40,10 +43,17 @@ export const webhookEnvelopeSchema = z
 export type WebhookEnvelope = z.infer<typeof webhookEnvelopeSchema>;
 
 /**
- * Derive the dedupe key for an envelope. There is no per-delivery id in the
- * contract, so we key on `event_type` + the product id (when present). Events
- * with no product (e.g. `app/uninstalled`) collapse to `<event_type>:none`.
+ * Derive the FALLBACK dedupe key for an envelope. Used only when no
+ * per-delivery `x-webhook-id` header is present on the inbound request.
+ *
+ * Keys on `event_type` + the product id (when present). Events with no
+ * product (e.g. `app/uninstalled`) collapse to `<event_type>:none`.
  * Stored in `webhook_log.ratio_webhook_id` (VARCHAR(255)).
+ *
+ * When the platform does supply a per-delivery id, `dispatch()` uses that
+ * as the exact dedup key instead — so every distinct delivery (including a
+ * real second update to the same product) processes independently, and only
+ * a true retry of the same delivery id is suppressed.
  */
 export function deriveWebhookId(e: WebhookEnvelope): string {
   const rid = (e.product && typeof e.product.id === 'string' && e.product.id) || 'none';

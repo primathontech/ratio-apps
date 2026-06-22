@@ -33,6 +33,7 @@ function makeConfig(overrides: Partial<GoogleConfig> = {}): GoogleConfig {
     enhancedConversionsEnabled: true,
     gmcEnabled: true,
     gmcMerchantId: '987654',
+    gmcStoreUrl: 'shop.example.com',
     gmcTargetCountry: 'IN',
     gmcContentLanguage: 'en',
     gmcCurrency: 'INR',

@@ -37,6 +37,13 @@ export async function configureApp(app: NestFastifyApplication): Promise<void> {
     contentSecurityPolicy: false,
     crossOriginEmbedderPolicy: false,
     crossOriginResourcePolicy: { policy: 'cross-origin' },
+    // COOP defaults to `same-origin`, which severs the cross-origin opener and
+    // makes Chrome block the OAuth redirect chain returning from a third-party
+    // IdP (e.g. Google → /google-oauth/callback) with ERR_BLOCKED_BY_RESPONSE.
+    // This admin runs embedded in the Ratio iframe and bounces through external
+    // OAuth, so opt out of COOP — consistent with the COEP/CORP relaxations
+    // above that the iframe embed already requires.
+    crossOriginOpenerPolicy: false,
     referrerPolicy: { policy: 'strict-origin' },
   });
 

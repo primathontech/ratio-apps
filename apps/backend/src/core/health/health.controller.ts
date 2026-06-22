@@ -11,6 +11,11 @@ export class HealthController {
     return { status: 'ok', ts: new Date().toISOString() };
   }
 
+  @Get('live')
+  live(): { status: 'live' } {
+    return { status: 'live' };
+  }
+
   @Get('ready')
   async ready(): Promise<{ status: 'ready'; checks: Record<string, 'ok' | 'fail'> }> {
     if (!this.registry.isBooted()) {

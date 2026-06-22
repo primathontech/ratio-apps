@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, Inject, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Headers, HttpCode, Inject, Post, UseGuards } from '@nestjs/common';
 import type { ZodType } from 'zod';
 import { ZodValidationPipe } from '../../../core/common/pipes/zod-validation.pipe';
 import type { WebhooksService } from '../../../core/webhooks/webhooks.service';
@@ -27,8 +27,9 @@ export class GoogleWebhooksController {
   async receive(
     @Body(new ZodValidationPipe(webhookEnvelopeSchema as unknown as ZodType<WebhookEnvelope>))
     envelope: WebhookEnvelope,
+    @Headers('x-webhook-id') deliveryId?: string,
   ): Promise<{ ok: true }> {
-    await this.webhooks.dispatch(envelope);
+    await this.webhooks.dispatch(envelope, deliveryId);
     return { ok: true };
   }
 }

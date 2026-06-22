@@ -14,9 +14,9 @@ import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fa
 import type { FastifyRequest } from 'fastify';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
-import { APPS } from './config/apps';
 import { configureApp } from './config/configure-app';
 import { loadEnv } from './config/env.schema';
+import { resolveEnabledModules } from './config/enabled-modules';
 import { HealthRegistry } from './core/health/health-registry.service';
 
 type CorsOriginType = string | boolean | RegExp;
@@ -135,7 +135,7 @@ async function bootstrap(): Promise<void> {
   // by the assertion in config/apps.ts, but escape regex metachars anyway so a
   // future relaxation of APPS validation can't introduce a smuggling vector.
   const escapeRegex = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const slugAlt = APPS.map(escapeRegex).join('|');
+  const slugAlt = resolveEnabledModules().map(escapeRegex).join('|');
   const SDK_RE = new RegExp(`^/(${slugAlt})/sdk/([A-Za-z0-9_-]{1,128})\\.js(?:\\?|$)`);
   const OAUTH_CALLBACK_RE = new RegExp(`^/(${slugAlt})/api/v1/oauth/callback(?:\\?|$)`);
   const OAUTH_WEBHOOK_RE = new RegExp(`^/(${slugAlt})/api/v1/oauth/webhook(?:\\?|$)`);

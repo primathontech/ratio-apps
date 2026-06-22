@@ -30,6 +30,12 @@ interface GoogleConfigsTable {
 
   gmcEnabled: Generated<boolean>;
   gmcMerchantId: string | null;
+  /**
+   * Merchant's verified storefront domain (bare host or full URL). Product
+   * `link`s must share this domain or GMC flags "Mismatched online store URL".
+   * NULL → fall back to the `GMC_STORE_URL` env default, then a placeholder.
+   */
+  gmcStoreUrl: string | null;
   /** Encrypted (CryptoService) GMC service-account JSON key. Never returned raw. */
   gmcServiceAccountKeyEnc: string | null;
   gmcTargetCountry: Generated<string>;

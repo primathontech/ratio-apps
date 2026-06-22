@@ -13,6 +13,11 @@ coverage-e2e
 # machine-local settings are ignored.
 .claude/settings.local.json
 
+# Superpowers brainstorming/plan scaffolding (docs/superpowers/specs + plans) is
+# local process tooling, NOT the product — keep it on disk but never track/push.
+# (Contrast docs/agent/* above, which IS committed.)
+docs/superpowers/
+
 # Belt-and-suspenders against tsc accidentally emitting next to source
 # (packages/shared is consumed via tsconfig paths, never built standalone)
 packages/*/src/**/*.js

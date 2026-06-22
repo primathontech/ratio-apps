@@ -23,7 +23,7 @@ import type { z } from 'zod';
 import { useConfig, useUpdateConfig } from '@/hooks/useConfig';
 import { useDefaults } from '@/hooks/useDefaults';
 import { useDiscover } from '@/hooks/useDiscover';
-import { startGoogleConnect } from '@/lib/oauth';
+import { disconnectGoogle, startGoogleConnect } from '@/lib/oauth';
 import { type ValidateResult, validateAds, validateGa4, validateGmc } from '@/lib/validate';
 
 // Zod separates input vs output types for schemas with `.default()`:
@@ -50,6 +50,7 @@ function configToInput(c: GoogleConfig): GoogleConfigInput {
     enhancedConversionsEnabled: c.enhancedConversionsEnabled,
     gmcEnabled: c.gmcEnabled,
     gmcMerchantId: c.gmcMerchantId,
+    gmcStoreUrl: c.gmcStoreUrl,
     gmcTargetCountry: c.gmcTargetCountry,
     gmcContentLanguage: c.gmcContentLanguage,
     gmcCurrency: c.gmcCurrency,
@@ -74,6 +75,7 @@ const NULLABLE_STRING_FIELDS = [
   'adsConversionId',
   'adsConversionLabel',
   'gmcMerchantId',
+  'gmcStoreUrl',
   'gmcBrandOverride',
   'gmcGoogleProductCategory',
 ] as const;
@@ -95,9 +97,20 @@ const CATEGORY_MODES = [
 ];
 
 export function ConfigPage() {
-  const { data, isLoading } = useConfig();
+  const { data, isLoading, refetch } = useConfig();
   const update = useUpdateConfig();
   const defaults = useDefaults();
+  const [disconnecting, setDisconnecting] = useState(false);
+
+  async function handleDisconnect(): Promise<void> {
+    setDisconnecting(true);
+    try {
+      await disconnectGoogle();
+      await refetch(); // flip the UI to the not-connected (manual) state
+    } finally {
+      setDisconnecting(false);
+    }
+  }
   const justConnected = new URLSearchParams(window.location.search).get('connected') === '1';
   const discover = useDiscover(justConnected);
 
@@ -113,6 +126,7 @@ export function ConfigPage() {
       enhancedConversionsEnabled: true,
       gmcEnabled: false,
       gmcMerchantId: '',
+      gmcStoreUrl: '',
       gmcServiceAccountKey: '',
       gmcTargetCountry: 'IN',
       gmcContentLanguage: 'en',
@@ -142,6 +156,7 @@ export function ConfigPage() {
       enhancedConversionsEnabled: data.enhancedConversionsEnabled,
       gmcEnabled: data.gmcEnabled,
       gmcMerchantId: data.gmcMerchantId ?? '',
+      gmcStoreUrl: data.gmcStoreUrl ?? '',
       gmcServiceAccountKey: '',
       gmcTargetCountry: data.gmcTargetCountry,
       gmcContentLanguage: data.gmcContentLanguage,
@@ -251,11 +266,16 @@ export function ConfigPage() {
                 below. No service-account key needed.
               </Typography.Text>
             )}
-            <div>
+            <Space>
               <PrimaryButton onClick={() => void startGoogleConnect()}>
                 {data?.googleAccountEmail ? 'Reconnect Google Account' : 'Connect Google Account'}
               </PrimaryButton>
-            </div>
+              {data?.googleAccountEmail && (
+                <Button danger loading={disconnecting} onClick={() => void handleDisconnect()}>
+                  Disconnect
+                </Button>
+              )}
+            </Space>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
               Prefer manual setup? Configure each integration below — it's the fallback when OAuth
               isn't available.
@@ -537,6 +557,24 @@ function GmcSection({
                 {...field}
                 value={field.value ?? ''}
                 placeholder="123456789"
+                {...(fieldState.invalid ? { status: 'error' as const } : {})}
+              />
+            )}
+          />
+        </FieldRow>
+        <FieldRow
+          label="Store URL"
+          error={form.formState.errors.gmcStoreUrl?.message}
+          hint="Your verified storefront domain. Product links must use this domain or Google reports “Mismatched online store URL” and won't show your products."
+        >
+          <Controller
+            control={form.control}
+            name="gmcStoreUrl"
+            render={({ field, fieldState }) => (
+              <Input
+                {...field}
+                value={field.value ?? ''}
+                placeholder="shop.yourstore.com"
                 {...(fieldState.invalid ? { status: 'error' as const } : {})}
               />
             )}
