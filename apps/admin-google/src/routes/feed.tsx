@@ -38,7 +38,8 @@ const STATUS_COLOR: Record<FeedItemStatus, string> = {
 export function FeedPage() {
   const [status, setStatus] = useState('ALL');
   const [page, setPage] = useState(1);
-  const items = useFeedItems(status, page, PAGE_SIZE);
+  const [pageSize, setPageSize] = useState(PAGE_SIZE);
+  const items = useFeedItems(status, page, pageSize);
   const history = useFeedHistory();
 
   const columns = [
@@ -113,10 +114,19 @@ export function FeedPage() {
           <div style={{ textAlign: 'right' }}>
             <Pagination
               current={page}
-              pageSize={PAGE_SIZE}
+              pageSize={pageSize}
               total={items.data?.total ?? 0}
-              showSizeChanger={false}
-              onChange={(p) => setPage(p)}
+              showSizeChanger
+              pageSizeOptions={['20', '50', '100']}
+              onChange={(p, ps) => {
+                // Changing page size resets to page 1 (backend caps limit at 100).
+                if (ps !== pageSize) {
+                  setPageSize(ps);
+                  setPage(1);
+                } else {
+                  setPage(p);
+                }
+              }}
             />
           </div>
         </Space>

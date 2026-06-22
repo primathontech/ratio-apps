@@ -53,7 +53,7 @@ export function useFeedItems(status: string, page: number, limit = 20) {
   const params = new URLSearchParams({ page: String(page), limit: String(limit) });
   if (status && status !== 'ALL') params.set('status', status);
   return useQuery({
-    queryKey: queryKeys.feedItems(status, page),
+    queryKey: queryKeys.feedItems(status, page, limit),
     queryFn: () => api<FeedItemsResponse>('GET', `/api/feed/items?${params.toString()}`),
     enabled: !!token,
     refetchOnWindowFocus: false,

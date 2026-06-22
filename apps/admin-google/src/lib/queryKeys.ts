@@ -4,6 +4,7 @@ export const queryKeys = {
   config: () => ['google', 'config'] as const,
   discover: () => ['google', 'discover'] as const,
   feedSummary: () => ['google', 'feed', 'summary'] as const,
-  feedItems: (status: string, page: number) => ['google', 'feed', 'items', status, page] as const,
+  feedItems: (status: string, page: number, limit: number) =>
+    ['google', 'feed', 'items', status, page, limit] as const,
   feedHistory: () => ['google', 'feed', 'history'] as const,
 } as const;
