@@ -89,6 +89,14 @@ interface Window {
   const PIXEL_IDS = String(cfg.pixelId).split(',').map((s) => s.trim()).filter(Boolean);
   const LEVEL = cfg.dataSharingLevel || 'maximum';
   const map = cfg.eventNameMap ?? {};
+  // The merchant's ENABLED Meta event names. `eventNameMap` is built server-side
+  // from config.events and already excludes disabled events, so its values are
+  // exactly the Meta names the merchant left ON. Empty map => no toggles known
+  // (older prelude) → fall back to every supported Meta event, matching the
+  // server's backward-compatible behaviour.
+  const ENABLED_META = new Set(Object.values(map));
+  const isEventEnabled = (metaName: string): boolean =>
+    ENABLED_META.size === 0 ? Boolean(META_EVENTS[metaName]) : ENABLED_META.has(metaName);
 
   // The 13 canonical Meta events we support. The bus emits these names
   // directly; URL/manual paths resolve to them via eventNameMap (or identity).
@@ -215,6 +223,13 @@ interface Window {
   ): void {
     if (!metaName || !META_EVENTS[metaName]) {
       if (cfg.debug) console.log(LOG, 'skip (unknown event)', metaName);
+      return;
+    }
+    // Respect the merchant's per-event toggle. A canonical Meta name (e.g.
+    // PageView from URL routing) would otherwise bypass the eventNameMap gate
+    // and fire even when turned off in the admin.
+    if (!isEventEnabled(metaName)) {
+      if (cfg.debug) console.log(LOG, 'skip (disabled by merchant)', metaName);
       return;
     }
     const customData = buildCustomData(props);
