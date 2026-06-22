@@ -134,6 +134,10 @@ function CatalogPage() {
     merchant?.id && config?.feedToken
       ? `${apiRoot()}/meta/feed/${merchant.id}.xml?token=${config.feedToken}`
       : null;
+  // Static receiver URL — merchant pastes this into the Ratio marketplace app
+  // config so product create/update/delete events reach us (merchant id comes
+  // via the gk-merchant-id header / payload, so no id in the URL).
+  const webhookUrl = `${apiRoot()}/meta/api/v1/webhooks/products`;
 
   return (
     <Space direction="vertical" size="large" style={{ display: 'flex' }}>
@@ -257,6 +261,17 @@ function CatalogPage() {
           </Typography.Text>
         </Card>
       )}
+
+      <Card title="Product webhook URL" size="small">
+        <Typography.Paragraph copyable code style={{ wordBreak: 'break-all', marginBottom: 0 }}>
+          {webhookUrl}
+        </Typography.Paragraph>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          Paste this into your Ratio marketplace app config (product created / updated /
+          deleted events) for real-time catalog updates. Optional — the scheduled feed
+          above keeps the catalog in sync on its own.
+        </Typography.Text>
+      </Card>
 
       <Card title="Recent syncs" size="small">
         <Table
