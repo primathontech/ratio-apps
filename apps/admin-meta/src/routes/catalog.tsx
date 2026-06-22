@@ -1,7 +1,11 @@
 import {
   Alert,
+  Button,
   Card,
+  Dropdown,
   Input,
+  MoreOutlined,
+  Popover,
   PrimaryButton,
   Space,
   Switch,
@@ -9,14 +13,15 @@ import {
   Tag,
   Typography,
 } from '@primathonos/orion';
-import { createFileRoute } from '@tanstack/react-router';
 import type { ComponentProps } from 'react';
+import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 import {
   type CatalogSyncRun,
   useCatalogConfig,
   useCatalogStatus,
   useSaveCatalogConfig,
+  useStopSync,
   useSyncNow,
 } from '@/hooks/useCatalog';
 import { useMerchant } from '@/hooks/useMerchant';
@@ -28,6 +33,8 @@ const STATUS_COLOR: Record<string, string> = {
   success: 'success',
   partial: 'warning',
   failed: 'error',
+  cancelled: 'default',
+  interrupted: 'default',
 };
 
 // Orion's Table erases the row generic — `render`/`rowKey` hand back `unknown`.
@@ -47,7 +54,35 @@ const SYNC_COLUMNS: ComponentProps<typeof Table>['columns'] = [
   },
   { key: 'totalProducts', title: 'Total', dataIndex: 'totalProducts' },
   { key: 'successCount', title: 'Synced', dataIndex: 'successCount' },
-  { key: 'errorCount', title: 'Errors', dataIndex: 'errorCount' },
+  {
+    key: 'errorCount',
+    title: 'Errors',
+    dataIndex: 'errorCount',
+    render: (_value, record) => {
+      const r = asRun(record);
+      const n = r.errorCount ?? 0;
+      if (!n) return 0;
+      const errs = r.errors ?? [];
+      if (!errs.length) return n; // count only (e.g. older runs with no detail)
+      return (
+        <Popover
+          title={`${n} failed`}
+          content={
+            <div style={{ maxWidth: 440, maxHeight: 300, overflow: 'auto' }}>
+              {errs.map((e) => (
+                <div key={e.retailerId} style={{ marginBottom: 6, fontSize: 12 }}>
+                  <Typography.Text code>{e.retailerId}</Typography.Text>
+                  <div style={{ color: '#d93025' }}>{e.error}</div>
+                </div>
+              ))}
+            </div>
+          }
+        >
+          <Typography.Link>{n}</Typography.Link>
+        </Popover>
+      );
+    },
+  },
   {
     key: 'startedAt',
     title: 'Started',
@@ -64,10 +99,12 @@ function CatalogPage() {
   const { data: merchant } = useMerchant();
   const save = useSaveCatalogConfig();
   const syncNow = useSyncNow();
+  const stopSync = useStopSync();
 
   const [catalogId, setCatalogId] = useState('');
   const [catalogAccessToken, setCatalogAccessToken] = useState('');
   const [syncEnabled, setSyncEnabled] = useState(false);
+  const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
     if (!config) return;
@@ -77,6 +114,9 @@ function CatalogPage() {
 
   // Poll sync runs only while catalog is configured.
   const { data: status } = useCatalogStatus(Boolean(config?.catalogId));
+  const isRunning = status?.runs?.[0]?.status === 'running';
+  const runs = status?.runs ?? [];
+  const visibleRuns = showAll ? runs.slice(0, 10) : runs.slice(0, 5);
 
   if (isLoading) return <Typography.Text>Loading…</Typography.Text>;
 
@@ -94,6 +134,10 @@ function CatalogPage() {
     merchant?.id && config?.feedToken
       ? `${apiRoot()}/meta/feed/${merchant.id}.xml?token=${config.feedToken}`
       : null;
+  // Static receiver URL — merchant pastes this into the Ratio marketplace app
+  // config so product create/update/delete events reach us (merchant id comes
+  // via the gk-merchant-id header / payload, so no id in the URL).
+  const webhookUrl = `${apiRoot()}/meta/api/v1/webhooks/products`;
 
   return (
     <Space direction="vertical" size="large" style={{ display: 'flex' }}>
@@ -141,7 +185,9 @@ function CatalogPage() {
             <Alert
               type="success"
               message={
-                save.data?.initialSyncStarted ? 'Saved. Initial full sync started.' : 'Saved.'
+                save.data?.initialSyncStarted
+                  ? 'Saved. Initial full sync started.'
+                  : 'Saved.'
               }
               showIcon
             />
@@ -149,28 +195,65 @@ function CatalogPage() {
 
           <div style={{ textAlign: 'right' }}>
             <Space>
-              <PrimaryButton
-                onClick={() => syncNow.mutate()}
-                loading={syncNow.isPending}
-                disabled={!config?.catalogId || !config?.hasCatalogToken}
-                ghost
-              >
-                Sync Now
-              </PrimaryButton>
+              {isRunning ? (
+                <PrimaryButton
+                  onClick={() => stopSync.mutate()}
+                  loading={stopSync.isPending}
+                  danger
+                  ghost
+                >
+                  Stop Sync
+                </PrimaryButton>
+              ) : (
+                <Space.Compact>
+                  <PrimaryButton
+                    onClick={() => syncNow.mutate(false)}
+                    loading={syncNow.isPending}
+                    disabled={!config?.catalogId || !config?.hasCatalogToken}
+                    ghost
+                  >
+                    Sync Now
+                  </PrimaryButton>
+                  <Dropdown
+                    menu={{
+                      items: [
+                        { key: 'force', label: 'Force resync (re-send all products)' },
+                      ],
+                      onClick: ({ key }: { key: string }) => {
+                        if (key === 'force') syncNow.mutate(true);
+                      },
+                    }}
+                  >
+                    <PrimaryButton
+                      ghost
+                      icon={<MoreOutlined />}
+                      disabled={!config?.catalogId || !config?.hasCatalogToken}
+                      aria-label="more sync options"
+                    />
+                  </Dropdown>
+                </Space.Compact>
+              )}
               <PrimaryButton onClick={onSave} loading={save.isPending} disabled={!catalogId}>
                 Save
               </PrimaryButton>
             </Space>
           </div>
-          {syncNow.isSuccess && (
+          {syncNow.isSuccess && !isRunning && (
             <Alert type="info" message="Sync started in background." showIcon />
+          )}
+          {stopSync.isSuccess && (
+            <Alert type="warning" message="Stop requested — sync will halt after the current page." showIcon />
           )}
         </Space>
       </Card>
 
       {feedUrl && (
         <Card title="Data feed URL" size="small">
-          <Typography.Paragraph copyable code style={{ wordBreak: 'break-all', marginBottom: 0 }}>
+          <Typography.Paragraph
+            copyable
+            code
+            style={{ wordBreak: 'break-all', marginBottom: 0 }}
+          >
             {feedUrl}
           </Typography.Paragraph>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
@@ -179,15 +262,33 @@ function CatalogPage() {
         </Card>
       )}
 
+      <Card title="Product webhook URL" size="small">
+        <Typography.Paragraph copyable code style={{ wordBreak: 'break-all', marginBottom: 0 }}>
+          {webhookUrl}
+        </Typography.Paragraph>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          Paste this into your Ratio marketplace app config (product created / updated /
+          deleted events) for real-time catalog updates. Optional — the scheduled feed
+          above keeps the catalog in sync on its own.
+        </Typography.Text>
+      </Card>
+
       <Card title="Recent syncs" size="small">
         <Table
           rowKey={(record) => String(asRun(record).id)}
-          dataSource={status?.runs ?? []}
+          dataSource={visibleRuns}
           pagination={false}
           size="small"
           locale={{ emptyText: 'No syncs yet' }}
           columns={SYNC_COLUMNS}
         />
+        {runs.length > 5 && (
+          <div style={{ textAlign: 'center', marginTop: 8 }}>
+            <Button type="link" onClick={() => setShowAll((v) => !v)}>
+              {showAll ? 'Show less' : `Show more (${Math.min(runs.length, 10) - 5})`}
+            </Button>
+          </div>
+        )}
       </Card>
     </Space>
   );

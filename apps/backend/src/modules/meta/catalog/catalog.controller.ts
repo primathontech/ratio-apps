@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Logger, Post, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Logger, Post, Put, Query, UseGuards } from '@nestjs/common';
 import type { Merchant } from '@ratio-app/shared/schemas/merchant';
 import { CurrentMerchant } from '../../../core/common/decorators/merchant.decorator';
 import { MetaConfigService } from '../config/config.service';
@@ -51,9 +51,15 @@ export class MetaCatalogController {
   }
 
   @Post('sync')
-  sync(@CurrentMerchant() merchant: Merchant): { started: boolean } {
-    this.catalog.startFullSyncInBackground(merchant.id, 'manual');
-    return { started: true };
+  sync(@CurrentMerchant() merchant: Merchant, @Query('force') force?: string): { started: boolean; force: boolean } {
+    const forceAll = force === 'true' || force === '1';
+    this.catalog.startFullSyncInBackground(merchant.id, forceAll ? 'manual-force' : 'manual', forceAll);
+    return { started: true, force: forceAll };
+  }
+
+  @Post('sync/stop')
+  stopSync(@CurrentMerchant() merchant: Merchant): { stopping: boolean } {
+    return this.catalog.requestStop(merchant.id);
   }
 
   @Get('status')

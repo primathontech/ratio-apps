@@ -62,3 +62,4 @@ apps/backend/dist/
 
 # agent worktree scratch (harness)
 .claude/worktrees/
+zip/

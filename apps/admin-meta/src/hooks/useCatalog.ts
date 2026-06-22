@@ -24,6 +24,11 @@ export interface CatalogSaveResult {
   initialSyncStarted: boolean;
 }
 
+export interface CatalogFailure {
+  retailerId: string;
+  error: string;
+}
+
 export interface CatalogSyncRun {
   id?: number;
   trigger?: string;
@@ -31,6 +36,8 @@ export interface CatalogSyncRun {
   totalProducts?: number | null;
   successCount?: number | null;
   errorCount?: number | null;
+  // Per-item failure reasons (from catalog_sync_log.errors JSON), newest run.
+  errors?: CatalogFailure[] | null;
   startedAt?: string;
   completedAt?: string | null;
 }
@@ -69,15 +76,34 @@ export function useCatalogStatus(enabled: boolean) {
     queryFn: () => api<{ runs: CatalogSyncRun[] }>('GET', '/api/v1/catalog/status'),
     enabled: !!token && enabled,
     retry: false,
-    refetchInterval: 5000,
+    // Poll every 5s ONLY while a sync is actively running (to show live
+    // progress); once it finishes — or if nothing's running — stop polling so
+    // an idle Catalog tab doesn't hammer the backend every 5s forever.
+    refetchInterval: (query) => (query.state.data?.runs?.[0]?.status === 'running' ? 5000 : false),
     refetchOnWindowFocus: false,
   });
 }
 
 export function useSyncNow() {
   const qc = useQueryClient();
+  // TVariables = boolean: pass true for a hard sync (re-push every product,
+  // ignore the content-hash skip), false for a normal incremental sync.
+  return useMutation<{ started: boolean; force: boolean }, Error, boolean>({
+    mutationFn: (force) =>
+      api<{ started: boolean; force: boolean }>(
+        'POST',
+        `/api/v1/catalog/sync${force ? '?force=true' : ''}`,
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.catalogStatus() });
+    },
+  });
+}
+
+export function useStopSync() {
+  const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => api<{ started: boolean }>('POST', '/api/v1/catalog/sync'),
+    mutationFn: () => api<{ stopping: boolean }>('POST', '/api/v1/catalog/sync/stop'),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.catalogStatus() });
     },
