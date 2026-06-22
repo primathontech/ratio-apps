@@ -26,9 +26,10 @@
 .env.*
 !.env.example
 
-# tests + admin apps (backend image doesn't need them)
-apps/admin-posthog
-apps/admin-moengage
+# tests (backend image doesn't need them). NOTE: do NOT exclude any
+# apps/admin-* directory here — the Dockerfile COPYs every admin package.json so
+# `pnpm install --frozen-lockfile` can validate all workspace members. Excluding
+# one drops its manifest from the build context and breaks the COPY.
 **/test
 **/*.test.ts
 **/*.test.tsx

@@ -111,23 +111,32 @@ export class WebhooksService<DB extends DatabaseWithMerchants & DatabaseWithWebh
    *   FOR UPDATE lock on this path since no handler will mutate the row.
    *
    * Idempotency / dedupe contract (retry-windowed):
-   *   The real OpenStore contract has NO per-delivery id — dedupe is by
-   *   `deriveWebhookId(envelope)` = `<event_type>:<product.id|none>`, stored
-   *   in `webhook_log.ratio_webhook_id` (UNIQUE). We `INSERT IGNORE` first;
-   *   the request that wins the INSERT runs the handler.
-   *   - On a collision (`!isNew`) we read the existing row's `received_at`.
-   *     If it is OLDER than `WEBHOOK_DEDUPE_WINDOW_MS`, this is a legitimate
-   *     new event for the same key (e.g. a real second update to the same
-   *     product) — we re-run the (idempotent) handler and refresh
-   *     `received_at` so the window slides forward. If it is WITHIN the
-   *     window, this is the platform retrying the same delivery (~2h retry
-   *     span) and we return as a no-op.
-   *   - This rests on handlers being idempotent: re-running a handler for the
-   *     same product is safe, so a permanent unique key (which would wrongly
-   *     skip a real second update) is intentionally NOT used.
+   *   When the platform supplies a per-delivery id via the `x-webhook-id`
+   *   header, that id is used as the exact dedup key stored in
+   *   `webhook_log.ratio_webhook_id` (UNIQUE). Each distinct delivery id
+   *   (including a real second update to the same product) gets its own
+   *   row and runs the handler exactly once. Only a retry of the SAME
+   *   delivery id — the platform re-sending after a 2xx was not received —
+   *   is suppressed via INSERT IGNORE.
+   *
+   *   When no per-delivery id is present, the fallback content-key
+   *   `deriveWebhookId(envelope)` = `<event_type>:<product.id|none>` is
+   *   used instead. On a collision (`!isNew`) we read the existing row's
+   *   `received_at`. If it is OLDER than `WEBHOOK_DEDUPE_WINDOW_MS`, this
+   *   is treated as a legitimate new event for the same key (e.g. a real
+   *   second update to the same product) — the (idempotent) handler is
+   *   re-run and `received_at` slides forward. If it is WITHIN the window,
+   *   this is the platform retrying the same delivery and we return as a
+   *   no-op. This fallback rests on handlers being idempotent.
+   *
+   * @param envelope - The inbound webhook envelope (validated body).
+   * @param deliveryId - Optional per-delivery id from the `x-webhook-id`
+   *   request header. When present and non-empty it is used as the exact
+   *   dedup key; otherwise the content-derived key is used as a fallback.
    */
-  async dispatch(envelope: WebhookEnvelope): Promise<void> {
-    const ratioWebhookId = deriveWebhookId(envelope);
+  async dispatch(envelope: WebhookEnvelope, deliveryId?: string): Promise<void> {
+    const trimmed = typeof deliveryId === 'string' ? deliveryId.trim() : '';
+    const ratioWebhookId = trimmed !== '' ? trimmed : deriveWebhookId(envelope);
     const topic = envelope.event_type;
     const product = envelope.product ?? {};
 

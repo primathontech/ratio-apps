@@ -2,14 +2,10 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { sql } from 'kysely';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
 import type { GoogleDatabase } from '../db/types';
+import { GoogleAuthService } from '../google-oauth/google-auth.service';
 import { GOOGLE_DB_TOKEN } from '../kysely.module';
 import { GOOGLE_RATIO_PRODUCTS } from '../tokens';
-import { GoogleAuthService } from '../google-oauth/google-auth.service';
-import {
-  ContentApiClient,
-  ContentApiError,
-  type BatchEntry,
-} from './content-api.client';
+import { type BatchEntry, ContentApiClient, ContentApiError } from './content-api.client';
 import { type MappedOffer, mapProduct, type RatioProduct } from './product-mapper';
 
 /** Seam over "read this merchant's full Ratio product catalog". */
@@ -18,6 +14,34 @@ export interface RatioProductsPort {
 }
 
 type SyncType = 'webhook' | 'auto' | 'reconcile' | 'initial' | 'manual';
+
+/**
+ * Normalize a configured storefront value into the bare host the mapper needs
+ * for `https://<host>/products/<handle>`. Accepts a full URL or a bare host,
+ * strips scheme / path / trailing dots-or-slashes. Returns null when empty.
+ */
+function normalizeStoreDomain(raw: string | null | undefined): string | null {
+  const trimmed = (raw ?? '').trim();
+  if (trimmed === '') return null;
+  const noScheme = trimmed.replace(/^[a-z]+:\/\//i, '');
+  const host = noScheme.split('/')[0] ?? noScheme;
+  const cleaned = host.replace(/[/.]+$/, '').trim();
+  return cleaned === '' ? null : cleaned;
+}
+
+/**
+ * Whether a GMC push failure is worth retrying. Transient failures (rate-limit,
+ * 5xx, or a non-HTTP error like a network/timeout) should redeliver via the
+ * SQS visibility timeout; permanent failures (4xx validation — bad field,
+ * rejected value) must NOT, or the message loops to the DLQ pointlessly.
+ */
+function isTransientGmcError(err: unknown): boolean {
+  if (err instanceof ContentApiError) {
+    return err.status === 429 || err.status >= 500;
+  }
+  // Network error, timeout, or anything that never reached an HTTP status.
+  return true;
+}
 
 /**
  * Pushes the Ratio catalog to Google Merchant Center via the Content API and
@@ -61,6 +85,21 @@ export class FeedSyncService {
         await this.writeFeedItem(merchantId, offer, true);
         updated += 1;
       } catch (err) {
+        // Transient (rate-limit / 5xx / network): rethrow so the worker leaves
+        // the SQS message un-acked → it redelivers after the visibility timeout
+        // and lands in the DLQ only after maxReceiveCount. We do NOT record a
+        // permanent ERROR here — a retry may succeed.
+        if (isTransientGmcError(err)) {
+          this.logger.warn({
+            msg: 'GMC transient error — leaving message for redrive',
+            merchantId,
+            offerId: offer.offerId,
+            err: `${err}`,
+          });
+          throw err;
+        }
+        // Permanent (4xx validation): record ERROR and move on — retrying the
+        // same payload would just fail again. Reconcile / a data fix heals it.
         const issue = err instanceof ContentApiError ? err.message : `${err}`;
         await this.writeFeedItem(merchantId, { ...offer, status: 'ERROR', issue });
         errored += 1;
@@ -84,6 +123,21 @@ export class FeedSyncService {
       try {
         await ctx.client.deleteProduct(ctx.restId(offerId));
       } catch (err) {
+        // Already gone (404/410) → the delete's goal is met; treat as success.
+        if (err instanceof ContentApiError && (err.status === 404 || err.status === 410)) {
+          continue;
+        }
+        // Transient → rethrow so the worker redelivers the delete (don't ack a
+        // product that's still live in GMC). Permanent 4xx → log and move on.
+        if (isTransientGmcError(err)) {
+          this.logger.warn({
+            msg: 'GMC delete transient error — leaving message for redrive',
+            merchantId,
+            offerId,
+            err: `${err}`,
+          });
+          throw err;
+        }
         this.logger.warn({ msg: 'gmc delete failed', merchantId, offerId, err: `${err}` });
       }
     }
@@ -97,9 +151,37 @@ export class FeedSyncService {
   }
 
   /** Full-catalog batch sync (on connect / Force Sync). Chunks of 1000. */
-  async fullSync(merchantId: string, syncType: SyncType): Promise<{ updated: number; errored: number }> {
+  async fullSync(
+    merchantId: string,
+    syncType: SyncType,
+  ): Promise<{ updated: number; errored: number }> {
     const ctx = await this.context(merchantId);
-    if (!ctx) return { updated: 0, errored: 0 };
+    if (!ctx) {
+      // GMC disabled or no Merchant Center id — record WHY so the admin's sync
+      // history shows a real reason instead of silently doing nothing.
+      const detail = 'GMC not enabled or no Merchant Center ID configured';
+      this.logger.warn({ msg: 'fullSync skipped', merchantId, detail });
+      await this.writeSyncLog(merchantId, syncType, 0, 0, 0, detail);
+      return { updated: 0, errored: 0 };
+    }
+    try {
+      return await this.runFullSync(merchantId, syncType, ctx);
+    } catch (err) {
+      // Catalog fetch / GMC batch threw (e.g. Ratio products API error). Surface
+      // it: log it AND persist a failed sync-log row so the admin sees the cause
+      // rather than a fire-and-forget no-op.
+      const detail = err instanceof Error ? err.message : `${err}`;
+      this.logger.error({ msg: 'fullSync failed', merchantId, syncType, detail });
+      await this.writeSyncLog(merchantId, syncType, 0, 0, 0, `sync failed: ${detail}`);
+      throw err;
+    }
+  }
+
+  private async runFullSync(
+    merchantId: string,
+    syncType: SyncType,
+    ctx: NonNullable<Awaited<ReturnType<FeedSyncService['context']>>>,
+  ): Promise<{ updated: number; errored: number }> {
     const catalog = await this.products.listAll(merchantId);
     const offers = catalog.flatMap((p) => mapProduct(p, ctx.mapperConfig));
     const syncable = offers.filter((o) => o.status !== 'ERROR' && o.gmc);
@@ -124,7 +206,11 @@ export class FeedSyncService {
           const offer = batch[i];
           if (!offer) continue;
           if (failed.has(i)) {
-            await this.writeFeedItem(merchantId, { ...offer, status: 'ERROR', issue: 'GMC batch rejected' });
+            await this.writeFeedItem(merchantId, {
+              ...offer,
+              status: 'ERROR',
+              issue: 'GMC batch rejected',
+            });
             errored += 1;
           } else {
             await this.writeFeedItem(merchantId, offer, true);
@@ -162,12 +248,16 @@ export class FeedSyncService {
       .executeTakeFirst();
     if (!config || !config.gmcEnabled || !config.gmcMerchantId) return null;
 
-    const merchant = await this.handle.db
-      .selectFrom('merchants')
-      .select(['id'])
-      .where('id', '=', merchantId)
-      .executeTakeFirst();
-    const storeDomain = `${merchant?.id ?? merchantId}.example-store.com`;
+    // Product `link`s must live on the merchant's GMC-verified storefront
+    // domain, else Google reports "Mismatched online store URL — Prevents from
+    // showing". Resolve it from the per-merchant config, then a deployment-wide
+    // env default, then a non-routable placeholder (last resort: the sync still
+    // records SYNCED, but GMC will flag the URL mismatch until a real domain is
+    // configured).
+    const storeDomain =
+      normalizeStoreDomain(config.gmcStoreUrl) ??
+      normalizeStoreDomain(process.env.GMC_STORE_URL) ??
+      `${merchantId}.example-store.com`;
 
     const client = new ContentApiClient({
       merchantId: config.gmcMerchantId,
@@ -231,6 +321,7 @@ export class FeedSyncService {
     checked: number,
     updated: number,
     errored: number,
+    detail?: string,
   ): Promise<void> {
     await this.handle.db
       .insertInto('google_sync_log')
@@ -240,7 +331,7 @@ export class FeedSyncService {
         productsChecked: checked,
         productsUpdated: updated,
         productsErrored: errored,
-        detail: `${updated} updated, ${errored} errors`,
+        detail: detail ?? `${updated} updated, ${errored} errors`,
       } as never)
       .execute();
   }

@@ -31,11 +31,19 @@ export function resolvePixelPath(slug: PixelSlug, callerDir: string): string {
   const filename = `${slug}-pixel.js`;
   const srcLayout = resolve(callerDir, '..', '..', '..', '..', 'static', filename);
   const distLayout = resolve(callerDir, '..', '..', '..', '..', '..', '..', 'static', filename);
+  // nest-cli.json copies `../static/**/*` into `dist/apps/backend/`, so in a
+  // compiled/Docker run the pixel ships at `dist/apps/backend/<slug>-pixel.js`
+  // (NOT under a `static/` subdir). From a caller in
+  // `dist/apps/backend/src/modules/<slug>/sdk/` that's 4 `..` up. Without this
+  // candidate the resolver misses the bundled asset and 503s with PIXEL_MISSING.
+  const nestAssetLayout = resolve(callerDir, '..', '..', '..', '..', filename);
   const candidates = [
     srcLayout,
     distLayout,
+    nestAssetLayout,
     resolve(process.cwd(), 'static', filename), // cwd = apps/backend
     resolve(process.cwd(), 'apps', 'backend', 'static', filename), // cwd = repo root
+    resolve(process.cwd(), 'apps', 'backend', 'dist', 'apps', 'backend', filename), // cwd = repo root, compiled
   ];
   for (const p of candidates) {
     if (existsSync(p)) return p;

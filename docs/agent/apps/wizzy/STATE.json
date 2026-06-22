@@ -1,0 +1,20 @@
+{
+  "slug": "wizzy",
+  "displayName": "Wizzy",
+  "phase": "prd-architect",
+  "gates": {
+    "prd": "pending",
+    "trd": "pending",
+    "tdd": "pending",
+    "pr": "pending",
+    "deploy": "pending"
+  },
+  "docs": { "prd": "docs/agent/apps/wizzy/PRD.md", "trd": null, "tdd": null },
+  "scopes": ["read_products", "write_script_tags", "read_script_tags"],
+  "webhooks": ["app/uninstalled", "products/create", "products/update", "products/delete"],
+  "paths": { "module": "", "admin": "" },
+  "filesCreated": ["docs/agent/apps/wizzy/PRD.md", "docs/agent/apps/wizzy/STATE.json"],
+  "deployTarget": null,
+  "prUrl": null,
+  "history": [{ "phase": "prd-architect", "ts": "2026-06-19T00:00:00.000Z" }]
+}

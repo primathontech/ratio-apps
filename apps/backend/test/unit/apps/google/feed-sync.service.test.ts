@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { KyselyClient } from '../../../../src/core/db/kysely-factory';
 import type { GoogleDatabase } from '../../../../src/modules/google/db/types';
-import type { GoogleAuthService } from '../../../../src/modules/google/google-oauth/google-auth.service';
 import {
   FeedSyncService,
   type RatioProductsPort,
 } from '../../../../src/modules/google/gmc/feed-sync.service';
 import type { RatioProduct } from '../../../../src/modules/google/gmc/product-mapper';
+import type { GoogleAuthService } from '../../../../src/modules/google/google-oauth/google-auth.service';
 
 const BASE = 'https://shoppingcontent.googleapis.com/content/v2.1';
 const MERCHANT_ID = 'mer_1';
@@ -296,7 +296,7 @@ describe('FeedSyncService', () => {
       expect(result).toEqual({ updated: 0, errored: 1 });
     });
 
-    it('records ERROR with the GMC message when the API rejects', async () => {
+    it('records ERROR (no throw) on a PERMANENT 4xx rejection — retry would not help', async () => {
       const fake = makeFakeKysely({ config: configRow() });
       const { fetch } = fakeFetch(
         () => new Response(JSON.stringify({ error: { message: 'bad' } }), { status: 400 }),
@@ -310,6 +310,53 @@ describe('FeedSyncService', () => {
       expect(fake.feedItemWrites[0]?.status).toBe('ERROR');
       expect(fake.feedItemWrites[0]?.issue).toContain('bad');
       expect(result).toEqual({ updated: 0, errored: 1 });
+    });
+
+    it('THROWS on a TRANSIENT 5xx so the worker leaves the message for SQS redrive', async () => {
+      const fake = makeFakeKysely({ config: configRow() });
+      const { fetch } = fakeFetch(
+        () => new Response(JSON.stringify({ error: { message: 'upstream' } }), { status: 503 }),
+      );
+      vi.stubGlobal('fetch', fetch);
+
+      const svc = new FeedSyncService(fake.handle, makeAuth(), products);
+
+      // A transient failure must propagate (not be swallowed as a permanent
+      // ERROR) — the worker relies on the throw to NOT ack the message.
+      await expect(svc.syncProduct(MERCHANT_ID, makeProduct())).rejects.toThrow();
+      // No permanent ERROR row is written on a transient failure.
+      expect(fake.feedItemWrites).toHaveLength(0);
+    });
+
+    it('THROWS on a TRANSIENT 429 (rate limit)', async () => {
+      const fake = makeFakeKysely({ config: configRow() });
+      const { fetch } = fakeFetch(
+        () => new Response(JSON.stringify({ error: { message: 'slow down' } }), { status: 429 }),
+      );
+      vi.stubGlobal('fetch', fetch);
+
+      const svc = new FeedSyncService(fake.handle, makeAuth(), products);
+      await expect(svc.syncProduct(MERCHANT_ID, makeProduct())).rejects.toThrow();
+    });
+
+    it('builds the product link from a configured gmcStoreUrl (verified domain)', async () => {
+      const fake = makeFakeKysely({
+        config: configRow({ gmcStoreUrl: 'https://shop.merchant.com/' }),
+      });
+      let body: Record<string, unknown> | undefined;
+      const fn = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+        if (init?.method === 'POST' && typeof init.body === 'string') {
+          body = JSON.parse(init.body) as Record<string, unknown>;
+        }
+        return Promise.resolve(ok());
+      });
+      vi.stubGlobal('fetch', fn as unknown as typeof fetch);
+
+      const svc = new FeedSyncService(fake.handle, makeAuth(), products);
+      await svc.syncProduct(MERCHANT_ID, makeProduct());
+
+      // Scheme + trailing slash normalized away; link sits on the verified host.
+      expect(body?.link).toBe('https://shop.merchant.com/products/blue-hat');
     });
   });
 

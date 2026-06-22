@@ -21,7 +21,7 @@ const listSchema = z
 /**
  * Concrete {@link RatioProductsPort}: resolves a fresh merchant Ratio access
  * token via {@link RatioTokenProvider} (which refreshes + rotates expired tokens),
- * pages `GET /api/v1/products` filtered to active/published products with
+ * pages `GET /api/v1/v1/products` filtered to active/published products with
  * variants, and maps each REST item into the mapper's `RatioProduct` via
  * {@link parseRestProduct} (prices are rupees — no division).
  */
@@ -39,8 +39,13 @@ export class RatioProductsService implements RatioProductsPort {
 
     const out: RatioProduct[] = [];
     for (let page = 1; ; page++) {
+      // NOTE: the products/catalog microservice is mounted under its own `v1`
+      // on top of the platform's global `/api/v1` prefix, so the real path is
+      // `/api/v1/v1/products` (double v1) on every environment. Verified against
+      // the live API: single-`v1` returns 404 "Cannot GET /api/v1/products",
+      // double-`v1` resolves to the handler. Do not "simplify" this.
       const res = await this.ratio.request(
-        `/api/v1/products?limit=${this.pageSize}&page=${page}&status=active&published=true&show_variants=true`,
+        `/api/v1/v1/products?limit=${this.pageSize}&page=${page}&status=active&published=true&show_variants=true`,
         listSchema,
         { accessToken },
       );
