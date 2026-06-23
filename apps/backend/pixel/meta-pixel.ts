@@ -344,6 +344,8 @@ interface Window {
       }
       bus.subscribeAll(handle);
       busAttached = true;
+      // The bus never emits Search — supplement it via URL routing.
+      attachSearchRouting();
       if (cfg.debug) console.log(LOG, 'PRIMARY: attached to __OPENSTORE_EVENT_BUS__');
       return true;
     } catch (err) {
@@ -381,7 +383,9 @@ interface Window {
   // Any script can listen — so we capture the high-value conversion events
   // without the bus.
   function attachGokwikMessages(): void {
-    const ORIGIN_RE = /(^|\.)gokwik\.(co|com|in)$/i;
+    // GoKwik-owned TLDs. `.io` is the dev/sandbox env (e.g. *.dev.gokwik.io),
+    // so KwikPass/checkout postMessages there are accepted too.
+    const ORIGIN_RE = /(^|\.)gokwik\.(co|com|in|io)$/i;
     window.addEventListener('message', (msg: MessageEvent) => {
       let host = '';
       try { host = new URL(msg.origin).hostname; } catch { return; }
@@ -419,10 +423,20 @@ interface Window {
       const base: Record<string, unknown> = { content_ids, contents, value, currency };
       if (coupon) base.coupon = coupon;
 
+      // KwikPass auth is NOT published on the OpenStore bus, so honor it ALWAYS
+      // (even when the bus is the active source) — otherwise login never fires
+      // CompleteRegistration on bus-backed storefronts (e.g. bblunt).
+      if (evName === 'otpVerifiedGk' || type === 'kp_token') {
+        emit('CompleteRegistration', {});
+        return;
+      }
+      // The commerce funnel below IS emitted by the bus. When the bus is the
+      // active source, skip the postMessage funnel to avoid double-counting (the
+      // two paths use different event_ids, so Meta would NOT dedupe them).
+      if (busAttached) return;
       if (evName === 'CheckoutInitiated') emit('InitiateCheckout', base);
       else if (evName === 'ShippingInfoAdded') emit('AddShippingInfo', { value, currency, ...(coupon ? { coupon } : {}) });
       else if (evName === 'PaymentInfoAdded') emit('AddPaymentInfo', { value, currency, ...(coupon ? { coupon } : {}) });
-      else if (evName === 'otpVerifiedGk' || type === 'kp_token') emit('CompleteRegistration', {});
       else if (evName === 'Purchase' || type === 'orderSuccess') {
         const resp = asRecord(d.response);
         const order_id = String(
@@ -463,11 +477,36 @@ interface Window {
       return promise;
     };
 
-    // Conversion funnel via GoKwik iframe messages
-    attachGokwikMessages();
-
     // Fire the event for the page we're on now
     fireForCurrentPage();
+  }
+
+  // ─── Bus supplement: Search via URL routing ───────────────────────────────
+  // The OpenStore bus emits PageView/ViewContent/AddToCart/etc. but NOT Search.
+  // So when the bus is attached we still wire a nav listener that emits ONLY
+  // Search on collection/search pages (PageView/ViewContent stay with the bus —
+  // firing them here would double-count). In fallback mode (no bus) activateObserve
+  // already covers Search, so this is attached only on a successful bus attach.
+  function attachSearchRouting(): void {
+    const fireSearchForPath = (): void => {
+      const ev = getPageEvent();
+      if (ev.name === 'Search') fireByName('Search', ev.props);
+    };
+    let lastHref = location.href;
+    const onNav = (): void => {
+      if (location.href !== lastHref) {
+        lastHref = location.href;
+        fireSearchForPath();
+      }
+    };
+    const origPush = history.pushState.bind(history);
+    const origReplace = history.replaceState.bind(history);
+    // biome-ignore lint/suspicious/noExplicitAny: patching native API
+    (history as any).pushState = function (...args: Parameters<typeof history.pushState>) { origPush(...args); onNav(); };
+    // biome-ignore lint/suspicious/noExplicitAny: patching native API
+    (history as any).replaceState = function (...args: Parameters<typeof history.replaceState>) { origReplace(...args); onNav(); };
+    window.addEventListener('popstate', onNav);
+    fireSearchForPath(); // current page
   }
 
   // ─── LAYER 3 (MANUAL): escape hatch for storefronts to fire anything ──────
@@ -486,6 +525,11 @@ interface Window {
     fbq.allowDuplicatePageViews = true;
     for (const id of PIXEL_IDS) fbq('init', id);
   }
+
+  // KwikPass auth (CompleteRegistration) is never published on the bus, so
+  // always listen for the GoKwik/KwikPass postMessages. The commerce funnel
+  // inside self-gates to fallback-only (busAttached check) to avoid double-count.
+  attachGokwikMessages();
 
   // Prefer the bus. It may not exist yet when we load (afterInteractive), so
   // poll briefly; if it never appears, fall back to observe. Whichever wins,

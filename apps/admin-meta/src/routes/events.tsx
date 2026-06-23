@@ -37,7 +37,7 @@ function EventsPage() {
         title="Event mapping"
         extra={
           <Typography.Text type="secondary">
-            Rename or disable any of the 13 events. Disabled events aren't subscribed in the SDK.
+            Enable or disable any of the 13 Meta standard events. Disabled events aren't subscribed in the SDK.
           </Typography.Text>
         }
       >

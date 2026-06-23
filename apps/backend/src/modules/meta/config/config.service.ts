@@ -5,7 +5,7 @@ import {
   DEFAULT_PRODUCT_ID_TYPE,
   type ProductIdType,
 } from '@ratio-app/shared/constants/meta-events';
-import { buildDefaultEventMap } from '@ratio-app/shared/schemas/event-map';
+import { buildDefaultEventMap, normalizeMetaEventNames } from '@ratio-app/shared/schemas/event-map';
 import type { MetaConfig, MetaConfigInput } from '@ratio-app/shared/schemas/meta-config';
 import { sql } from 'kysely';
 import type { CryptoService } from '../../../core/crypto/crypto.service';
@@ -170,7 +170,10 @@ export class MetaConfigService {
    * memory from the validated input (no follow-up SELECT).
    */
   async upsert(merchantId: string, input: MetaConfigInput): Promise<MetaConfig> {
-    const events = input.events ?? buildDefaultEventMap('meta');
+    // Renaming is not supported (it breaks SDK firing + makes Meta treat the
+    // event as custom). Force every stored name to the canonical Meta standard
+    // name; the admin only toggles enable/disable.
+    const events = normalizeMetaEventNames(input.events ?? buildDefaultEventMap('meta'));
     const debug = input.debug ?? false;
     const dataSharingLevel = input.dataSharingLevel ?? DEFAULT_DATA_SHARING_LEVEL;
     const productIdType = input.productIdType ?? DEFAULT_PRODUCT_ID_TYPE;

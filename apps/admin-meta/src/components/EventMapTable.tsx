@@ -1,4 +1,4 @@
-import { Button, Input, Space, Switch, Table, Typography } from '@primathonos/orion';
+import { Button, Space, Switch, Table, Typography } from '@primathonos/orion';
 import {
   DEFAULT_META_EVENT_MAP as DEFAULT_EVENT_MAP,
   OPEN_STORE_EVENT_NAMES,
@@ -17,11 +17,14 @@ interface Row {
 }
 
 /**
- * 13-row event-map editor. RHF Controller per cell (enabled toggle + name input),
- * validation handled by the parent's Zod resolver against `eventMapSchema`.
+ * 13-row event-map editor. Merchants can only ENABLE/DISABLE each event — the
+ * Meta event name is FIXED to the canonical Meta standard name. Renaming is not
+ * offered: a renamed standard event breaks SDK firing and makes Meta treat it as
+ * a custom event (losing standard-event optimization). The server also normalizes
+ * names on save as defense-in-depth.
  */
 export function EventMapTable() {
-  const { control, setValue, getValues } = useFormContext<EventsFormShape>();
+  const { control, setValue } = useFormContext<EventsFormShape>();
 
   const dataSource: Row[] = OPEN_STORE_EVENT_NAMES.map((osName) => ({ key: osName, osName }));
 
@@ -56,63 +59,17 @@ export function EventMapTable() {
       key: 'name',
       title: 'Meta event name',
       dataIndex: 'name',
-      render: (_v: unknown, record: unknown) => {
-        const { osName } = record as Row;
-        return (
-          <Controller
-            control={control}
-            name={`events.${osName}.name` as const}
-            render={({ field, fieldState }) => (
-              <>
-                <Input
-                  {...field}
-                  placeholder={DEFAULT_EVENT_MAP[osName]}
-                  {...(fieldState.invalid ? { status: 'error' as const } : {})}
-                />
-                {fieldState.error && (
-                  <Typography.Text type="danger" style={{ fontSize: 12 }}>
-                    {fieldState.error.message}
-                  </Typography.Text>
-                )}
-              </>
-            )}
-          />
-        );
-      },
-    },
-    {
-      key: 'reset',
-      title: '',
-      dataIndex: 'reset',
-      width: 80,
-      render: (_v: unknown, record: unknown) => {
-        const { osName } = record as Row;
-        return (
-          <Button type="link" size="small" onClick={() => resetRow(osName)}>
-            reset
-          </Button>
-        );
-      },
+      // Read-only: the Meta standard event name is fixed (no renaming).
+      render: (_v: unknown, record: unknown) => (
+        <Typography.Text>{DEFAULT_EVENT_MAP[(record as Row).osName]}</Typography.Text>
+      ),
     },
   ];
 
-  const resetRow = (name: OpenStoreEventName) => {
-    setValue(`events.${name}.enabled`, true, { shouldDirty: true });
-    setValue(`events.${name}.name`, DEFAULT_EVENT_MAP[name], { shouldDirty: true });
-  };
-
   const toggleAll = (enabled: boolean) => {
-    const current = getValues('events');
     for (const name of OPEN_STORE_EVENT_NAMES) {
       setValue(`events.${name}.enabled`, enabled, { shouldDirty: true });
-      if (enabled && !current[name]?.name) {
-        setValue(`events.${name}.name`, DEFAULT_EVENT_MAP[name], { shouldDirty: true });
-      }
     }
-  };
-
-  const resetAll = () => {
-    for (const name of OPEN_STORE_EVENT_NAMES) resetRow(name);
   };
 
   return (
@@ -125,11 +82,10 @@ export function EventMapTable() {
           pagination={false}
           size="small"
           bordered
-          scroll={{ x: 560 }}
+          scroll={{ x: 480 }}
         />
       </div>
       <Space wrap>
-        <Button onClick={resetAll}>Reset all to defaults</Button>
         <Button onClick={() => toggleAll(true)}>Enable all</Button>
         <Button onClick={() => toggleAll(false)}>Disable all</Button>
       </Space>

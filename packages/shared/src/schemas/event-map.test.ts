@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { OPEN_STORE_EVENT_NAMES } from '../constants/_template-events';
-import { buildDefaultEventMap, buildSdkEventNameMap, eventMapSchema } from './event-map';
+import {
+  buildDefaultEventMap,
+  buildSdkEventNameMap,
+  eventMapSchema,
+  normalizeMetaEventNames,
+} from './event-map';
 
 describe('event-map schema', () => {
   it('builds a default map with all 13 events enabled', () => {
@@ -85,5 +90,30 @@ describe('event-map schema', () => {
     expect(map.PageView.name).toBe('pageview');
     expect(map.Purchase.name).toBe('purchase');
     expect(map.AddToCart.name).toBe('add_to_cart');
+  });
+
+  describe('normalizeMetaEventNames', () => {
+    it('forces every event name back to the canonical Meta standard name', () => {
+      const map = buildDefaultEventMap('meta');
+      // Simulate a merchant rename that would break firing.
+      map.ViewContent = { enabled: true, name: 'ViewContentsss' };
+      const out = normalizeMetaEventNames(map);
+      expect(out.ViewContent.name).toBe('ViewContent');
+    });
+
+    it('preserves the enabled/disabled toggle while resetting the name', () => {
+      const map = buildDefaultEventMap('meta');
+      map.PageView = { enabled: false, name: 'CustomPV' };
+      const out = normalizeMetaEventNames(map);
+      expect(out.PageView.enabled).toBe(false);
+      expect(out.PageView.name).toBe('PageView');
+    });
+
+    it('leaves an already-canonical map unchanged and stays schema-valid', () => {
+      const map = buildDefaultEventMap('meta');
+      const out = normalizeMetaEventNames(map);
+      expect(out).toEqual(map);
+      expect(eventMapSchema.safeParse(out).success).toBe(true);
+    });
   });
 });
