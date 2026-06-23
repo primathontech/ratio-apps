@@ -22,6 +22,7 @@ const ALL_ENABLED = Object.fromEntries(
 interface Harness {
   fbq: ReturnType<typeof vi.fn>;
   message: (data: unknown, origin?: string) => void;
+  windowEvent: (type: string) => void;
   firedMeta: () => string[];
 }
 
@@ -74,6 +75,9 @@ function loadBundle(pathname: string): Harness {
     message: (data, origin = 'https://sandbox-pay.dev.gokwik.io') => {
       for (const fn of listeners.message ?? []) fn({ origin, data });
     },
+    windowEvent: (type: string) => {
+      for (const fn of listeners[type] ?? []) fn({ type, detail: {} });
+    },
     // Meta event names passed to fbq('trackSingle', pixelId, <name>, …)
     firedMeta: () =>
       fbq.mock.calls.filter((c) => c[0] === 'trackSingle').map((c) => c[2] as string),
@@ -92,6 +96,17 @@ describe('meta-pixel.js bundle — bus-attached supplements', () => {
   it('fires Search via URL routing on a /collections page (bus attached)', () => {
     const h = loadBundle('/collections/all');
     expect(h.firedMeta()).toContain('Search');
+  });
+
+  it('fires Search on a /pages/search page (bblunt search route)', () => {
+    const h = loadBundle('/pages/search');
+    expect(h.firedMeta()).toContain('Search');
+  });
+
+  it('fires CompleteRegistration on the KwikPass user-loggedin window event', () => {
+    const h = loadBundle('/');
+    h.windowEvent('user-loggedin');
+    expect(h.firedMeta()).toContain('CompleteRegistration');
   });
 
   it('does NOT fire the commerce funnel from postMessage while the bus is attached (no double-count)', () => {
