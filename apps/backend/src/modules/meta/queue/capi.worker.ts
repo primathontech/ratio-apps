@@ -40,6 +40,10 @@ export class MetaCapiWorker implements OnModuleInit {
   private readonly BATCH_SIZE = Number(process.env.META_CAPI_BATCH_SIZE ?? 800);
   private readonly WINDOW_MS = Number(process.env.META_CAPI_BATCH_WINDOW_MS ?? 300_000);
   private readonly VISIBILITY = Number(process.env.META_CAPI_VISIBILITY ?? 360);
+  // SQS long-poll wait per receive. Default 20s (SQS max) minimizes empty-poll
+  // request cost; clamped to SQS's 0–20 range. Latency is irrelevant here — the
+  // worker buffers until the batch size/window anyway.
+  private readonly WAIT_SECONDS = Math.min(20, Math.max(0, Number(process.env.META_CAPI_POLL_WAIT_SECONDS ?? 20)));
 
   constructor(
     private readonly queue: QueueService,
@@ -53,14 +57,14 @@ export class MetaCapiWorker implements OnModuleInit {
       return;
     }
     this.running = true;
-    this.logger.log({ msg: 'CAPI worker started', batchSize: this.BATCH_SIZE, windowMs: this.WINDOW_MS });
+    this.logger.log({ msg: 'CAPI worker started', batchSize: this.BATCH_SIZE, windowMs: this.WINDOW_MS, waitSeconds: this.WAIT_SECONDS });
     void this.loop();
   }
 
   private async loop(): Promise<void> {
     while (this.running) {
       try {
-        const msgs = await this.queue.receive<CapiQueueMessage>(QUEUE_NAMES.capi, 10, 5, this.VISIBILITY);
+        const msgs = await this.queue.receive<CapiQueueMessage>(QUEUE_NAMES.capi, 10, this.WAIT_SECONDS, this.VISIBILITY);
         for (const m of msgs) this.buffer(m.body, m.receiptHandle);
         await this.flushReady();
       } catch (err) {
