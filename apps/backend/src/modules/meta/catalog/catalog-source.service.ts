@@ -16,7 +16,9 @@ function itemApiBase(): string {
 export class CatalogSourceService {
   private readonly logger = new Logger(CatalogSourceService.name);
   private static readonly PAGE = 250;
-  private static readonly MAX_PAGES = 400; // safety cap (~100k products)
+  // Runaway-loop guard only (normal stop = hasNext:false / empty page). os-item
+  // caps page size at ~10 regardless of PAGE, so size for that: ~50k products.
+  private static readonly MAX_PAGES = 5000;
 
   /**
    * Stream products page-by-page (bounded memory): `onPage` is awaited for each
@@ -59,12 +61,31 @@ export class CatalogSourceService {
         total += batch.length;
         await onPage(batch);
       }
-      // Fewer than a full page → that was the last page.
-      if (batch.length < CatalogSourceService.PAGE) break;
+      // Page on the API's OWN pagination signal — os-item caps page size (~10)
+      // and ignores our `limit`, so "returned < requested limit" is ALWAYS true
+      // and must NOT be used as the stop condition. Stop on an empty page or when
+      // the API says there is no next page.
+      if (batch.length === 0 || !this.hasNextPage(body, page)) break;
     }
 
     this.logger.log({ msg: 'streamed os-item products', merchantId, count: total });
     return total;
+  }
+
+  /**
+   * Whether another page exists, using the API's pagination metadata (top-level
+   * or under `meta`). Prefers an explicit `hasNext`; else `page < totalPages`.
+   * When no metadata is present, returns true and we rely on the empty-page stop.
+   */
+  private hasNextPage(body: Record<string, unknown>, page: number): boolean {
+    // os-item nests pagination under `pagination`; tolerate `meta` / top-level too.
+    const src = body.pagination ?? body.meta ?? body;
+    const m = (src && typeof src === 'object' ? src : body) as Record<string, unknown>;
+    if (typeof m.hasNext === 'boolean') return m.hasNext;
+    if (typeof m.has_next === 'boolean') return m.has_next;
+    const totalPages = Number(m.totalPages ?? m.total_pages);
+    if (Number.isFinite(totalPages) && totalPages > 0) return page < totalPages;
+    return true; // no metadata → keep going; the empty-page check ends the loop
   }
 
   private extractProducts(body: Record<string, unknown>): OsItemProduct[] {
