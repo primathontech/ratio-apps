@@ -16,7 +16,7 @@
  */
 // `_template` is the golden boilerplate vendor. A scaffolded vendor adds its
 // own slug here (use lowercase-alphanumeric-dash, e.g. 'loyalty').
-export const APPS = ['google', 'meta', 'posthog', 'moengage'] as const;
+export const APPS = ['google', 'meta', 'posthog', 'moengage', 'wizzy'] as const;
 export type AppSlug = (typeof APPS)[number];
 
 // Slugs flow into runtime URL regexes (main.ts rate-limit matchers). Reject
