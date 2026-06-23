@@ -55,6 +55,24 @@ export function buildDefaultEventMap(vendor?: 'meta' | 'posthog' | 'moengage'): 
 }
 
 /**
+ * Force every event's `name` back to the canonical Meta standard name, keeping
+ * the merchant's enabled/disabled choice. The Meta app intentionally does NOT
+ * support renaming: a renamed standard event (e.g. `ViewContent` → `ViewContentsss`)
+ * becomes a Meta CUSTOM event (losing standard-event optimization) AND breaks SDK
+ * firing (the gate keys on the canonical name). So the admin only toggles
+ * enable/disable, and the server normalizes the stored name here — defense in
+ * depth, and it repairs any already-renamed config on the next save.
+ */
+export function normalizeMetaEventNames(events: EventMap): EventMap {
+  return Object.fromEntries(
+    (Object.entries(events) as [OpenStoreEventName, EventOverride][]).map(([osName, ov]) => [
+      osName,
+      { enabled: ov.enabled, name: DEFAULT_META_EVENT_MAP[osName] ?? osName },
+    ]),
+  ) as EventMap;
+}
+
+/**
  * The runtime map the SDK actually uses: only enabled events,
  * keyed by OS event name, valued by the merchant-chosen Template event name.
  * Equivalent to the prototype's `buildSdkEventMap()`.
