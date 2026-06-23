@@ -365,7 +365,8 @@ interface Window {
     if (p0 === 'collection' || p0 === 'collections') {
       return { name: 'Search', props: { search_string: parts[1] ?? '', content_type: 'collection', currency: 'INR', value: 0 } };
     }
-    if (p0 === 'search') {
+    // Search page — `/search?q=` and the common storefront route `/pages/search?q=`.
+    if (p0 === 'search' || (p0 === 'pages' && parts[1] === 'search')) {
       const q = new URLSearchParams(location.search).get('q') ?? '';
       return { name: 'Search', props: { search_string: q, content_type: 'product', currency: 'INR', value: 0 } };
     }
@@ -530,6 +531,13 @@ interface Window {
   // always listen for the GoKwik/KwikPass postMessages. The commerce funnel
   // inside self-gates to fallback-only (busAttached check) to avoid double-count.
   attachGokwikMessages();
+
+  // KwikPass (custom integration) also signals a successful login via a window
+  // CustomEvent `user-loggedin` (NOT a postMessage), so listen for that too.
+  // Dedup (isDuplicate) collapses it if the postMessage path fires as well.
+  for (const evt of ['user-loggedin', 'user_loggedin_merchant']) {
+    window.addEventListener(evt, () => emit('CompleteRegistration', {}));
+  }
 
   // Prefer the bus. It may not exist yet when we load (afterInteractive), so
   // poll briefly; if it never appears, fall back to observe. Whichever wins,
