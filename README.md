@@ -101,8 +101,6 @@ To add a vendor manually, follow the recipe in [`AGENTS.md`](./AGENTS.md).
 
 
 
-claude --resume db488dea-98f5-406b-a78b-0498b7cbee80
-
 ## Deployment topology
 
 One image, behaviour chosen by env (no `ROLE` var — the entrypoint is the role):
