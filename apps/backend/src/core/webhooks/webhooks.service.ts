@@ -1,4 +1,4 @@
-import { BadRequestException, Logger } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 import { type Kysely, sql, type Transaction } from 'kysely';
 import type { DatabaseWithMerchants, MerchantRow } from '../merchants/merchant.types';
 import type { DatabaseWithWebhookLog } from './webhook-log.types';
@@ -52,7 +52,6 @@ export class WebhooksService<DB extends DatabaseWithMerchants & DatabaseWithWebh
    * simply registers N entries.
    */
   private readonly handlersByTopic: ReadonlyMap<string, WebhookHandler>;
-  private readonly logger = new Logger(WebhooksService.name);
 
   constructor(private readonly deps: WebhooksServiceDeps<DB>) {
     const list: WebhookHandler[] = [
@@ -136,26 +135,9 @@ export class WebhooksService<DB extends DatabaseWithMerchants & DatabaseWithWebh
    *   dedup key; otherwise the content-derived key is used as a fallback.
    */
   async dispatch(envelope: WebhookEnvelope, deliveryId?: string): Promise<void> {
-    const trimmed = typeof deliveryId === 'string' ? deliveryId.trim() : '';
     const ratioWebhookId = dedupeKey(deliveryId, envelope);
     const topic = envelope.event_type;
     const product = envelope.product ?? {};
-
-    // TEMP DIAGNOSTIC (remove after root-causing the "200 but nothing syncs"
-    // issue): record exactly what arrived + the dedup key. The key reveals
-    // whether x-webhook-id is present and whether the new `:updated_at` key
-    // format is live; `registeredTopics` vs `topic` reveals a topic mismatch.
-    this.logger.warn({
-      msg: 'DEBUG webhook dispatch received',
-      topic,
-      ratioWebhookId,
-      hasDeliveryId: trimmed !== '',
-      merchantId: envelope.merchant_id ?? null,
-      productId: typeof product.id === 'string' ? product.id : null,
-      productUpdatedAt: (product as Record<string, unknown>).updated_at ?? null,
-      registeredTopics: [...this.handlersByTopic.keys()],
-      topicMatched: this.handlersByTopic.has(topic),
-    });
 
     // mysql2 doesn't auto-serialize JS objects to JSON columns — it would
     // send `[object Object]` and MySQL rejects with "Invalid JSON text".
@@ -260,15 +242,7 @@ export class WebhooksService<DB extends DatabaseWithMerchants & DatabaseWithWebh
 
         // A retry inside the window (or a topic-mismatch collision — no
         // handler to re-run anyway) is a no-op.
-        if (withinWindow || !isMatch) {
-          this.logger.warn({
-            msg: 'DEBUG webhook dispatch outcome',
-            outcome: withinWindow ? 'deduped (retry within window)' : 'no-handler (collision)',
-            topic,
-            ratioWebhookId,
-          });
-          return;
-        }
+        if (withinWindow || !isMatch) return;
 
         // Outside the window: treat as a new event and re-run the handler.
         await (matchedHandler as WebhookHandler).handle(
@@ -287,28 +261,13 @@ export class WebhooksService<DB extends DatabaseWithMerchants & DatabaseWithWebh
           } as never)
           .where('ratioWebhookId', '=', ratioWebhookId)
           .execute();
-        this.logger.warn({
-          msg: 'DEBUG webhook dispatch outcome',
-          outcome: 'handled (re-run outside window)',
-          topic,
-          ratioWebhookId,
-        });
         return;
       }
 
       // Topic-mismatch fast-path: the INSERT above already stamped
       // processed_at; no handler will run and no trailing UPDATE is
       // needed. Single round-trip done.
-      if (!isMatch) {
-        this.logger.warn({
-          msg: 'DEBUG webhook dispatch outcome',
-          outcome: 'no-handler (topic mismatch)',
-          topic,
-          ratioWebhookId,
-          registeredTopics: [...this.handlersByTopic.keys()],
-        });
-        return;
-      }
+      if (!isMatch) return;
 
       // `matchedHandler` is defined here: isMatch === true implies a hit, and
       // the two early returns above cover the !isNew and !isMatch paths.
@@ -323,12 +282,6 @@ export class WebhooksService<DB extends DatabaseWithMerchants & DatabaseWithWebh
         .set({ processedAt: sql`CURRENT_TIMESTAMP(3)` } as never)
         .where('ratioWebhookId', '=', ratioWebhookId)
         .execute();
-      this.logger.warn({
-        msg: 'DEBUG webhook dispatch outcome',
-        outcome: 'handled (fresh delivery — handler enqueued)',
-        topic,
-        ratioWebhookId,
-      });
     });
   }
 }
