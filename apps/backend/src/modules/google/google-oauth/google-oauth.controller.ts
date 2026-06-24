@@ -60,23 +60,19 @@ export class GoogleConnectController {
   }
 }
 
-/** Origin of a URL, or '*' if it can't be parsed (postMessage fallback). */
-function originOf(url: string): string {
-  try {
-    return new URL(url).origin;
-  } catch {
-    return '*';
-  }
-}
-
 /**
  * The popup-close page served to the OAuth callback. Posts `{ source:
  * 'ratio-google-oauth', connected: true }` to the opener (the admin SPA, which
  * listens for it and refetches config) then closes. Falls back to a redirect
  * when opened without an opener (popup blocked / top-level navigation).
+ *
+ * `targetOrigin` is `'*'` deliberately: the Ratio dashboard embeds the admin
+ * under a host we can't predict, so pinning the target origin would cause the
+ * browser to silently drop the message. The opener validates the message by its
+ * `source` field instead, and the payload (a "connected" boolean) is not
+ * sensitive — so a wildcard target is safe here.
  */
 function renderOAuthClosePage(adminBase: string): string {
-  const targetOrigin = JSON.stringify(originOf(adminBase));
   const fallbackUrl = JSON.stringify(`${adminBase}/config?connected=1`);
   return `<!doctype html>
 <html><head><meta charset="utf-8"><title>Google connected</title></head>
@@ -85,7 +81,7 @@ function renderOAuthClosePage(adminBase: string): string {
 (function () {
   try {
     if (window.opener && !window.opener.closed) {
-      window.opener.postMessage({ source: 'ratio-google-oauth', connected: true }, ${targetOrigin});
+      window.opener.postMessage({ source: 'ratio-google-oauth', connected: true }, '*');
       window.close();
       return;
     }

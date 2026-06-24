@@ -1,4 +1,3 @@
-import { Injectable, Logger } from '@nestjs/common';
 import {
   CreateQueueCommand,
   DeleteMessageBatchCommand,
@@ -6,6 +5,7 @@ import {
   SendMessageBatchCommand,
   SQSClient,
 } from '@aws-sdk/client-sqs';
+import { Injectable, Logger } from '@nestjs/common';
 
 /**
  * Thin, vendor-agnostic SQS wrapper. Same code talks to real Amazon SQS (prod)
