@@ -236,7 +236,20 @@ function mapVariant(
     if (variant.sku) {
       mpn = variant.sku;
     }
-    warn('missing GTIN, using SKU as MPN');
+    // Distinguish a MALFORMED barcode (merchant entered something that isn't a
+    // GTIN, e.g. a SKU-like string) from a legitimately ABSENT one, so the
+    // feed-item issue is actionable. A GTIN must be 8/12/13/14 DIGITS; a value
+    // like "qwertyuihsnx" is not a GTIN and must NOT be sent as one (GMC would
+    // disapprove it) — we fall back to MPN+brand, which Google accepts.
+    if (variant.barcode) {
+      warn(
+        `barcode "${variant.barcode}" is not a valid GTIN (must be 8, 12, 13, or 14 digits); using SKU as MPN`,
+      );
+    } else if (variant.sku) {
+      warn('no GTIN (barcode) provided; using SKU as MPN');
+    } else {
+      warn('no GTIN or SKU — product has no unique identifier');
+    }
   }
   const identifierExists = hasGtin || Boolean(variant.sku);
 

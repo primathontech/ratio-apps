@@ -8,9 +8,9 @@ import type {
 import type { DatabaseWithWebhookLog } from '../../../src/core/webhooks/webhook-log.types';
 import { WebhooksService } from '../../../src/core/webhooks/webhooks.service';
 import {
+  deriveWebhookId,
   WEBHOOK_DEDUPE_WINDOW_MS,
   WEBHOOK_MAX_PAYLOAD_BYTES,
-  deriveWebhookId,
   type WebhookEnvelope,
   type WebhookHandler,
   webhookEnvelopeSchema,
@@ -344,8 +344,44 @@ describe('WebhooksService.dispatch', () => {
 
   // ---- deriveWebhookId ----
 
-  it('derives <event_type>:<product.id> when a product id is present', () => {
-    expect(deriveWebhookId(envelope({ product: { id: 'abc' } }))).toBe('app/uninstalled:abc');
+  it('derives <event_type>:<product.id>:<updated_at> for a product event', () => {
+    expect(
+      deriveWebhookId(
+        envelope({
+          event_type: 'products/update',
+          product: { id: 'abc', updated_at: '2026-06-24T06:21:15.000Z' },
+        }),
+      ),
+    ).toBe('products/update:abc:2026-06-24T06:21:15.000Z');
+  });
+
+  it('changes the key when updated_at changes — a real re-update is NOT a retry', () => {
+    const k1 = deriveWebhookId(
+      envelope({ event_type: 'products/update', product: { id: 'abc', updated_at: 't1' } }),
+    );
+    const k2 = deriveWebhookId(
+      envelope({ event_type: 'products/update', product: { id: 'abc', updated_at: 't2' } }),
+    );
+    expect(k1).not.toBe(k2);
+  });
+
+  it('keeps the SAME key for an identical re-delivery — a true retry still dedups', () => {
+    const make = () =>
+      deriveWebhookId(
+        envelope({ event_type: 'products/update', product: { id: 'abc', updated_at: 't1' } }),
+      );
+    expect(make()).toBe(make());
+  });
+
+  it('falls back to a content hash when updated_at is absent — distinct per content', () => {
+    const k1 = deriveWebhookId(
+      envelope({ event_type: 'products/update', product: { id: 'abc', title: 'A' } }),
+    );
+    const k2 = deriveWebhookId(
+      envelope({ event_type: 'products/update', product: { id: 'abc', title: 'B' } }),
+    );
+    expect(k1).not.toBe(k2);
+    expect(k1.startsWith('products/update:abc:')).toBe(true);
   });
 
   it('derives <event_type>:none for product-less events (e.g. app/uninstalled)', () => {
