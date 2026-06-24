@@ -143,7 +143,7 @@ export class FeedSyncService {
     }
     await this.handle.db
       .updateTable('google_feed_items')
-      .set({ status: 'DELETED', updatedAt: sql`CURRENT_TIMESTAMP(3)` } as never)
+      .set({ status: 'DELETED', issue: null, updatedAt: sql`CURRENT_TIMESTAMP(3)` } as never)
       .where('merchantId', '=', merchantId)
       .where('productId', '=', productId)
       .execute();

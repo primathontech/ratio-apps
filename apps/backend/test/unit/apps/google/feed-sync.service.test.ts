@@ -67,11 +67,11 @@ function makeFakeKysely(opts: {
   handle: KyselyClient<GoogleDatabase>;
   feedItemWrites: FeedItemWrite[];
   syncLogWrites: SyncLogWrite[];
-  feedItemUpdates: { status: string }[];
+  feedItemUpdates: { status: string; issue: string | null }[];
 } {
   const feedItemWrites: FeedItemWrite[] = [];
   const syncLogWrites: SyncLogWrite[] = [];
-  const feedItemUpdates: { status: string }[] = [];
+  const feedItemUpdates: { status: string; issue: string | null }[] = [];
 
   // --- selectFrom builders -------------------------------------------------
   const configSelect = {
@@ -149,7 +149,10 @@ function makeFakeKysely(opts: {
     },
     async execute() {
       const v = this.staged ?? {};
-      feedItemUpdates.push({ status: String(v.status ?? '') });
+      feedItemUpdates.push({
+        status: String(v.status ?? ''),
+        issue: (v.issue ?? null) as string | null,
+      });
       this.staged = null;
       return [];
     },
@@ -375,9 +378,10 @@ describe('FeedSyncService', () => {
       const deletes = calls.filter((c) => c.method === 'DELETE');
       expect(deletes).toHaveLength(2);
 
-      // updateTable set status 'DELETED'.
+      // updateTable set status 'DELETED' and cleared any stale issue.
       expect(fake.feedItemUpdates).toHaveLength(1);
       expect(fake.feedItemUpdates[0]?.status).toBe('DELETED');
+      expect(fake.feedItemUpdates[0]?.issue).toBeNull();
     });
   });
 
