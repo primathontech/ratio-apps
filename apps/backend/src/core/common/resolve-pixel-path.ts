@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 
 /**
  * Per-module pixel file slug. Determines the filename (`<slug>-pixel.js`) and
@@ -48,5 +48,25 @@ export function resolvePixelPath(slug: PixelSlug, callerDir: string): string {
   for (const p of candidates) {
     if (existsSync(p)) return p;
   }
+
+  // Robust fallback: walk UP from callerDir and, at each ancestor, check both
+  // `<dir>/<filename>` (nest-cli asset-copy layout) and `<dir>/static/<filename>`
+  // (source layout). This finds the bundle regardless of the exact nesting
+  // depth or process cwd, so a build that DID emit the pixel never 503s with
+  // PIXEL_MISSING just because the relative-up math didn't match this layout.
+  // Bounded to a sane number of levels so a missing file can't walk to `/`.
+  let dir = callerDir;
+  for (let i = 0; i < 12; i++) {
+    const direct = resolve(dir, filename);
+    if (existsSync(direct)) return direct;
+    const inStatic = resolve(dir, 'static', filename);
+    if (existsSync(inStatic)) return inStatic;
+    const parent = dirname(dir);
+    if (parent === dir) break; // reached the filesystem root
+    dir = parent;
+  }
+
+  // Nothing found anywhere → return the src-layout path so the caller's
+  // downstream `readFile` produces a clear ENOENT at the expected location.
   return srcLayout;
 }
