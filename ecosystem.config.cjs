@@ -45,7 +45,7 @@ module.exports = {
       instances: 1,
       exec_mode: 'fork',
       env: {
-        NODE_ENV: 'production',
+        NODE_ENV: 'development',
         // API-only: the backend serves no static UI. The admin SPA is built and
         // deployed by a separate service, so static serving stays off.
         SERVE_STATIC: 'false',
