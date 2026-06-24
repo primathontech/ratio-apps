@@ -25,6 +25,12 @@ interface MetaConfigsTable {
   instagramProfileId: string | null;
   /** Unguessable token authenticating the public feed URL. */
   feedToken: string | null;
+  /**
+   * Merchant storefront base URL for catalog/feed product links (full URL).
+   * NULL → fall back to the `RATIO_META_STOREFRONT_BASE_URL` env default. See
+   * migration 0006.
+   */
+  storefrontUrl: ColumnType<string | null, string | null | undefined, string | null | undefined>;
   lastSyncAt: ColumnType<Date | null, Date | null, Date | null>;
   syncEnabled: Generated<boolean>;
   catalogUpdatedAt: ColumnType<Date | null, Date | null, Date | null>;
