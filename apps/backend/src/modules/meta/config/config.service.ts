@@ -45,10 +45,11 @@ export class MetaConfigService {
     productIdType: ProductIdType;
     feedToken: string | null;
     syncEnabled: boolean;
+    storefrontUrl: string | null;
   } | null> {
     const row = await this.handle.db
       .selectFrom('meta_configs')
-      .select(['catalogId', 'catalogAccessToken', 'productIdType', 'feedToken', 'syncEnabled'])
+      .select(['catalogId', 'catalogAccessToken', 'productIdType', 'feedToken', 'syncEnabled', 'storefrontUrl'])
       .where('merchantId', '=', merchantId)
       .limit(1)
       .executeTakeFirst();
@@ -59,6 +60,7 @@ export class MetaConfigService {
       productIdType: row.productIdType,
       feedToken: row.feedToken,
       syncEnabled: Boolean(row.syncEnabled),
+      storefrontUrl: row.storefrontUrl,
     };
   }
 
@@ -162,6 +164,7 @@ export class MetaConfigService {
       // MySQL stores `debug` as TINYINT(1) → mysql2 returns 0/1, coerce.
       debug: Boolean(row.debug),
       events: row.events,
+      storefrontUrl: row.storefrontUrl ?? undefined,
     };
   }
 
@@ -182,6 +185,8 @@ export class MetaConfigService {
     // Encrypt the CAPI token at rest (AES-256-GCM). Empty stays empty so the
     // "not configured" state is distinguishable and never decrypt-fails.
     const encToken = input.capiAccessToken ? this.crypto.encrypt(input.capiAccessToken) : '';
+    // Blank/whitespace → NULL so the catalog/feed fall back to the env default.
+    const storefrontUrl = input.storefrontUrl?.trim() || null;
 
     await this.handle.db
       .insertInto('meta_configs')
@@ -193,6 +198,7 @@ export class MetaConfigService {
         productIdType,
         debug,
         events: eventsJson as unknown as typeof events,
+        storefrontUrl,
       })
       .onDuplicateKeyUpdate({
         pixelId: input.pixelId,
@@ -201,6 +207,7 @@ export class MetaConfigService {
         productIdType,
         debug,
         events: eventsJson as unknown as typeof events,
+        storefrontUrl,
         updatedAt: sql`CURRENT_TIMESTAMP(3)`,
       })
       .execute();
@@ -212,6 +219,7 @@ export class MetaConfigService {
       productIdType,
       debug,
       events,
+      storefrontUrl: storefrontUrl ?? undefined,
     };
   }
 }

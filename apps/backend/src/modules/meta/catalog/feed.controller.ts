@@ -36,7 +36,12 @@ export class MetaFeedController {
     }
     const cfg = await this.config.getCatalogConfig(merchantId);
     const productIdType: ProductIdType = cfg?.productIdType ?? 'product_id';
-    const base = (process.env.RATIO_META_STOREFRONT_BASE_URL ?? 'https://storefront.example.com').replace(/\/+$/, '');
+    // Per-merchant storefront base for product links; global env is the fallback.
+    const base = (
+      cfg?.storefrontUrl?.trim() ||
+      process.env.RATIO_META_STOREFRONT_BASE_URL ||
+      'https://storefront.example.com'
+    ).replace(/\/+$/, '');
 
     reply.hijack(); // we own the raw response now
     const raw = reply.raw;
