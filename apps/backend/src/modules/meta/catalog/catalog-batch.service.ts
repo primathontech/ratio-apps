@@ -34,7 +34,9 @@ export interface CatalogFailure {
 @Injectable()
 export class CatalogBatchService {
   private readonly logger = new Logger(CatalogBatchService.name);
-  private static readonly MAX_BATCH = 1000;
+  // Items per items_batch call. Same env knob as the sync accumulator so one
+  // flush = one Meta call; clamped to Meta's 5000-item ceiling (default 800).
+  private static readonly MAX_BATCH = Math.min(5000, Math.max(1, Number(process.env.META_CATALOG_BATCH_SIZE) || 800));
 
   /** Map a transformed product → a CREATE/UPDATE request `data` block. */
   toData(p: MetaProductDto): Record<string, unknown> {

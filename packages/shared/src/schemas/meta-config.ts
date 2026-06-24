@@ -42,6 +42,19 @@ export const productIdTypeSchema = z.enum(PRODUCT_ID_TYPES).default(DEFAULT_PROD
  * is returned to the ADMIN only (behind the merchant-token guard); it is
  * stripped before the value is ever placed in the browser SDK prelude.
  */
+/**
+ * Merchant storefront base URL used for catalog/feed product links (e.g.
+ * https://store.example.com). Optional — blank falls back to the
+ * RATIO_META_STOREFRONT_BASE_URL env default server-side.
+ */
+export const storefrontUrlSchema = z
+  .string()
+  .trim()
+  .url('must be a valid URL, e.g. https://yourstore.com')
+  .max(255)
+  .or(z.literal(''))
+  .optional();
+
 export const metaConfigSchema = z.object({
   pixelId: pixelIdSchema,
   capiAccessToken: capiAccessTokenSchema,
@@ -49,6 +62,7 @@ export const metaConfigSchema = z.object({
   productIdType: productIdTypeSchema,
   debug: z.boolean().default(false),
   events: eventMapSchema,
+  storefrontUrl: storefrontUrlSchema,
 });
 
 export type MetaConfig = z.infer<typeof metaConfigSchema>;

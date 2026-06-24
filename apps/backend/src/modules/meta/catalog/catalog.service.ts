@@ -76,17 +76,43 @@ export class CatalogService implements OnModuleInit {
     let failed = 0;
     const allFailures: CatalogFailure[] = [];
     try {
+      // Accumulate products across os-item pages and push to Meta in fixed-size
+      // batches (NOT per page). os-item caps pages at ~10 rows, so pushing per
+      // page would make one Meta Catalog API call per ~10 products and trip the
+      // per-minute batch rate limit (#80014). Buffering to BATCH keeps it to
+      // ~1 call per 800 products. Buffered-but-unflushed products are NOT yet
+      // recorded in catalog_items (we record only after a successful push), so a
+      // mid-sync crash loses nothing — the next sync re-fetches from os-item (the
+      // source of truth) and re-syncs them, and orphan deletion runs only on a
+      // fully-completed sync.
+      // Products per Meta batch flush. Env-tunable; clamped to Meta's 5000-item
+      // items_batch ceiling. Default 800 (one Meta call per 800 products).
+      const BATCH = Math.min(5000, Math.max(1, Number(process.env.META_CATALOG_BATCH_SIZE) || 800));
+      let buffer: OsItemProduct[] = [];
+      const flush = async (): Promise<void> => {
+        if (!buffer.length) return;
+        const chunk = buffer;
+        buffer = [];
+        const r = await this.applyOps(
+          merchantId,
+          chunk.map((product) => ({ action: 'upsert', product }) as CatalogOp),
+          force,
+        );
+        sent += r.sent;
+        failed += r.failed;
+        allFailures.push(...r.failures);
+      };
+
       const total = await this.source.eachPage(
         merchantId,
         async (products) => {
           for (const p of products) live.add(p.id);
-          const r = await this.applyOps(merchantId, products.map((product) => ({ action: 'upsert', product }) as CatalogOp), force);
-          sent += r.sent;
-          failed += r.failed;
-          allFailures.push(...r.failures);
+          buffer.push(...products);
+          if (buffer.length >= BATCH) await flush();
         },
         () => this.cancelling.has(merchantId),
       );
+      await flush(); // push the remaining (< BATCH) products
 
       const cancelled = this.cancelling.has(merchantId);
       // Skip orphan deletion on a cancelled run — `live` is incomplete, so we'd
@@ -157,10 +183,12 @@ export class CatalogService implements OnModuleInit {
 
     const deleteSourceIds = ops.filter((o) => o.action === 'delete' && o.sourceProductId).map((o) => o.sourceProductId as string);
 
+    // Per-merchant storefront base for product links; global env is the fallback.
+    const base = cfg.storefrontUrl?.trim() || storefrontBase();
     const desired = new Map<string, { sourceProductId: string; hash: string; data: Record<string, unknown> }>();
     for (const op of ops) {
       if (op.action !== 'upsert' || !op.product) continue;
-      const items = this.transformer.transform(op.product, cfg.productIdType, storefrontBase());
+      const items = this.transformer.transform(op.product, cfg.productIdType, base);
       if (items.length === 0) {
         deleteSourceIds.push(op.product.id); // draft/unpublished → remove if previously synced
         continue;

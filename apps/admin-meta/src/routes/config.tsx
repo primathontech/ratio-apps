@@ -36,6 +36,7 @@ function ConfigPage() {
       dataSharingLevel: 'maximum',
       productIdType: 'product_id',
       debug: false,
+      storefrontUrl: '',
       events: buildDefaultEventMap('meta'),
     },
   });
@@ -149,6 +150,25 @@ function ConfigPage() {
                       </option>
                     ))}
                   </select>
+                )}
+              />
+            </FieldRow>
+
+            <FieldRow
+              label="Storefront URL"
+              error={form.formState.errors.storefrontUrl?.message}
+              hint="Your store's base URL (e.g. https://yourstore.com) — used for catalog/feed product links. Must be a domain verified in your Meta Business. Leave blank to use the server default."
+            >
+              <Controller
+                control={form.control}
+                name="storefrontUrl"
+                render={({ field, fieldState }) => (
+                  <Input
+                    {...field}
+                    value={field.value ?? ''}
+                    placeholder="https://yourstore.com"
+                    {...(fieldState.invalid ? { status: 'error' as const } : {})}
+                  />
                 )}
               />
             </FieldRow>
