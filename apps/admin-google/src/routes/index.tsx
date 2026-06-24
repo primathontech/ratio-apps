@@ -50,9 +50,9 @@ export function Overview() {
           action={
             <PrimaryButton
               onClick={() => {
-                void startGoogleConnect().then((ok) => {
-                  if (ok) void config.refetch();
-                });
+                // Always refetch when the popup flow ends so the UI self-corrects
+                // even if the postMessage was missed.
+                void startGoogleConnect().finally(() => void config.refetch());
               }}
             >
               Reconnect Google

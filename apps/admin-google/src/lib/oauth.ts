@@ -2,16 +2,6 @@ import { api } from './api';
 
 const OAUTH_MESSAGE_SOURCE = 'ratio-google-oauth';
 
-/** Origin the OAuth callback page posts from (the backend host). */
-function apiOrigin(): string | null {
-  const raw = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
-  try {
-    return raw ? new URL(raw).origin : null;
-  } catch {
-    return null;
-  }
-}
-
 /**
  * Start the Google connect flow in a POPUP and resolve when it completes —
  * WITHOUT navigating, so the merchant stays inside the Ratio dashboard iframe.
@@ -49,7 +39,6 @@ export async function startGoogleConnect(): Promise<boolean> {
   popup.location.href = url;
 
   return new Promise<boolean>((resolve) => {
-    const expectedOrigin = apiOrigin();
     let settled = false;
     const finish = (connected: boolean): void => {
       if (settled) return;
@@ -58,8 +47,11 @@ export async function startGoogleConnect(): Promise<boolean> {
       clearInterval(poll);
       resolve(connected);
     };
+    // Gate on the message `source` only — the admin can be embedded under a
+    // host the callback can't predict, so the callback posts with target '*'.
+    // The payload is a non-sensitive "connected" boolean and only OUR popup can
+    // reach this opener, so the source string is a sufficient signal.
     const onMessage = (e: MessageEvent): void => {
-      if (expectedOrigin && e.origin !== expectedOrigin) return;
       const data = e.data as { source?: string; connected?: boolean } | null;
       if (data?.source === OAUTH_MESSAGE_SOURCE && data.connected) {
         try {
@@ -71,7 +63,8 @@ export async function startGoogleConnect(): Promise<boolean> {
       }
     };
     window.addEventListener('message', onMessage);
-    // The popup closing without a message = user cancelled.
+    // The popup closing without a message = user cancelled (or the message was
+    // missed) — resolve false; the caller refetches regardless to self-correct.
     const poll = window.setInterval(() => {
       if (popup.closed) finish(false);
     }, 500);

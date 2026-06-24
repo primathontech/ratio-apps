@@ -124,10 +124,12 @@ export function ConfigPage() {
     setConnecting(true);
     try {
       const connected = await startGoogleConnect();
-      if (connected) {
-        setJustConnected(true);
-        await refetch(); // flip the UI to connected + auto-fill discovered IDs
-      }
+      // ALWAYS refetch when the popup flow ends — the connection may have
+      // succeeded even if the postMessage was missed (so the UI self-corrects
+      // without a manual reload). Mark justConnected if the message confirmed
+      // it OR the refetched config now shows a linked Google account.
+      const res = await refetch();
+      if (connected || res.data?.googleAccountEmail) setJustConnected(true);
     } finally {
       setConnecting(false);
     }

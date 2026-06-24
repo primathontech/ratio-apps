@@ -39,7 +39,7 @@ describe('GoogleConnectController.callback', () => {
     // Posts the connected signal to the opener, scoped to the admin ORIGIN.
     expect(body).toContain('postMessage');
     expect(body).toContain("source: 'ratio-google-oauth', connected: true");
-    expect(body).toContain('"https://admin.example.com"'); // targetOrigin (origin only)
+    expect(body).toContain("}, '*')"); // posts to '*' (admin host is unpredictable when embedded)
     // Falls back to a redirect when there's no opener (popup blocked).
     expect(body).toContain('"https://admin.example.com/google/config?connected=1"');
   });
