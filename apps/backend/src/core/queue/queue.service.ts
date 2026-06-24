@@ -68,7 +68,7 @@ export class QueueService {
     const url = await this.ensureQueue(name);
     for (let i = 0; i < payloads.length; i += 10) {
       const chunk = payloads.slice(i, i + 10);
-      const res = await this.client.send(
+      await this.client.send(
         new SendMessageBatchCommand({
           QueueUrl: url,
           Entries: chunk.map((p, j) => ({
@@ -77,16 +77,6 @@ export class QueueService {
           })),
         }),
       );
-      // [CAPI-TRACE] TEMP debug — remove after investigation. Surfaces any
-      // partial SQS send failures (Failed[]) that sendBatch otherwise swallows.
-      this.logger.log({
-        msg: '[CAPI-TRACE] SQS sendBatch result',
-        name,
-        sent: res.Successful?.length ?? 0,
-        failed: res.Failed?.length ?? 0,
-        messageIds: res.Successful?.map((s) => s.MessageId),
-        failures: res.Failed?.map((f) => ({ id: f.Id, code: f.Code, msg: f.Message, sender: f.SenderFault })),
-      });
     }
   }
 
@@ -111,31 +101,15 @@ export class QueueService {
         ...(visibilityTimeout ? { VisibilityTimeout: visibilityTimeout } : {}),
       }),
     );
-    const raw = res.Messages ?? [];
-    const out = raw.flatMap((m) => {
-      if (!m.Body || !m.ReceiptHandle) {
-        // [CAPI-TRACE] TEMP — a message with no body/handle would be dropped.
-        this.logger.warn({ msg: '[CAPI-TRACE] SQS receive: message missing body/handle — DROPPED', name, messageId: m.MessageId });
-        return [];
-      }
+    return (res.Messages ?? []).flatMap((m) => {
+      if (!m.Body || !m.ReceiptHandle) return [];
       try {
         return [{ body: JSON.parse(m.Body) as T, receiptHandle: m.ReceiptHandle }];
-      } catch (err) {
+      } catch {
         // Undecodable body → drop the reference; it will hit the redrive policy.
-        // [CAPI-TRACE] TEMP — surface undecodable bodies (would be silently lost here).
-        this.logger.error({ msg: '[CAPI-TRACE] SQS receive: undecodable body — DROPPED', name, messageId: m.MessageId, body: m.Body, err });
         return [];
       }
     });
-    // [CAPI-TRACE] TEMP — every poll, even empty, so we can see drain cadence.
-    this.logger.log({
-      msg: '[CAPI-TRACE] 3. SQS receive',
-      name,
-      rawCount: raw.length,
-      decodedCount: out.length,
-      receiptHandles: out.map((o) => o.receiptHandle.slice(0, 12)),
-    });
-    return out;
   }
 
   /** Ack (delete) processed messages. */
@@ -144,20 +118,12 @@ export class QueueService {
     const url = await this.ensureQueue(name);
     for (let i = 0; i < receiptHandles.length; i += 10) {
       const chunk = receiptHandles.slice(i, i + 10);
-      const res = await this.client.send(
+      await this.client.send(
         new DeleteMessageBatchCommand({
           QueueUrl: url,
           Entries: chunk.map((h, j) => ({ Id: String(i + j), ReceiptHandle: h })),
         }),
       );
-      // [CAPI-TRACE] TEMP — a failed delete means the message redelivers (dup).
-      this.logger.log({
-        msg: '[CAPI-TRACE] 7. SQS ack (delete)',
-        name,
-        acked: res.Successful?.length ?? 0,
-        failed: res.Failed?.length ?? 0,
-        failures: res.Failed?.map((f) => ({ id: f.Id, code: f.Code, msg: f.Message })),
-      });
     }
   }
 }
