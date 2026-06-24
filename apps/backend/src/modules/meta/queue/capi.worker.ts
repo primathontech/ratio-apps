@@ -75,53 +75,20 @@ export class MetaCapiWorker implements OnModuleInit {
   }
 
   private buffer(body: CapiQueueMessage, handle: string): void {
-    if (!body?.merchantId || !Array.isArray(body.events)) {
-      // [CAPI-TRACE] TEMP — a malformed message body is silently ignored here.
-      this.logger.warn({ msg: '[CAPI-TRACE] 4x. buffer SKIPPED — bad message shape', hasMerchant: !!body?.merchantId, eventsType: typeof body?.events });
-      return;
-    }
+    if (!body?.merchantId || !Array.isArray(body.events)) return;
     const b = this.buffers.get(body.merchantId) ?? { events: [], handles: [], firstAt: Date.now(), ctx: body.ctx ?? {} };
     b.events.push(...body.events);
     b.handles.push(handle);
     this.buffers.set(body.merchantId, b);
-    // [CAPI-TRACE] TEMP — shows each message folding into the per-merchant buffer.
-    this.logger.log({
-      msg: '[CAPI-TRACE] 4. buffered',
-      merchantId: body.merchantId,
-      addedThisMsg: body.events.length,
-      addedIds: body.events.map((e) => `${e.event_name}:${e.event_id}`),
-      bufferTotalEvents: b.events.length,
-      bufferMessages: b.handles.length,
-      bufferAgeMs: Date.now() - b.firstAt,
-    });
   }
 
   /** Flush merchants that hit the size OR time threshold (whichever first). */
   private async flushReady(): Promise<void> {
     const now = Date.now();
     for (const [merchantId, b] of [...this.buffers]) {
-      const ageMs = now - b.firstAt;
-      const ready = b.events.length >= this.BATCH_SIZE || ageMs >= this.WINDOW_MS;
-      // [CAPI-TRACE] TEMP — explains WHY a buffer is held vs flushed each tick.
-      this.logger.log({
-        msg: '[CAPI-TRACE] 5. flushReady check',
-        merchantId,
-        bufferEvents: b.events.length,
-        bufferMessages: b.handles.length,
-        ageMs,
-        windowMs: this.WINDOW_MS,
-        batchSize: this.BATCH_SIZE,
-        ready,
-        reason: ready ? (b.events.length >= this.BATCH_SIZE ? 'size' : 'window') : 'waiting',
-      });
+      const ready = b.events.length >= this.BATCH_SIZE || now - b.firstAt >= this.WINDOW_MS;
       if (!ready) continue;
       this.buffers.delete(merchantId);
-      this.logger.log({
-        msg: '[CAPI-TRACE] 6. flushing buffer',
-        merchantId,
-        events: b.events.length,
-        ids: b.events.map((e) => `${e.event_name}:${e.event_id}`),
-      });
       try {
         const res = await this.capi.dispatch(merchantId, b.events, b.ctx);
         if (res.failed > 0) {
