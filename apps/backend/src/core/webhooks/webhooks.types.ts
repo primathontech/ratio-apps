@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { Transaction } from 'kysely';
 import { z } from 'zod';
 import type { DatabaseWithMerchants } from '../merchants/merchant.types';
@@ -16,13 +17,6 @@ export const WEBHOOK_MAX_PAYLOAD_BYTES = 64 * 1024;
  * Retry-windowed dedupe window — FALLBACK only, used when no per-delivery
  * `x-webhook-id` header is present on the inbound request.
  *
- * When a delivery arrives without a per-delivery id, dedupe falls back to
- * `deriveWebhookId(envelope)` = `<event_type>:<product.id|none>`. The
- * platform retries a failed/unacked delivery for roughly 2 hours, so a
- * second delivery of the SAME derived key inside this window is almost
- * certainly a retry and is suppressed. A delivery of the same key OUTSIDE
- * the window is treated as a legitimately new event (e.g. a real second
- * update to the same product) and re-runs the (idempotent) handler.
  */
 export const WEBHOOK_DEDUPE_WINDOW_MS = 3 * 60 * 60 * 1000;
 
@@ -42,22 +36,36 @@ export const webhookEnvelopeSchema = z
 
 export type WebhookEnvelope = z.infer<typeof webhookEnvelopeSchema>;
 
+
+function productVersion(product: Record<string, unknown>): string | null {
+  const updatedAt = product.updated_at ?? product.updatedAt;
+  if (typeof updatedAt === 'string' && updatedAt) return updatedAt;
+  if (typeof updatedAt === 'number') return String(updatedAt);
+  try {
+    return createHash('sha256').update(JSON.stringify(product)).digest('hex').slice(0, 16);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Derive the FALLBACK dedupe key for an envelope. Used only when no
  * per-delivery `x-webhook-id` header is present on the inbound request.
  *
- * Keys on `event_type` + the product id (when present). Events with no
- * product (e.g. `app/uninstalled`) collapse to `<event_type>:none`.
- * Stored in `webhook_log.ratio_webhook_id` (VARCHAR(255)).
+ * Product events key on `<event_type>:<product.id>:<version>` where `version`
+ * changes per real update (see {@link productVersion}) — so a genuine
+ * re-update is processed immediately and only an identical re-delivery is
+ * suppressed. Events with no product (e.g. `app/uninstalled`) collapse to
+ * `<event_type>:none`. Stored in `webhook_log.ratio_webhook_id` (VARCHAR(255)).
  *
- * When the platform does supply a per-delivery id, `dispatch()` uses that
- * as the exact dedup key instead — so every distinct delivery (including a
- * real second update to the same product) processes independently, and only
- * a true retry of the same delivery id is suppressed.
+ * When the platform DOES supply a per-delivery id, `dispatch()` uses that as
+ * the exact dedup key instead.
  */
 export function deriveWebhookId(e: WebhookEnvelope): string {
   const rid = (e.product && typeof e.product.id === 'string' && e.product.id) || 'none';
-  return `${e.event_type}:${rid}`;
+  if (rid === 'none') return `${e.event_type}:none`;
+  const version = productVersion(e.product as Record<string, unknown>);
+  return version ? `${e.event_type}:${rid}:${version}` : `${e.event_type}:${rid}`;
 }
 
 /**

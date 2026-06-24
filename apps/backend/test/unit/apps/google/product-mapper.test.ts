@@ -239,7 +239,7 @@ describe('mapProduct — WARNING conditions', () => {
     });
     const [offer] = mapProduct(product, config);
     expect(offer.status).toBe('WARNING');
-    expect(offer.issue).toBe('missing GTIN, using SKU as MPN');
+    expect(offer.issue).toBe('no GTIN (barcode) provided; using SKU as MPN');
     expect(offer.hasGtin).toBe(false);
     expect(offer.gmc!.gtin).toBeUndefined();
     expect(offer.gmc!.mpn).toBe('SKU-1');
@@ -308,6 +308,34 @@ describe('mapProduct — GTIN handling', () => {
     expect(offer.gmc!.gtin).toBeUndefined();
     expect(offer.gmc!.mpn).toBe('SKU-X');
     expect(offer.status).toBe('WARNING');
+    expect(offer.issue).toBe(
+      'barcode "12345" is not a valid GTIN (must be 8, 12, 13, or 14 digits); using SKU as MPN',
+    );
+  });
+
+  it('treats a non-numeric barcode (e.g. a SKU-like string) as not a GTIN, falls back to MPN', () => {
+    // Mirrors the live "qwertyuihsnx" case: a junk barcode is NOT a GTIN, so we
+    // must not send it as one — MPN+brand carry the product instead.
+    const product = baseProduct({
+      variants: [
+        {
+          id: 'v1',
+          price: '999',
+          barcode: 'qwertyuihsnx',
+          sku: 'qwertyuihsnx',
+          inventoryQuantity: 1,
+        },
+      ],
+    });
+    const [offer] = mapProduct(product, config);
+    expect(offer.hasGtin).toBe(false);
+    expect(offer.gmc!.gtin).toBeUndefined();
+    expect(offer.gmc!.mpn).toBe('qwertyuihsnx');
+    expect(offer.gmc!.identifierExists).toBe(true);
+    expect(offer.status).toBe('WARNING');
+    expect(offer.issue).toBe(
+      'barcode "qwertyuihsnx" is not a valid GTIN (must be 8, 12, 13, or 14 digits); using SKU as MPN',
+    );
   });
 });
 
