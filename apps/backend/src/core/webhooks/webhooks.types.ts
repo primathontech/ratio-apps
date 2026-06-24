@@ -36,7 +36,6 @@ export const webhookEnvelopeSchema = z
 
 export type WebhookEnvelope = z.infer<typeof webhookEnvelopeSchema>;
 
-
 function productVersion(product: Record<string, unknown>): string | null {
   const updatedAt = product.updated_at ?? product.updatedAt;
   if (typeof updatedAt === 'string' && updatedAt) return updatedAt;
@@ -66,6 +65,30 @@ export function deriveWebhookId(e: WebhookEnvelope): string {
   if (rid === 'none') return `${e.event_type}:none`;
   const version = productVersion(e.product as Record<string, unknown>);
   return version ? `${e.event_type}:${rid}:${version}` : `${e.event_type}:${rid}`;
+}
+
+/**
+ * The dedupe key for an inbound delivery.
+ *
+ * ⚠️ The platform's `x-webhook-id` is NOT unique per delivery — it REPEATS
+ * across genuine re-updates of the same product (verified live: two distinct
+ * `products/update` deliveries carried the identical id). Keying dedupe on the
+ * id alone therefore suppressed every real re-update for the whole 3h window.
+ * So we BIND the id to a content fingerprint of the payload:
+ *   - true retry  (same id + byte-identical body) → same key → suppressed ✓
+ *   - real update (same id + changed body)         → new key  → processed ✓
+ *
+ * When there is NO delivery id, fall back to {@link deriveWebhookId} (which
+ * carries its own per-update discriminator).
+ */
+export function dedupeKey(deliveryId: string | undefined, e: WebhookEnvelope): string {
+  const trimmed = typeof deliveryId === 'string' ? deliveryId.trim() : '';
+  if (trimmed === '') return deriveWebhookId(e);
+  const fingerprint = createHash('sha256')
+    .update(JSON.stringify(e.product ?? {}))
+    .digest('hex')
+    .slice(0, 16);
+  return `${trimmed}:${fingerprint}`;
 }
 
 /**

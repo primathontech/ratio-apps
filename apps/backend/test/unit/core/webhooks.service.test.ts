@@ -8,6 +8,7 @@ import type {
 import type { DatabaseWithWebhookLog } from '../../../src/core/webhooks/webhook-log.types';
 import { WebhooksService } from '../../../src/core/webhooks/webhooks.service';
 import {
+  dedupeKey,
   deriveWebhookId,
   WEBHOOK_DEDUPE_WINDOW_MS,
   WEBHOOK_MAX_PAYLOAD_BYTES,
@@ -387,6 +388,29 @@ describe('WebhooksService.dispatch', () => {
   it('derives <event_type>:none for product-less events (e.g. app/uninstalled)', () => {
     expect(deriveWebhookId(envelope({ product: undefined }))).toBe('app/uninstalled:none');
     expect(deriveWebhookId(envelope({ product: {} }))).toBe('app/uninstalled:none');
+  });
+
+  // ---- dedupeKey (the live fix: x-webhook-id is NOT unique per delivery) ----
+
+  it('binds a reused delivery id to a content fingerprint — a real re-update gets a NEW key', () => {
+    const id = '728c27b5-9af0-4db8-b43a-8d176025a50b'; // the live reused id
+    const k1 = dedupeKey(id, envelope({ product: { id: 'p', title: 'A' } }));
+    const k2 = dedupeKey(id, envelope({ product: { id: 'p', title: 'B' } }));
+    expect(k1).not.toBe(k2); // same delivery id, different content → distinct keys
+    expect(k1.startsWith(`${id}:`)).toBe(true);
+  });
+
+  it('keeps the SAME key for a true retry (same delivery id + identical body)', () => {
+    const id = 'abc-123';
+    const k1 = dedupeKey(id, envelope({ product: { id: 'p', title: 'A' } }));
+    const k2 = dedupeKey(id, envelope({ product: { id: 'p', title: 'A' } }));
+    expect(k1).toBe(k2);
+  });
+
+  it('falls back to deriveWebhookId when no delivery id is present', () => {
+    const env = envelope({ event_type: 'products/update', product: { id: 'p', updated_at: 't1' } });
+    expect(dedupeKey(undefined, env)).toBe(deriveWebhookId(env));
+    expect(dedupeKey('   ', env)).toBe(deriveWebhookId(env));
   });
 
   // ---- D7: payload-size guard ----
