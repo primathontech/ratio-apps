@@ -139,6 +139,28 @@ export class MetaCapiService {
     const allowed = events.filter(
       (e) => isEventEnabled(e.event_name) && this.levelAllows(config.dataSharingLevel, e.event_name),
     );
+
+    // [CAPI-TRACE] TEMP debug — remove after the dropped-events investigation.
+    // Name EVERY event the filter removed and WHY (toggle vs data-sharing level).
+    // This is the one place a partial drop happens with no per-event log today.
+    const dropped = events
+      .filter((e) => !(isEventEnabled(e.event_name) && this.levelAllows(config.dataSharingLevel, e.event_name)))
+      .map((e) => ({
+        event: `${e.event_name}:${e.event_id}`,
+        disabledByToggle: !isEventEnabled(e.event_name),
+        blockedByLevel: !this.levelAllows(config.dataSharingLevel, e.event_name),
+      }));
+    this.logger.log({
+      msg: '[CAPI-TRACE] dispatch filter',
+      merchantId,
+      level: config.dataSharingLevel,
+      knownMeta: [...knownMeta],
+      enabledMeta: [...enabledMeta],
+      received: events.length,
+      passed: allowed.map((e) => `${e.event_name}:${e.event_id}`),
+      dropped,
+    });
+
     if (!allowed.length) {
       this.logger.warn({
         msg: 'CAPI dispatch - no events pass data sharing level',

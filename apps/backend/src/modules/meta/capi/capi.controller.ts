@@ -44,11 +44,16 @@ export class MetaCapiController {
     if (typeof ua === 'string') ctx.userAgent = ua;
     const events = body.events as RawCapiEvent[];
 
+    // [CAPI-TRACE] TEMP debug — remove after the dropped-events investigation.
+    const ids = events.map((e) => `${e.event_name}:${e.event_id}`);
+    this.logger.log({ msg: '[CAPI-TRACE] 1. ingest received (Call B)', merchantId, count: events.length, ids });
+
     try {
       await this.queue.sendBatch(QUEUE_NAMES.capi, [{ merchantId, events, ctx }]);
+      this.logger.log({ msg: '[CAPI-TRACE] 2. enqueued to SQS', merchantId, count: events.length, ids });
       return { received: events.length, queued: true };
     } catch (err) {
-      this.logger.warn({ msg: 'enqueue failed — inline dispatch fallback', merchantId, err });
+      this.logger.warn({ msg: '[CAPI-TRACE] 2x. enqueue FAILED — inline dispatch fallback', merchantId, count: events.length, ids, err });
       await this.capi.dispatch(merchantId, events, ctx);
       return { received: events.length, queued: false };
     }
