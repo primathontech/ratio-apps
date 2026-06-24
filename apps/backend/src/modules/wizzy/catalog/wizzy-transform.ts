@@ -47,6 +47,8 @@ export interface RatioProduct {
   handle: string;
   vendor?: string | null;
   productType?: string | null;
+  /** Product tags (e.g. ["Bestseller", "Combo"]) — surfaced as a filterable "Tags" attribute. */
+  tags?: string[];
   images?: { src: string }[];
   variants: RatioVariant[];
 }
@@ -348,6 +350,42 @@ function buildVariantFacets(variants: RatioVariant[]): {
 }
 
 /**
+ * Build a single "Tags" attribute from the product's tags — searchable +
+ * filterable so shoppers can facet on them. Dedupes case/space-insensitively,
+ * keeping the first-seen label (so "Bestseller" wins over a later "Best Seller").
+ * Returns null when there are no usable tags. Most products in this store are
+ * single-variant (no color/size options), so tags are the only attribute facet.
+ */
+function buildTagsAttribute(
+  tags: string[] | undefined,
+  variationId: string,
+  inStock: boolean,
+): WizzyAttributePayload | null {
+  if (!tags || tags.length === 0) return null;
+  const seen = new Set<string>();
+  const values: WizzyAttributeValuePayload[] = [];
+  for (const raw of tags) {
+    const label = raw.trim();
+    if (!label) continue;
+    // Dedupe key ignores case and non-alphanumerics so "Best Seller" === "Bestseller".
+    const key = label.toLowerCase().replace(/[^a-z0-9]+/g, '');
+    if (key === '' || seen.has(key)) continue;
+    seen.add(key);
+    values.push({ value: [label], variationId, inStock });
+  }
+  if (values.length === 0) return null;
+  return {
+    id: 'tags',
+    name: 'Tags',
+    type: 'string',
+    values,
+    isSearchable: true,
+    isFilterable: true,
+    addInAutocomplete: false,
+  };
+}
+
+/**
  * Transform a Ratio product into one Wizzy catalog payload.
  *
  * Returns ok:true + payload on success, ok:false + issue string when the
@@ -423,6 +461,9 @@ export function transformProduct(
     : undefined;
 
   const { colors, sizes, attributes } = buildVariantFacets(product.variants);
+  // Surface product tags as a filterable "Tags" attribute alongside variant attributes.
+  const tagsAttr = buildTagsAttribute(product.tags, rep.id, inStock);
+  const allAttributes = tagsAttr ? [...attributes, tagsAttr] : attributes;
 
   const payload: WizzyProductPayload = {
     id: product.id,
@@ -457,7 +498,7 @@ export function transformProduct(
   if (description) payload.description = description;
   if (colors.length > 0) payload.colors = colors;
   if (sizes.length > 0) payload.sizes = sizes;
-  if (attributes.length > 0) payload.attributes = attributes;
+  if (allAttributes.length > 0) payload.attributes = allAttributes;
 
   // Absolute product URL — needs a configured storefront domain.
   const storeDomain = normalizeStoreDomain(config.storeDomain);

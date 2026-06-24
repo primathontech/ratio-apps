@@ -304,6 +304,60 @@ describe('transformProduct — variant facets (colors / sizes / attributes)', ()
   });
 });
 
+describe('transformProduct — tags attribute', () => {
+  it('maps product tags into a filterable "Tags" attribute', () => {
+    const result = transformProduct(
+      baseProduct({ tags: ['Bestseller', 'Combo', 'New Arrival'] }),
+      baseConfig,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const tags = (result.payload.attributes ?? []).find((a) => a.id === 'tags');
+    expect(tags).toBeDefined();
+    expect(tags?.name).toBe('Tags');
+    expect(tags?.type).toBe('string');
+    expect(tags?.isSearchable).toBe(true);
+    expect(tags?.isFilterable).toBe(true);
+    expect(tags?.addInAutocomplete).toBe(false);
+    expect(tags?.values.map((v) => v.value[0])).toEqual(['Bestseller', 'Combo', 'New Arrival']);
+  });
+
+  it('dedupes tags case/space-insensitively, keeping the first-seen label', () => {
+    const result = transformProduct(
+      baseProduct({ tags: ['Bestseller', 'electrolyte', 'Best Seller', 'BESTSELLER'] }),
+      baseConfig,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const tags = (result.payload.attributes ?? []).find((a) => a.id === 'tags');
+    expect(tags?.values.map((v) => v.value[0])).toEqual(['Bestseller', 'electrolyte']);
+  });
+
+  it('coexists with variant attributes (both present)', () => {
+    const result = transformProduct(
+      baseProduct({
+        tags: ['Combo'],
+        variants: [
+          { id: 'v1', price: '999', inventoryQuantity: 1, options: { Material: 'Cotton' } },
+          { id: 'v2', price: '999', inventoryQuantity: 1, options: { Material: 'Linen' } },
+        ],
+      }),
+      baseConfig,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const ids = (result.payload.attributes ?? []).map((a) => a.id).sort();
+    expect(ids).toEqual(['material', 'tags']);
+  });
+
+  it('omits the Tags attribute when there are no tags', () => {
+    const result = transformProduct(baseProduct({ tags: [] }), baseConfig);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect((result.payload.attributes ?? []).find((a) => a.id === 'tags')).toBeUndefined();
+  });
+});
+
 describe('transformProduct — childData (per-variation price arrays)', () => {
   it('populates childData arrays for multi-variant products', () => {
     const result = transformProduct(

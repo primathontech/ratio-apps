@@ -7,6 +7,30 @@ const num = (v: unknown): number | null => (typeof v === 'number' ? v : null);
 const bool = (v: unknown): boolean | null => (typeof v === 'boolean' ? v : null);
 
 /**
+ * Parse the platform `tags` field into a trimmed, non-empty string array.
+ * The live REST/webhook shape is a comma-separated string
+ * (`"Bestseller, Combo, New Arrival"`); an array form is also accepted
+ * defensively. Returns undefined when there are no usable tags.
+ */
+const parseTags = (v: unknown): string[] | undefined => {
+  const parts =
+    typeof v === 'string'
+      ? v.split(',')
+      : Array.isArray(v)
+        ? v.map((x) => (typeof x === 'string' ? x : ''))
+        : [];
+  const out = parts.map((t) => t.trim()).filter((t) => t.length > 0);
+  return out.length > 0 ? out : undefined;
+};
+
+/** Spreadable `{ tags }` (or `{}`) so the key is omitted entirely when absent
+ * — required under `exactOptionalPropertyTypes`. */
+const tagsField = (v: unknown): { tags?: string[] } => {
+  const tags = parseTags(v);
+  return tags ? { tags } : {};
+};
+
+/**
  * Prices on the Ratio/OpenStore platform arrive in PAISE (integer minor units),
  * e.g. `155900` = ₹1,559.00. Wizzy needs major units, so divide by 100. Verified
  * against a live webhook (an OSMO combo priced 155900/209800 = ₹1,559/₹2,098).
@@ -101,6 +125,7 @@ export function parseWebhookProduct(product: Record<string, unknown>): RatioProd
     handle: str(product.handle) ?? id,
     vendor: str(product.vendor),
     productType: str(product.product_type),
+    ...tagsField(product.tags),
     images,
     variants,
   };
@@ -186,6 +211,7 @@ export function parseRestProduct(item: Record<string, unknown>): RatioProduct | 
     handle: str(item.handle) ?? slugify(title) ?? id,
     vendor: str(item.vendor),
     productType: str(item.product_type),
+    ...tagsField(item.tags),
     images,
     variants,
   };
