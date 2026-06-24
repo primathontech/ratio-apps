@@ -3,9 +3,9 @@ import { type Kysely, sql, type Transaction } from 'kysely';
 import type { DatabaseWithMerchants, MerchantRow } from '../merchants/merchant.types';
 import type { DatabaseWithWebhookLog } from './webhook-log.types';
 import {
+  dedupeKey,
   WEBHOOK_DEDUPE_WINDOW_MS,
   WEBHOOK_MAX_PAYLOAD_BYTES,
-  deriveWebhookId,
   type WebhookEnvelope,
   type WebhookHandler,
 } from './webhooks.types';
@@ -137,7 +137,7 @@ export class WebhooksService<DB extends DatabaseWithMerchants & DatabaseWithWebh
    */
   async dispatch(envelope: WebhookEnvelope, deliveryId?: string): Promise<void> {
     const trimmed = typeof deliveryId === 'string' ? deliveryId.trim() : '';
-    const ratioWebhookId = trimmed !== '' ? trimmed : deriveWebhookId(envelope);
+    const ratioWebhookId = dedupeKey(deliveryId, envelope);
     const topic = envelope.event_type;
     const product = envelope.product ?? {};
 
