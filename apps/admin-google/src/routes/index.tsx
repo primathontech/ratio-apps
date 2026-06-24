@@ -48,7 +48,13 @@ export function Overview() {
           message="Google connection needs attention"
           description="Your Google authorization expired or was revoked. Reconnect to resume syncing."
           action={
-            <PrimaryButton onClick={() => void startGoogleConnect()}>
+            <PrimaryButton
+              onClick={() => {
+                void startGoogleConnect().then((ok) => {
+                  if (ok) void config.refetch();
+                });
+              }}
+            >
               Reconnect Google
             </PrimaryButton>
           }

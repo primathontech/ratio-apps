@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { GoogleConnectController } from '../../../../src/modules/google/google-oauth/google-oauth.controller';
 import type { GoogleAuthService } from '../../../../src/modules/google/google-oauth/google-auth.service';
+import { GoogleConnectController } from '../../../../src/modules/google/google-oauth/google-oauth.controller';
 
 describe('GoogleConnectController.connect', () => {
   it('returns the Google consent URL as JSON for the current merchant (no redirect)', () => {
@@ -17,13 +17,17 @@ describe('GoogleConnectController.connect', () => {
 });
 
 describe('GoogleConnectController.callback', () => {
-  it('exchanges the code and redirects to the admin config page with ?connected=1', async () => {
+  it('exchanges the code and returns a popup-close page that postMessages the opener', async () => {
     const auth = { handleCallback: vi.fn(async () => {}) } as unknown as GoogleAuthService;
-    const config = { get: () => 'http://localhost:5173' } as never;
-    const redirects: string[] = [];
+    const config = { get: () => 'https://admin.example.com/google' } as never;
+    let body = '';
+    const headers: Record<string, string> = {};
     const reply = {
-      redirect: vi.fn(async (url: string) => {
-        redirects.push(url);
+      header: vi.fn((k: string, v: string) => {
+        headers[k] = v;
+      }),
+      send: vi.fn(async (html: string) => {
+        body = html;
       }),
     } as never;
 
@@ -31,6 +35,12 @@ describe('GoogleConnectController.callback', () => {
     await controller.callback('the-code', 'merchant-1', reply);
 
     expect(auth.handleCallback).toHaveBeenCalledWith('the-code', 'merchant-1');
-    expect(redirects[0]).toBe('http://localhost:5173/config?connected=1');
+    expect(headers['content-type']).toContain('text/html');
+    // Posts the connected signal to the opener, scoped to the admin ORIGIN.
+    expect(body).toContain('postMessage');
+    expect(body).toContain("source: 'ratio-google-oauth', connected: true");
+    expect(body).toContain('"https://admin.example.com"'); // targetOrigin (origin only)
+    // Falls back to a redirect when there's no opener (popup blocked).
+    expect(body).toContain('"https://admin.example.com/google/config?connected=1"');
   });
 });

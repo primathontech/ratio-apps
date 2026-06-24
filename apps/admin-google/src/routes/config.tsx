@@ -111,7 +111,27 @@ export function ConfigPage() {
       setDisconnecting(false);
     }
   }
-  const justConnected = new URLSearchParams(window.location.search).get('connected') === '1';
+
+  // `justConnected` drives the post-connect discovery hints. It starts true if
+  // we arrived via the legacy redirect (?connected=1), and is set when the
+  // popup connect flow signals success (no navigation — see handleConnect).
+  const [justConnected, setJustConnected] = useState(
+    () => new URLSearchParams(window.location.search).get('connected') === '1',
+  );
+  const [connecting, setConnecting] = useState(false);
+
+  async function handleConnect(): Promise<void> {
+    setConnecting(true);
+    try {
+      const connected = await startGoogleConnect();
+      if (connected) {
+        setJustConnected(true);
+        await refetch(); // flip the UI to connected + auto-fill discovered IDs
+      }
+    } finally {
+      setConnecting(false);
+    }
+  }
   const discover = useDiscover(justConnected);
 
   const form = useForm<ConfigInput, unknown, ConfigOutput>({
@@ -267,7 +287,7 @@ export function ConfigPage() {
               </Typography.Text>
             )}
             <Space>
-              <PrimaryButton onClick={() => void startGoogleConnect()}>
+              <PrimaryButton loading={connecting} onClick={() => void handleConnect()}>
                 {data?.googleAccountEmail ? 'Reconnect Google Account' : 'Connect Google Account'}
               </PrimaryButton>
               {data?.googleAccountEmail && (

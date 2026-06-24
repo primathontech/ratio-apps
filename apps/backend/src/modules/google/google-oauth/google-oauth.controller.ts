@@ -1,9 +1,9 @@
-import { Controller, Get, Inject, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Query, Res, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { Merchant } from '@ratio-app/shared/schemas/merchant';
 import type { FastifyReply } from 'fastify';
 import type { Env } from '../../../config/env.schema';
 import { CurrentMerchant } from '../../../core/common/decorators/merchant.decorator';
-import type { Merchant } from '@ratio-app/shared/schemas/merchant';
 import { GoogleMerchantTokenGuard } from '../guards';
 import { GoogleAuthService } from './google-auth.service';
 
@@ -50,6 +50,47 @@ export class GoogleConnectController {
     const adminBase = this.config.get('RATIO_GOOGLE_ADMIN_BASE_URL' as never, {
       infer: true,
     }) as string;
-    await reply.redirect(`${adminBase}/config?connected=1`, 302);
+    // The admin opens this flow in a POPUP and stays inside the Ratio dashboard
+    // iframe — so instead of navigating anywhere, we hand the popup a tiny page
+    // that signals the opener (the admin SPA) via postMessage and closes itself.
+    // The merchant never leaves the dashboard. If there's no opener (popup was
+    // blocked → opened top-level), we fall back to the old redirect.
+    reply.header('content-type', 'text/html; charset=utf-8');
+    await reply.send(renderOAuthClosePage(adminBase));
   }
+}
+
+/** Origin of a URL, or '*' if it can't be parsed (postMessage fallback). */
+function originOf(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return '*';
+  }
+}
+
+/**
+ * The popup-close page served to the OAuth callback. Posts `{ source:
+ * 'ratio-google-oauth', connected: true }` to the opener (the admin SPA, which
+ * listens for it and refetches config) then closes. Falls back to a redirect
+ * when opened without an opener (popup blocked / top-level navigation).
+ */
+function renderOAuthClosePage(adminBase: string): string {
+  const targetOrigin = JSON.stringify(originOf(adminBase));
+  const fallbackUrl = JSON.stringify(`${adminBase}/config?connected=1`);
+  return `<!doctype html>
+<html><head><meta charset="utf-8"><title>Google connected</title></head>
+<body style="font-family:system-ui,sans-serif;padding:2rem">Google connected — you can close this window.
+<script>
+(function () {
+  try {
+    if (window.opener && !window.opener.closed) {
+      window.opener.postMessage({ source: 'ratio-google-oauth', connected: true }, ${targetOrigin});
+      window.close();
+      return;
+    }
+  } catch (e) {}
+  location.replace(${fallbackUrl});
+})();
+</script></body></html>`;
 }
