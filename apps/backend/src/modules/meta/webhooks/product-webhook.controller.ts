@@ -2,7 +2,7 @@ import { Body, Controller, Headers, HttpCode, Logger, Post, UseGuards } from '@n
 import { RedisService } from '../cache/redis.service';
 import { CatalogService } from '../catalog/catalog.service';
 import type { OsItemProduct } from '../catalog/catalog.types';
-import { RatioWebhookSignatureGuard } from './ratio-signature.guard';
+import { MetaWebhookSignatureGuard } from '../guards';
 
 /**
  * Ratio product-webhook receiver (Phase 2 incremental sync).
@@ -16,7 +16,7 @@ import { RatioWebhookSignatureGuard } from './ratio-signature.guard';
  * RATIO_META_WEBHOOK_SECRET is unset (required for production).
  */
 @Controller('meta/api/v1/webhooks')
-@UseGuards(RatioWebhookSignatureGuard)
+@UseGuards(MetaWebhookSignatureGuard)
 export class MetaProductWebhookController {
   private readonly logger = new Logger(MetaProductWebhookController.name);
 
@@ -61,12 +61,21 @@ export class MetaProductWebhookController {
       }
     }
 
+    const productTitle = typeof product.title === 'string' ? product.title : null;
     if (event === 'product.deleted') {
       const sourceProductId = String(product.id ?? product.product_id ?? '');
       if (!sourceProductId) return { received: true, queued: false, reason: 'no product id' };
-      await this.catalog.syncProductWebhook(merchantId, { action: 'delete', sourceProductId });
+      await this.catalog.syncProductWebhook(
+        merchantId,
+        { action: 'delete', sourceProductId },
+        { eventType: event, ...(productTitle ? { productTitle } : {}) },
+      );
     } else if (event === 'product.created' || event === 'product.updated') {
-      await this.catalog.syncProductWebhook(merchantId, { action: 'upsert', product: product as unknown as OsItemProduct });
+      await this.catalog.syncProductWebhook(
+        merchantId,
+        { action: 'upsert', product: product as unknown as OsItemProduct },
+        { eventType: event, ...(productTitle ? { productTitle } : {}) },
+      );
     } else {
       this.logger.warn({ msg: 'webhook unrecognised event — ignored', merchantId, event, rawEvent });
       return { received: true, queued: false, reason: `ignored event ${rawEvent}` };
