@@ -1,5 +1,8 @@
 import { Module } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import type { Env } from '../../config/env.schema';
 import { createAppProviders } from '../../core/factories/app-module.factory';
+import { RatioOAuthHttp, type RatioOAuthCreds } from '../../core/oauth/ratio-oauth.http';
 import { RedisService } from './cache/redis.service';
 import { CatalogBatchService } from './catalog/catalog-batch.service';
 import { CatalogSourceService } from './catalog/catalog-source.service';
@@ -9,6 +12,7 @@ import { CatalogService } from './catalog/catalog.service';
 import { MetaFeedController } from './catalog/feed.controller';
 import { MetaCapiStatsController } from './capi/capi-stats.controller';
 import { CapiStatsService } from './capi/capi-stats.service';
+import { CapiHmacGuard } from './capi/capi-hmac.guard';
 import { MetaCapiController } from './capi/capi.controller';
 import { MetaCapiService } from './capi/capi.service';
 import { MetaCapiWorker } from './queue/capi.worker';
@@ -23,9 +27,18 @@ import { META_DB_TOKEN, MetaKyselyModule } from './kysely.module';
 import { MetaMerchantsController } from './merchants/merchants.controller';
 import { MetaBootstrap } from './meta.bootstrap';
 import { MetaOAuthController } from './oauth/oauth.controller';
+import { MetaRatioTokenProvider } from './oauth/ratio-token.provider';
 import { MetaSdkController } from './sdk/sdk.controller';
 import { MetaSdkService } from './sdk/sdk.service';
-import { META_CRYPTO, META_MERCHANTS, META_OAUTH, META_RATIO, META_WEBHOOKS } from './tokens';
+import {
+  META_CRYPTO,
+  META_MERCHANTS,
+  META_OAUTH,
+  META_RATIO,
+  META_RATIO_OAUTH_CREDS,
+  META_RATIO_OAUTH_HTTP,
+  META_WEBHOOKS,
+} from './tokens';
 import { MetaAppUninstalledHandler } from './webhooks/app-uninstalled.handler';
 import { MetaWebhooksController } from './webhooks/webhooks.controller';
 
@@ -72,6 +85,7 @@ export {
     MetaConfigService,
     MetaSdkService,
     MetaCapiService,
+    CapiHmacGuard,
     CapiStatsService,
     // Phase 1 scale + Phase 2 catalog infra
     QueueService,
@@ -80,9 +94,24 @@ export {
     // Phase 2 catalog services + worker + guard
     CatalogTransformerService,
     CatalogBatchService,
+    MetaRatioTokenProvider,
     CatalogSourceService,
     CatalogService,
     RatioWebhookSignatureGuard,
+    {
+      provide: META_RATIO_OAUTH_HTTP,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<Env, true>): RatioOAuthHttp =>
+        new RatioOAuthHttp(config.get('RATIO_API_BASE_URL', { infer: true }) as string),
+    },
+    {
+      provide: META_RATIO_OAUTH_CREDS,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<Env, true>): RatioOAuthCreds => ({
+        clientId: config.get('RATIO_META_CLIENT_ID' as never, { infer: true }) as string,
+        clientSecret: config.get('RATIO_META_CLIENT_SECRET' as never, { infer: true }) as string,
+      }),
+    },
     MetaBootstrap,
     MetaAppUninstalledHandler,
     // Guards are concrete @Injectable classes that defer to the per-module
