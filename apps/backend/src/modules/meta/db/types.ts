@@ -88,6 +88,20 @@ interface MetaCapiFailuresTable {
   lastAt: Generated<Date>;
 }
 
+/** One webhook delivery attempt and its outcome. See migration 0007. */
+interface WebhookDeliveryLogTable {
+  id: Generated<number>;
+  merchantId: string;
+  eventType: string; // product.created | product.updated | product.deleted
+  productId: string;
+  productTitle: string | null;
+  status: string; // sent | skipped | ignored | failed
+  sentCount: number;
+  failedCount: number;
+  reason: string | null;
+  createdAt: Generated<Date>;
+}
+
 export interface MetaDatabase {
   merchants: BaseMerchantsTable;
   oauth_tokens: BaseOauthTokensTable;
@@ -97,6 +111,7 @@ export interface MetaDatabase {
   catalog_items: CatalogItemsTable;
   meta_capi_stats: MetaCapiStatsTable;
   meta_capi_failures: MetaCapiFailuresTable;
+  webhook_delivery_log: WebhookDeliveryLogTable;
 }
 
 export type MetaMerchantRow = Selectable<BaseMerchantsTable>;
@@ -105,3 +120,4 @@ export type CatalogItemRow = Selectable<CatalogItemsTable>;
 export type CatalogSyncLogRow = Selectable<CatalogSyncLogTable>;
 export type MetaCapiStatsRow = Selectable<MetaCapiStatsTable>;
 export type MetaCapiFailureRow = Selectable<MetaCapiFailuresTable>;
+export type WebhookDeliveryLogRow = Selectable<WebhookDeliveryLogTable>;

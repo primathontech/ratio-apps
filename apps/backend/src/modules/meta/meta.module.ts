@@ -18,7 +18,6 @@ import { MetaCapiService } from './capi/capi.service';
 import { MetaCapiWorker } from './queue/capi.worker';
 import { QueueService } from './queue/queue.service';
 import { MetaProductWebhookController } from './webhooks/product-webhook.controller';
-import { RatioWebhookSignatureGuard } from './webhooks/ratio-signature.guard';
 import { MetaConfigController } from './config/config.controller';
 import { MetaConfigService } from './config/config.service';
 import type { MetaDatabase } from './db/types';
@@ -97,7 +96,6 @@ export {
     MetaRatioTokenProvider,
     CatalogSourceService,
     CatalogService,
-    RatioWebhookSignatureGuard,
     {
       provide: META_RATIO_OAUTH_HTTP,
       inject: [ConfigService],
