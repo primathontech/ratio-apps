@@ -243,14 +243,18 @@ interface Window {
   // ─── Cross-source dedup ───────────────────────────────────────────────────
   // Prevents the same logical event firing twice when two layers observe it
   // (e.g. SPA double-nav, or bus + postMessage). Keyed by event + identity.
+  // Purchase uses a 30s window — it can fire on the payment page and again on
+  // the thank you page (a few seconds later), both with the same order_id.
   const DEDUP_MS = 1500;
+  const DEDUP_MS_ORDER = 30_000;
   const lastFired: Record<string, number> = {};
   function isDuplicate(metaName: string, cd: Record<string, unknown>): boolean {
     const ids = Array.isArray(cd.content_ids) ? (cd.content_ids as unknown[]).join(',') : '';
     const key = `${metaName}|${cd.order_id ?? ''}|${ids}|${cd.search_string ?? ''}`;
     const now = Date.now();
     const prev = lastFired[key];
-    if (prev !== undefined && now - prev < DEDUP_MS) return true;
+    const window = cd.order_id ? DEDUP_MS_ORDER : DEDUP_MS;
+    if (prev !== undefined && now - prev < window) return true;
     lastFired[key] = now;
     return false;
   }
@@ -277,7 +281,12 @@ interface Window {
       if (cfg.debug) console.log(LOG, 'deduped', metaName);
       return;
     }
-    const eventId = opts.eventId || makeEventId();
+    // For Purchase, derive a stable event_id from order_id so Meta deduplicates
+    // on its end even if the event fires twice (payment page + thank you page).
+    const stableId = metaName === 'Purchase' && customData.order_id
+      ? `purchase-${String(customData.order_id)}`
+      : undefined;
+    const eventId = stableId || opts.eventId || makeEventId();
     if (cfg.debug) console.log(LOG, '→', metaName, customData);
 
     // CALL A — browser pixel
