@@ -124,7 +124,7 @@ const SYNC_COLUMNS: ComponentProps<typeof Table>['columns'] = [
       return <Tag color={STATUS_COLOR[status] ?? 'default'}>{status}</Tag>;
     },
   },
-  { key: 'totalProducts', title: 'Total', dataIndex: 'totalProducts' },
+  { key: 'totalProducts', title: 'Active', dataIndex: 'totalProducts' },
   { key: 'successCount', title: 'Synced', dataIndex: 'successCount' },
   {
     key: 'errorCount',
