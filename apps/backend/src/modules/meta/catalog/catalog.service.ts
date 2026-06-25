@@ -149,6 +149,7 @@ export class CatalogService implements OnModuleInit {
     const live = new Set<string>();
     let sent = 0;
     let failed = 0;
+    let eligible = 0; // products that passed the transformer (active/published)
     const allFailures: CatalogFailure[] = [];
     try {
       // Accumulate products across os-item pages and push to Meta in fixed-size
@@ -175,6 +176,7 @@ export class CatalogService implements OnModuleInit {
         );
         sent += r.sent;
         failed += r.failed;
+        eligible += r.sent + r.failed + r.skipped;
         allFailures.push(...r.failures);
       };
 
@@ -206,8 +208,8 @@ export class CatalogService implements OnModuleInit {
       }
 
       const status = cancelled ? 'cancelled' : failed ? 'partial' : 'success';
-      await this.finishLog(logId, status, total, sent, failed, allFailures);
-      this.logger.log({ msg: cancelled ? 'full sync cancelled' : 'full sync complete', merchantId, total, sent, failed, orphans: orphanCount });
+      await this.finishLog(logId, status, eligible, sent, failed, allFailures);
+      this.logger.log({ msg: cancelled ? 'full sync cancelled' : 'full sync complete', merchantId, fetched: total, eligible, sent, failed, orphans: orphanCount });
       return { total, sent, failed };
     } catch (err) {
       this.logger.error({ msg: 'full sync failed', merchantId, err });
