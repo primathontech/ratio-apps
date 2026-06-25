@@ -131,6 +131,7 @@ export class MetaSdkService {
       merchantId,
       eventNameMap,
       ...(debugMockBase ? { debugMockBase } : {}),
+      ...(process.env.RATIO_META_CAPI_HMAC_SECRET ? { capiHmacSecret: process.env.RATIO_META_CAPI_HMAC_SECRET } : {}),
     };
     return `window.__META_RATIO_CONFIG__ = ${safeInlineJson(payload)};`;
   }

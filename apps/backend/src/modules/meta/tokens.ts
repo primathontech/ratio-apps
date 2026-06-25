@@ -12,3 +12,7 @@ export const META_RATIO = Symbol.for('ratio-app:meta:ratio');
 export const META_MERCHANTS = Symbol.for('ratio-app:meta:merchants');
 export const META_OAUTH = Symbol.for('ratio-app:meta:oauth');
 export const META_WEBHOOKS = Symbol.for('ratio-app:meta:webhooks');
+/** The `RatioOAuthHttp` seam (fetch-based) — refreshes/rotates the Ratio merchant token. */
+export const META_RATIO_OAUTH_HTTP = Symbol.for('ratio-app:meta:ratio-oauth-http');
+/** Ratio app OAuth client creds (RATIO_META_CLIENT_ID/SECRET), read from env. */
+export const META_RATIO_OAUTH_CREDS = Symbol.for('ratio-app:meta:ratio-oauth-creds');

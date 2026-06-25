@@ -22,6 +22,59 @@ function storefrontBase(): string {
 }
 
 /**
+ * Normalize the actual platform webhook product shape → OsItemProduct.
+ *
+ * The platform webhook uses: variant_id (not id), sku_id (not sku),
+ * warehouseQt[].quantity (not inventory_quantity), imageUrl string (not image
+ * object), images[].url (not src). Transformer expects OsItemProduct field names.
+ */
+function normalizeWebhookProduct(raw: OsItemProduct): OsItemProduct {
+  type Rec = Record<string, unknown>;
+  const r = raw as unknown as Rec;
+
+  // Product-level option names for option1/2/3 → option_values mapping.
+  const optionNames: (string | null)[] = Array.isArray(r.options)
+    ? (r.options as Rec[]).map((o) => (typeof o.name === 'string' ? o.name : null))
+    : [];
+
+  const variants = Array.isArray(r.variants)
+    ? (r.variants as Rec[]).map((v) => {
+        // Sum warehouse quantities for inventory.
+        const warehouses = Array.isArray(v.warehouseQt) ? (v.warehouseQt as Rec[]) : [];
+        const inventory = warehouses.reduce(
+          (s, w) => s + (typeof w.quantity === 'number' ? w.quantity : 0),
+          0,
+        );
+        // Map option1/2/3 → option_values.
+        const optionValues: { name: string; value: string }[] = [];
+        for (const [i, key] of (['option1', 'option2', 'option3'] as const).entries()) {
+          const val = v[key];
+          const name = optionNames[i];
+          if (typeof val === 'string' && val && val !== 'Default Title' && name && name !== 'Title') {
+            optionValues.push({ name, value: val });
+          }
+        }
+        return {
+          ...v,
+          id: v.variant_id ?? v.id,
+          sku: v.sku_id ?? v.sku,
+          inventory_quantity: inventory,
+          image: typeof v.imageUrl === 'string' ? { src: v.imageUrl } : v.image,
+          option_values: optionValues,
+        };
+      })
+    : [];
+
+  const result: OsItemProduct = {
+    ...raw,
+    // Map top-level imageUrl string to the image object the transformer expects.
+    image: raw.image ?? (typeof r.imageUrl === 'string' ? { src: r.imageUrl as string } : null),
+  };
+  if (variants.length > 0) result.variants = variants as unknown as NonNullable<OsItemProduct['variants']>;
+  return result;
+}
+
+/**
  * Catalog sync engine (Phase 2) — NO queue. Catalog work streams directly:
  *  - syncProductWebhook : one product change → push to Meta immediately.
  *  - fullSync           : paginate os-item, push each PAGE directly (bounded
@@ -62,6 +115,9 @@ export class CatalogService implements OnModuleInit {
 
   /** One webhook → apply immediately (awaited by the webhook handler). */
   async syncProductWebhook(merchantId: string, op: CatalogOp): Promise<{ sent: number; failed: number; skipped: number }> {
+    if (op.action === 'upsert' && op.product) {
+      op = { ...op, product: normalizeWebhookProduct(op.product) };
+    }
     return this.applyOps(merchantId, [op]);
   }
 

@@ -1,10 +1,11 @@
-import { Body, Controller, Logger, Param, Post, Req } from '@nestjs/common';
+import { Body, Controller, Logger, Param, Post, Req, UseGuards } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import { capiIngestSchema, type CapiIngestBody } from '@ratio-app/shared';
 import { MerchantIdPipe } from '../../../core/common/pipes/merchant-id.pipe';
 import { ZodValidationPipe } from '../../../core/common/pipes/zod-validation.pipe';
 import { QUEUE_NAMES, QueueService } from '../queue/queue.service';
 import { type CapiContext, MetaCapiService, type RawCapiEvent } from './capi.service';
+import { CapiHmacGuard } from './capi-hmac.guard';
 
 /**
  * Browser-facing Conversions API ingest (Call B). The per-merchant SDK posts
@@ -33,6 +34,7 @@ export class MetaCapiController {
    * on Meta. If the queue is unavailable, fall back to inline dispatch so events
    * are never silently dropped.
    */
+  @UseGuards(CapiHmacGuard)
   @Post(':merchantId')
   async ingest(
     @Param('merchantId', MerchantIdPipe) merchantId: string,

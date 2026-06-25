@@ -42,6 +42,7 @@ interface MetaRatioConfig {
   merchantId: string;
   eventNameMap: Record<string, string>;
   debugMockBase?: string; // dev only: base URL for Call A stub (e.g. http://localhost:8081)
+  capiHmacSecret?: string;
 }
 
 type Fbq = ((...args: unknown[]) => void) & {
@@ -121,18 +122,7 @@ interface Window {
     return true;
   }
 
-  function flush(): void {
-    if (!queue.length || !cfg.capiPath) return;
-    const batch = queue.slice();
-    queue = [];
-    if (timer) { clearTimeout(timer); timer = null; }
-    let body: string;
-    try {
-      body = JSON.stringify({ events: batch });
-    } catch (err) {
-      console.error(LOG, 'Event serialization failed — batch dropped', err);
-      return;
-    }
+  function sendBody(body: string): void {
     try {
       if (navigator && typeof navigator.sendBeacon === 'function') {
         const blob = new Blob([body], { type: 'application/json' });
@@ -147,6 +137,56 @@ interface Window {
         keepalive: true,
       }).catch((err) => console.error(LOG, 'CAPI fetch failed', err));
     }
+  }
+
+  function flush(): void {
+    if (!queue.length || !cfg.capiPath) return;
+    const batch = queue.slice();
+    queue = [];
+    if (timer) { clearTimeout(timer); timer = null; }
+
+    if (cfg.capiHmacSecret && typeof crypto !== 'undefined' && crypto.subtle) {
+      const ts = Math.floor(Date.now() / 300000);
+      const enc = new TextEncoder();
+      crypto.subtle.importKey(
+        'raw',
+        enc.encode(cfg.capiHmacSecret),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign'],
+      ).then((key) => crypto.subtle.sign('HMAC', key, enc.encode(String(ts))))
+        .then((buf) => {
+          const sig = Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+          let body: string;
+          try { body = JSON.stringify({ events: batch, _ts: ts, _sig: sig }); }
+          catch (err) { console.error(LOG, 'Event serialization failed — batch dropped', err); return; }
+          if (typeof fetch === 'function') {
+            fetch(cfg.capiPath, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body,
+              keepalive: true,
+            }).catch((err) => console.error(LOG, 'CAPI fetch failed', err));
+          }
+        })
+        .catch(() => {
+          // crypto.subtle failed — fall back to sending without HMAC
+          let body: string;
+          try { body = JSON.stringify({ events: batch }); }
+          catch (err) { console.error(LOG, 'Event serialization failed — batch dropped', err); return; }
+          sendBody(body);
+        });
+      return;
+    }
+
+    let body: string;
+    try {
+      body = JSON.stringify({ events: batch });
+    } catch (err) {
+      console.error(LOG, 'Event serialization failed — batch dropped', err);
+      return;
+    }
+    sendBody(body);
   }
 
   function queueCapi(eventName: string, capiEvent: Record<string, unknown>): void {
