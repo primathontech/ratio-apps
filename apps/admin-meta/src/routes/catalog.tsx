@@ -11,6 +11,7 @@ import {
   Switch,
   Table,
   Tag,
+  Tooltip,
   Typography,
 } from '@primathonos/orion';
 import { createFileRoute } from '@tanstack/react-router';
@@ -18,11 +19,13 @@ import type { ComponentProps } from 'react';
 import { useEffect, useState } from 'react';
 import {
   type CatalogSyncRun,
+  type WebhookDelivery,
   useCatalogConfig,
   useCatalogStatus,
   useSaveCatalogConfig,
   useStopSync,
   useSyncNow,
+  useWebhookDeliveries,
 } from '@/hooks/useCatalog';
 import { useMerchant } from '@/hooks/useMerchant';
 
@@ -40,6 +43,75 @@ const STATUS_COLOR: Record<string, string> = {
 // Orion's Table erases the row generic — `render`/`rowKey` hand back `unknown`.
 // Narrow to the real row type once, here, instead of casting field-by-field.
 const asRun = (record: unknown): CatalogSyncRun => record as CatalogSyncRun;
+const asDelivery = (record: unknown): WebhookDelivery => record as WebhookDelivery;
+
+const DELIVERY_STATUS_COLOR: Record<string, string> = {
+  sent: 'success',
+  partial: 'warning',
+  skipped: 'default',
+  ignored: 'default',
+  failed: 'error',
+};
+
+const EVENT_LABEL: Record<string, string> = {
+  'product.created': 'Created',
+  'product.updated': 'Updated',
+  'product.deleted': 'Deleted',
+};
+
+const DELIVERY_COLUMNS: ComponentProps<typeof Table>['columns'] = [
+  {
+    key: 'createdAt',
+    title: 'Time',
+    dataIndex: 'createdAt',
+    render: (_value, record) => {
+      const { createdAt } = asDelivery(record);
+      return createdAt ? new Date(createdAt).toLocaleString() : '—';
+    },
+  },
+  {
+    key: 'eventType',
+    title: 'Event',
+    dataIndex: 'eventType',
+    render: (_value, record) => {
+      const { eventType } = asDelivery(record);
+      return <Tag>{EVENT_LABEL[eventType ?? ''] ?? eventType ?? '—'}</Tag>;
+    },
+  },
+  {
+    key: 'productTitle',
+    title: 'Product',
+    dataIndex: 'productTitle',
+    render: (_value, record) => {
+      const { productTitle, productId } = asDelivery(record);
+      return productTitle ?? <Typography.Text type="secondary">{productId}</Typography.Text>;
+    },
+  },
+  {
+    key: 'status',
+    title: 'Status',
+    dataIndex: 'status',
+    render: (_value, record) => {
+      const { status, reason } = asDelivery(record);
+      const tag = <Tag color={DELIVERY_STATUS_COLOR[status ?? ''] ?? 'default'}>{status}</Tag>;
+      return reason ? <Tooltip title={reason}>{tag}</Tooltip> : tag;
+    },
+  },
+  {
+    key: 'sentCount',
+    title: 'Sent',
+    dataIndex: 'sentCount',
+  },
+  {
+    key: 'failedCount',
+    title: 'Failed',
+    dataIndex: 'failedCount',
+    render: (_value, record) => {
+      const { failedCount } = asDelivery(record);
+      return failedCount ? <Typography.Text type="danger">{failedCount}</Typography.Text> : 0;
+    },
+  },
+];
 
 const SYNC_COLUMNS: ComponentProps<typeof Table>['columns'] = [
   { key: 'trigger', title: 'Trigger', dataIndex: 'trigger' },
@@ -100,6 +172,8 @@ function CatalogPage() {
   const save = useSaveCatalogConfig();
   const syncNow = useSyncNow();
   const stopSync = useStopSync();
+
+  const { data: deliveries } = useWebhookDeliveries();
 
   const [catalogId, setCatalogId] = useState('');
   const [catalogAccessToken, setCatalogAccessToken] = useState('');
@@ -285,6 +359,26 @@ function CatalogPage() {
             </Button>
           </div>
         )}
+      </Card>
+
+      <Card
+        title="Webhook deliveries"
+        size="small"
+        extra={
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            Last 50 product webhook events pushed to Facebook
+          </Typography.Text>
+        }
+      >
+        <Table
+          rowKey={(record) => String(asDelivery(record).id)}
+          dataSource={deliveries ?? []}
+          pagination={false}
+          size="small"
+          locale={{ emptyText: 'No webhook events received yet' }}
+          columns={DELIVERY_COLUMNS}
+          scroll={{ x: true }}
+        />
       </Card>
     </Space>
   );

@@ -109,3 +109,30 @@ export function useStopSync() {
     },
   });
 }
+
+export interface WebhookDelivery {
+  id?: number;
+  eventType?: string;
+  productId?: string;
+  productTitle?: string | null;
+  status?: string; // sent | skipped | ignored | failed | partial
+  sentCount?: number;
+  failedCount?: number;
+  reason?: string | null;
+  createdAt?: string;
+}
+
+export function useWebhookDeliveries() {
+  const token = useMerchantStore((s) => s.token);
+  return useQuery({
+    queryKey: queryKeys.webhookDeliveries(),
+    queryFn: () => api<{ deliveries: WebhookDelivery[] }>('GET', '/api/v1/catalog/webhook-deliveries'),
+    enabled: !!token,
+    retry: false,
+    // Refresh every 30s — webhook events are near-real-time.
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
+    staleTime: 15_000,
+    select: (data) => data.deliveries,
+  });
+}

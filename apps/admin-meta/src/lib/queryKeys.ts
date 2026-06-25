@@ -4,5 +4,6 @@ export const queryKeys = {
   config: () => ['meta', 'config'] as const,
   catalogConfig: () => ['meta', 'catalog', 'config'] as const,
   catalogStatus: () => ['meta', 'catalog', 'status'] as const,
+  webhookDeliveries: () => ['meta', 'catalog', 'webhook-deliveries'] as const,
   capiStats: (days: number) => ['meta', 'capi', 'stats', days] as const,
 } as const;

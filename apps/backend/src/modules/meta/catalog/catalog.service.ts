@@ -114,11 +114,30 @@ export class CatalogService implements OnModuleInit {
   }
 
   /** One webhook → apply immediately (awaited by the webhook handler). */
-  async syncProductWebhook(merchantId: string, op: CatalogOp): Promise<{ sent: number; failed: number; skipped: number }> {
+  async syncProductWebhook(
+    merchantId: string,
+    op: CatalogOp,
+    meta: { eventType: string; productTitle?: string } = { eventType: 'product.updated' },
+  ): Promise<{ sent: number; failed: number; skipped: number }> {
+    const productId =
+      op.product?.id ?? op.sourceProductId ?? '';
+
     if (op.action === 'upsert' && op.product) {
       op = { ...op, product: normalizeWebhookProduct(op.product) };
     }
-    return this.applyOps(merchantId, [op]);
+
+    const result = await this.applyOps(merchantId, [op]);
+
+    await this.logWebhookDelivery(merchantId, {
+      eventType: meta.eventType,
+      productId,
+      productTitle: meta.productTitle ?? null,
+      sent: result.sent,
+      failed: result.failed,
+      skipped: result.skipped,
+    });
+
+    return result;
   }
 
   /** Full sync: stream os-item pages → push each page → delete orphans. */
@@ -311,6 +330,61 @@ export class CatalogService implements OnModuleInit {
       .orderBy('startedAt', 'desc')
       .limit(limit)
       .execute();
+  }
+
+  async getWebhookDeliveries(merchantId: string, limit = 50) {
+    return this.handle.db
+      .selectFrom('webhook_delivery_log')
+      .selectAll()
+      .where('merchantId', '=', merchantId)
+      .orderBy('createdAt', 'desc')
+      .limit(limit)
+      .execute();
+  }
+
+  private async logWebhookDelivery(
+    merchantId: string,
+    entry: {
+      eventType: string;
+      productId: string;
+      productTitle: string | null;
+      sent: number;
+      failed: number;
+      skipped: number;
+    },
+  ): Promise<void> {
+    let status: string;
+    let reason: string | null = null;
+    if (entry.sent > 0) {
+      status = entry.failed > 0 ? 'partial' : 'sent';
+    } else if (entry.skipped > 0) {
+      status = 'skipped';
+      reason = 'no changes detected';
+    } else if (entry.failed > 0) {
+      status = 'failed';
+    } else {
+      status = 'ignored';
+      reason = 'inactive / draft product or catalog not configured';
+    }
+
+    try {
+      await this.handle.db
+        .insertInto('webhook_delivery_log')
+        .values({
+          merchantId,
+          eventType: entry.eventType,
+          productId: entry.productId,
+          productTitle: entry.productTitle,
+          status,
+          sentCount: entry.sent,
+          failedCount: entry.failed,
+          reason,
+        })
+        .execute();
+    } catch (err) {
+      // Never let logging break the webhook response.
+      this.logger.warn({ msg: 'failed to write webhook delivery log', merchantId, err });
+    }
   }
 
   // ── catalog_items helpers ──────────────────────────────────────────────────

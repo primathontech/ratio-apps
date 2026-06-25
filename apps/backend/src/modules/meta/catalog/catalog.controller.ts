@@ -66,4 +66,9 @@ export class MetaCatalogController {
   async status(@CurrentMerchant() merchant: Merchant): Promise<{ runs: unknown[] }> {
     return { runs: await this.catalog.getStatus(merchant.id) };
   }
+
+  @Get('webhook-deliveries')
+  async webhookDeliveries(@CurrentMerchant() merchant: Merchant): Promise<{ deliveries: unknown[] }> {
+    return { deliveries: await this.catalog.getWebhookDeliveries(merchant.id) };
+  }
 }
