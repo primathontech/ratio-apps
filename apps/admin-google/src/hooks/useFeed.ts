@@ -70,6 +70,35 @@ export function useFeedHistory() {
   });
 }
 
+export interface FeedEventRow {
+  offerId: string;
+  productId: string;
+  variantId: string | null;
+  title: string | null;
+  status: FeedItemStatus;
+  previousStatus: FeedItemStatus | null;
+  issue: string | null;
+  syncType: string | null;
+  createdAt: string;
+}
+
+export interface FeedEventsResponse {
+  items: FeedEventRow[];
+  total: number;
+}
+
+export function useFeedEvents(offerId: string, page: number, limit = 20) {
+  const token = useMerchantStore((s) => s.token);
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (offerId) params.set('offerId', offerId);
+  return useQuery({
+    queryKey: queryKeys.feedEvents(offerId, page, limit),
+    queryFn: () => api<FeedEventsResponse>('GET', `/api/feed/events?${params.toString()}`),
+    enabled: !!token,
+    refetchOnWindowFocus: false,
+  });
+}
+
 export function useForceSync() {
   const qc = useQueryClient();
   return useMutation({

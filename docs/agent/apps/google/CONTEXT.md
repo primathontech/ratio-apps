@@ -37,6 +37,28 @@ this module. Standing context first; dated change journal below (newest first).
 
 ## Change journal
 
+### 2026-06-26 — fix — feed status-change history (append-only google_feed_events)
+- **What:** Added `google_feed_events`, an append-only audit log of per-offer feed
+  status changes, surfaced as a "Status change history" card on the admin Product
+  Feed page (`GET /google/api/feed/events`, paginated, optional `offerId` filter).
+- **Why:** Bug — `google_feed_items` is a current-state-per-offer table upserted on
+  `(merchant_id, offer_id)`, so when a previously-failed offer (`ERROR`) re-synced
+  to `SYNCED` the row was overwritten in place and the failure history was lost.
+- **Fix:** `writeFeedItem` now reads the prior status, upserts the item as before,
+  then appends a `google_feed_events` row **only when the status changed** (incl.
+  first observation, `previous_status` null) — so steady-state re-syncs that don't
+  change anything add no rows (no log spam). `deleteProduct` logs the `DELETED`
+  transition. `google_feed_items` (current state) and `google_sync_log` (per-run
+  history) are unchanged.
+- **Files:** `modules/google/db/migrations/0003_feed_events.ts`, `db/types.ts`
+  (`GoogleFeedEventsTable`), `gmc/feed-sync.service.ts` (`isFeedStatusTransition`,
+  `recordFeedEvent`), `gmc/feed-query.service.ts` (`events()`), `gmc/feed.controller.ts`,
+  `admin-google/src/hooks/useFeed.ts` (`useFeedEvents`), `admin-google/src/routes/feed.tsx`.
+  Tests: `test/unit/apps/google/feed-sync.service.test.ts`, `admin-google/src/routes/feed.test.tsx`.
+- **Links:** `docs/agent/changes/add-feed-event-log/` (SPEC + PLAN).
+- **Open item:** migration applies on deploy via `pnpm migrate:google` (needs MySQL);
+  no retention/pruning policy for the log yet.
+
 ### 2026-06-18 — feature — GMC product sync hardening + core webhook envelope fix
 - **Core webhooks (all modules):** envelope migrated to the real
   `{ event_type, merchant_id, product }` contract (the old `{id,event,timestamp,

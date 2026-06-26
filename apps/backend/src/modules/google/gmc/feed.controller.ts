@@ -46,6 +46,22 @@ export class GoogleFeedController {
     return this.query.history(merchant.id);
   }
 
+  @Get('events')
+  events(
+    @CurrentMerchant() merchant: Merchant,
+    @Query('offerId') offerId?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const parsedPage = Math.max(1, Number(page) || 1);
+    const parsedLimit = Math.min(100, Math.max(1, Number(limit) || 20));
+    return this.query.events(merchant.id, {
+      ...(offerId ? { offerId } : {}),
+      page: parsedPage,
+      limit: parsedLimit,
+    });
+  }
+
   @Post('sync')
   async forceSync(@CurrentMerchant() merchant: Merchant): Promise<{ started: true }> {
     // Fire-and-forget: a full catalog sync can take a while; the admin polls the

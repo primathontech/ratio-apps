@@ -23,6 +23,18 @@ export interface FeedItemView {
   lastSyncedAt: string | null;
 }
 
+export interface FeedEventView {
+  offerId: string;
+  productId: string;
+  variantId: string | null;
+  title: string | null;
+  status: FeedItemStatus;
+  previousStatus: FeedItemStatus | null;
+  issue: string | null;
+  syncType: string | null;
+  createdAt: string;
+}
+
 /** Read-side queries that power the feed-details admin screen. */
 @Injectable()
 export class FeedQueryService {
@@ -85,6 +97,43 @@ export class FeedQueryService {
         hasGtin: Boolean(r.hasGtin),
         issue: r.issue,
         lastSyncedAt: r.lastSyncedAt ? new Date(r.lastSyncedAt).toISOString() : null,
+      })),
+    };
+  }
+
+  async events(
+    merchantId: string,
+    opts: { offerId?: string; page: number; limit: number },
+  ): Promise<{ items: FeedEventView[]; total: number }> {
+    let base = this.handle.db
+      .selectFrom('google_feed_events')
+      .where('merchantId', '=', merchantId);
+    if (opts.offerId) base = base.where('offerId', '=', opts.offerId);
+
+    const totalRow = await base
+      .select((eb) => eb.fn.countAll<number>().as('c'))
+      .executeTakeFirst();
+
+    const rows = await base
+      .selectAll()
+      .orderBy('createdAt', 'desc')
+      .orderBy('id', 'desc')
+      .limit(opts.limit)
+      .offset((opts.page - 1) * opts.limit)
+      .execute();
+
+    return {
+      total: Number(totalRow?.c ?? 0),
+      items: rows.map((r) => ({
+        offerId: r.offerId,
+        productId: r.productId,
+        variantId: r.variantId,
+        title: r.title,
+        status: r.status,
+        previousStatus: r.previousStatus,
+        issue: r.issue,
+        syncType: r.syncType,
+        createdAt: new Date(r.createdAt).toISOString(),
       })),
     };
   }

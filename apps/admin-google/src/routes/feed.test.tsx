@@ -58,6 +58,9 @@ describe('FeedDetails', () => {
           },
         ]);
       }
+      if (path.startsWith('/api/feed/events')) {
+        return Promise.resolve({ items: [], total: 0 });
+      }
       return Promise.resolve({});
     });
 
@@ -75,11 +78,49 @@ describe('FeedDetails', () => {
         return Promise.resolve({ items: [], total: 0 });
       }
       if (path === '/api/feed/history') return Promise.resolve([]);
+      if (path.startsWith('/api/feed/events')) {
+        return Promise.resolve({ items: [], total: 0 });
+      }
       return Promise.resolve({});
     });
 
     renderWithProviders(<FeedPage />);
     await waitFor(() => expect(screen.getByText('No sync runs yet')).toBeInTheDocument());
     expect(screen.getByText('No feed items')).toBeInTheDocument();
+  });
+
+  it('renders the status change history with the prior → new status', async () => {
+    mockedApi.mockImplementation((_method: string, path: string) => {
+      if (path.startsWith('/api/feed/items')) {
+        return Promise.resolve({ items: [], total: 0 });
+      }
+      if (path === '/api/feed/history') return Promise.resolve([]);
+      if (path.startsWith('/api/feed/events')) {
+        return Promise.resolve({
+          items: [
+            {
+              offerId: 'off-2',
+              productId: 'prod-2',
+              variantId: 'v-2',
+              title: 'Red Hat',
+              status: 'SYNCED',
+              previousStatus: 'ERROR',
+              issue: null,
+              syncType: 'manual',
+              createdAt: '2026-06-09T09:00:00.000Z',
+            },
+          ],
+          total: 1,
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    renderWithProviders(<FeedPage />);
+    expect(await screen.findByText('Status change history')).toBeInTheDocument();
+    // The event row shows the product and both the prior (ERROR) and new (SYNCED) status.
+    expect(await screen.findByText('Red Hat')).toBeInTheDocument();
+    expect(screen.getByText('ERROR')).toBeInTheDocument();
+    expect(screen.getByText('SYNCED')).toBeInTheDocument();
   });
 });
