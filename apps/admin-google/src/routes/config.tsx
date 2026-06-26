@@ -119,6 +119,9 @@ export function ConfigPage() {
     () => new URLSearchParams(window.location.search).get('connected') === '1',
   );
   const [connecting, setConnecting] = useState(false);
+  // Guards the post-connect auto-fill below to once per connect. Declared here
+  // (not beside the effect) so handleConnect can re-arm it for each new connect.
+  const autoSavedRef = useRef(false);
 
   async function handleConnect(): Promise<void> {
     setConnecting(true);
@@ -129,7 +132,13 @@ export function ConfigPage() {
       // without a manual reload). Mark justConnected if the message confirmed
       // it OR the refetched config now shows a linked Google account.
       const res = await refetch();
-      if (connected || res.data?.googleAccountEmail) setJustConnected(true);
+      if (connected || res.data?.googleAccountEmail) {
+        // Re-arm auto-fill: the backend clears the prior account's IDs on every
+        // connect, so discovery must be free to re-fill them even on a second
+        // connect within the same session (no remount to reset the ref).
+        autoSavedRef.current = false;
+        setJustConnected(true);
+      }
     } finally {
       setConnecting(false);
     }
@@ -199,8 +208,8 @@ export function ConfigPage() {
   // exactly one GA4 stream / GMC account. Pre-fill those empty fields AND persist
   // them (so the merchant doesn't have to click Save). Single, unambiguous matches
   // into empty fields only — multiple candidates use the picker below, and a value
-  // already saved is never overwritten. Runs once per connect (autoSavedRef).
-  const autoSavedRef = useRef(false);
+  // already saved is never overwritten. Runs once per connect (autoSavedRef,
+  // declared above and re-armed by handleConnect).
   useEffect(() => {
     const d = discover.data;
     if (!d || !data || autoSavedRef.current) return;
