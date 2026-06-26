@@ -65,12 +65,22 @@ function makeFakeHandle(opts: {
     return chain;
   };
 
+  // INSERT … ON DUPLICATE KEY UPDATE chain — handleCallback upserts credentials
+  // through it. We don't capture it here (the callback's reset lands on the
+  // google_configs UPDATE, captured in configUpdates).
+  const insertChain = {
+    values: () => insertChain,
+    onDuplicateKeyUpdate: () => insertChain,
+    execute: async () => [],
+  };
+
   const db = {
     selectFrom: (table: string) => {
       if (table === 'google_configs') return configSelectChain;
       if (table === 'google_credentials') return credSelectChain;
       throw new Error(`unexpected selectFrom("${table}")`);
     },
+    insertInto: () => insertChain,
     updateTable: (table: string) => {
       if (table === 'google_credentials') return makeUpdateChain(credentialUpdates);
       if (table === 'google_configs') return makeUpdateChain(configUpdates);
@@ -248,6 +258,34 @@ describe('GoogleAuthService.getAccessToken (AC2: OAuth refresh + reconnect-on-fa
       }).svc.getAccessToken(MERCHANT),
     ).rejects.toBeInstanceOf(UnauthorizedException);
     expect(http.refresh).not.toHaveBeenCalled();
+  });
+
+  it('handleCallback resets stale per-account IDs so a new account does not inherit the old one', async () => {
+    // A merchant who previously connected account A (with discovered IDs) now
+    // connects account B. The connect must clear the prior account's IDs, else
+    // GMC sync runs B's token against A's Merchant Center → "invalid creds".
+    const { svc, http, handle } = build({
+      config: { connectionMethod: 'oauth', gmcMerchantId: '111111111' },
+    });
+    http.exchangeCode.mockResolvedValue({
+      accessToken: 'at',
+      refreshToken: 'rt',
+      expiresIn: 3600,
+      scope: 'scope',
+    });
+    http.userEmail.mockResolvedValue('new-account@example.com');
+
+    await svc.handleCallback('auth-code', MERCHANT);
+
+    // The google_configs UPDATE set must null out the discovered IDs.
+    expect(handle.configUpdates).toHaveLength(1);
+    const set = handle.configUpdates[0]!;
+    expect(set.googleAccountEmail).toBe('new-account@example.com');
+    expect(set.connectionMethod).toBe('oauth');
+    expect(set.gmcMerchantId).toBeNull();
+    expect(set.ga4MeasurementId).toBeNull();
+    expect(set.adsConversionId).toBeNull();
+    expect(set.adsConversionLabel).toBeNull();
   });
 
   it('expired token with no refresh token marks reconnect and throws', async () => {

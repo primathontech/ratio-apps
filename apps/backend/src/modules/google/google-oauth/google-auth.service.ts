@@ -87,11 +87,22 @@ export class GoogleAuthService {
       } as never)
       .execute();
 
+    // Reset the per-account discovered IDs on every connect. They are tied to
+    // the Google account that was connected when they were saved — carrying them
+    // into a newly connected account points GMC sync (and the GA4/Ads pixels) at
+    // resources the new account can't access, which Google rejects as "invalid
+    // creds". Nulling them lets the admin's discovery re-fill them for the
+    // account just connected. Account-agnostic settings (store URL, toggles,
+    // target country, etc.) are left untouched.
     await this.handle.db
       .updateTable('google_configs')
       .set({
         connectionMethod: 'oauth',
         googleAccountEmail: email,
+        gmcMerchantId: null,
+        ga4MeasurementId: null,
+        adsConversionId: null,
+        adsConversionLabel: null,
         updatedAt: sql`CURRENT_TIMESTAMP(3)`,
       } as never)
       .where('merchantId', '=', merchantId)
