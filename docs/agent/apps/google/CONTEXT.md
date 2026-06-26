@@ -37,6 +37,32 @@ this module. Standing context first; dated change journal below (newest first).
 
 ## Change journal
 
+### 2026-06-26 — feature — verify product published/active on webhook before GMC sync
+- **What:** Product create/update webhooks now enqueue only `{ op:'upsert', merchantId, productId }`;
+  the `GoogleProductSyncWorker` fetches the authoritative product by id
+  (`RatioProductsService.getById` → `GET /api/v1/v1/products/:id?show_variants=true`, envelope
+  `{ product }`) and syncs to GMC **only when active + published**, else removes it from GMC.
+- **Why:** The publish/active gate ran on the raw webhook payload, which doesn't reliably carry
+  `published`/`published_at` and can arrive out of order — so drafts/unpublished products could
+  reach Google. Fetching by id is a trustworthy read-after-event.
+- **Definition of done / fix:** Gate moved from the handlers to the worker. "Published" =
+  `published_at != null` (no boolean `published` on the single-product response) AND
+  `status === 'active'`; `isSellable` also rejects `is_deleted === true`. The by-id `{ product }`
+  shape matches `parseRestProduct` exactly (verified against a live response). Not-active/published
+  → `deleteProduct`, which now **early-returns (no GMC call, no log) when the product was never
+  synced** — so a never-synced draft produces no log noise; a previously-synced one logs `→ DELETED`
+  in `google_feed_events`. `getById` maps upstream 404 → `null` (remove) and rethrows transients
+  (SQS redrive). Queue message keeps an optional legacy `product` field so in-flight messages
+  survive one deploy. Out-of-stock published products still sync (stock not gated).
+- **Files:** `gmc/ratio-products.service.ts` (`getById`), `gmc/feed-sync.service.ts`
+  (`RatioProductsPort.getById`, `deleteProduct` early-return), `gmc/google-product-sync.queue.ts`
+  (message type + `isSellable` is_deleted guard), `webhooks/product-created.handler.ts`,
+  `webhooks/product-updated.handler.ts`, `gmc/google-product-sync.worker.ts`. Tests:
+  `ratio-products.service.test.ts`, `feed-sync.service.test.ts`, `parse-by-id.test.ts`,
+  `google-product-sync.worker.test.ts`, `product-{created,updated}.handler.test.ts`.
+- **Links:** `docs/agent/changes/webhook-verify-published/` (SPEC + PLAN). Builds on the
+  `google_feed_events` log (entry below).
+
 ### 2026-06-26 — fix — feed status-change history (append-only google_feed_events)
 - **What:** Added `google_feed_events`, an append-only audit log of per-offer feed
   status changes, surfaced as a "Status change history" card on the admin Product

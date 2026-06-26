@@ -4,20 +4,17 @@ import type { DatabaseWithMerchants } from '../../../core/merchants/merchant.typ
 import type { DatabaseWithWebhookLog } from '../../../core/webhooks/webhook-log.types';
 import type { WebhookHandler } from '../../../core/webhooks/webhooks.types';
 import { QueueService } from '../../../core/queue/queue.service';
-import {
-  GOOGLE_QUEUE_NAMES,
-  type GoogleSyncMessage,
-  isSellable,
-} from '../gmc/google-product-sync.queue';
+import { GOOGLE_QUEUE_NAMES, type GoogleSyncMessage } from '../gmc/google-product-sync.queue';
 import { parseWebhookProduct } from '../gmc/parse-ratio-product';
 import { GOOGLE_WEBHOOK_TOPICS } from './topics';
 
 /**
- * `products/create` → enqueue a GMC upsert on the durable SQS queue.
+ * `products/create` → enqueue a GMC upsert (by id) on the durable SQS queue.
  *
  * Per TRD R5 the handler never blocks on the Content API (Ratio's 5s ack
- * budget): it parses + enqueues, and a separate worker drains the queue. A
- * brand-new draft isn't in GMC yet, so non-sellable creates are dropped.
+ * budget): it validates the payload, enqueues the product id, and the worker
+ * fetches the authoritative product + decides sync-vs-remove. The publish/active
+ * gate is NOT applied here — webhook payloads don't reliably carry publish state.
  */
 @Injectable()
 export class GoogleProductCreatedHandler implements WebhookHandler {
@@ -37,8 +34,7 @@ export class GoogleProductCreatedHandler implements WebhookHandler {
       this.logger.warn({ msg: 'products/create with unparseable payload — skipped', merchantId });
       return;
     }
-    if (!isSellable(data)) return;
-    const msg: GoogleSyncMessage = { op: 'upsert', merchantId, product };
+    const msg: GoogleSyncMessage = { op: 'upsert', merchantId, productId: product.id };
     await this.queue.sendBatch(GOOGLE_QUEUE_NAMES.sync, [msg]);
   }
 }

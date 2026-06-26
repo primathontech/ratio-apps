@@ -492,6 +492,20 @@ describe('FeedSyncService', () => {
         ['m:v2', 'DELETED'],
       ]);
     });
+
+    it('is a no-op (no GMC call, no logs) when the product was never synced', async () => {
+      const fake = makeFakeKysely({ config: configRow(), feedItemRows: [] });
+      const { fetch, calls } = fakeFetch(() => new Response(null, { status: 204 }));
+      vi.stubGlobal('fetch', fetch);
+
+      const svc = new FeedSyncService(fake.handle, makeAuth(), makeProducts());
+      await svc.deleteProduct(MERCHANT_ID, 'p-never-synced');
+
+      expect(calls.filter((c) => c.method === 'DELETE')).toHaveLength(0);
+      expect(fake.feedItemUpdates).toHaveLength(0);
+      expect(fake.syncLogWrites).toHaveLength(0);
+      expect(fake.feedEventWrites).toHaveLength(0);
+    });
   });
 
   describe('fullSync', () => {

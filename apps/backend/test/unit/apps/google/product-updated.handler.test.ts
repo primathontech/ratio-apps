@@ -39,24 +39,17 @@ describe('GoogleProductUpdatedHandler', () => {
     expect(handler.topic).toBe(GOOGLE_WEBHOOK_TOPICS.productsUpdate);
   });
 
-  it('enqueues an upsert for a sellable product', async () => {
+  it('enqueues an upsert carrying the productId', async () => {
     await handler.handle(product(), 'm1', trx);
     const [name, payloads] = (q.queue.sendBatch as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(name).toBe(GOOGLE_QUEUE_NAMES.sync);
-    expect(payloads[0]).toMatchObject({ op: 'upsert', merchantId: 'm1' });
+    expect(payloads).toEqual([{ op: 'upsert', merchantId: 'm1', productId: 'prod-1' }]);
   });
 
-  it('enqueues a delete when the product is no longer sellable (archived → update→delete)', async () => {
+  it('still enqueues an upsert for an archived product (the worker removes it from GMC)', async () => {
     await handler.handle(product({ status: 'archived' }), 'm1', trx);
-    const [name, payloads] = (q.queue.sendBatch as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(name).toBe(GOOGLE_QUEUE_NAMES.sync);
-    expect(payloads).toEqual([{ op: 'delete', merchantId: 'm1', productId: 'prod-1' }]);
-  });
-
-  it('enqueues a delete when the product is unpublished', async () => {
-    await handler.handle(product({ published: false }), 'm1', trx);
     const [, payloads] = (q.queue.sendBatch as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(payloads).toEqual([{ op: 'delete', merchantId: 'm1', productId: 'prod-1' }]);
+    expect(payloads).toEqual([{ op: 'upsert', merchantId: 'm1', productId: 'prod-1' }]);
   });
 
   it('skips an unparseable payload', async () => {

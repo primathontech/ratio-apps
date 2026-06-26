@@ -47,14 +47,12 @@ describe('GoogleProductCreatedHandler', () => {
     expect(q.queue.sendBatch).toHaveBeenCalledTimes(1);
     const [name, payloads] = (q.queue.sendBatch as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(name).toBe(GOOGLE_QUEUE_NAMES.sync);
-    expect(payloads).toHaveLength(1);
-    expect(payloads[0]).toMatchObject({ op: 'upsert', merchantId: 'm1' });
-    expect((payloads[0] as { product: { id: string } }).product.id).toBe('prod-1');
+    expect(payloads).toEqual([{ op: 'upsert', merchantId: 'm1', productId: 'prod-1' }]);
   });
 
-  it('does NOT enqueue a non-sellable (draft) product', async () => {
+  it('still enqueues a draft (the worker decides via the authoritative fetch)', async () => {
     await handler.handle(product({ status: 'draft' }), 'm1', trx);
-    expect(q.queue.sendBatch).not.toHaveBeenCalled();
+    expect(q.queue.sendBatch).toHaveBeenCalledTimes(1);
   });
 
   it('skips an unparseable payload', async () => {
