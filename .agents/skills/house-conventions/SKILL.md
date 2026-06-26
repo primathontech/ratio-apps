@@ -27,6 +27,14 @@ Inside the template, `// TEMPLATE:` marker comments flag exactly the spots a
 vendor customizes (the SDK call in `sdk/sdk.service.ts`, the config fields, etc.).
 After building a real vendor, **zero `// TEMPLATE:` markers** may remain.
 
+An app may opt into a **third pillar** — a storefront SDK (Lit 3 + Vite library
+mode) — gated on the `hasStorefrontSdk` flag (default `false`; the four analytics
+vendors don't ship one, `wizzy` is the first that does). Its golden copy-source is
+`packages/_template-sdk/` (excluded from the workspace, like the other two
+templates); a scaffolded SDK package is named **`packages/<slug>-sdk`** (package
+name `@ratio-app/<slug>-sdk`), with `__slug__`/`__Slug__`/`__SLUG__` placeholders
+renamed to the slug. Reference impl: `packages/wizzy-sdk`.
+
 ## The `core/` boundary — shared infra, never forked
 
 `apps/backend/src/core/` is shared infrastructure used by every vendor module:

@@ -16,6 +16,7 @@ resume a build from the repo.
 |---|---|---|
 | `slug` | string | Vendor slug. Lowercase `[a-z0-9-]` (scaffolded vendors never use a leading underscore — that is reserved for `_template`). Drives module/admin paths and `RATIO_<SLUG_UPPER>_*` env keys. |
 | `displayName` | string | Human-readable vendor name (e.g. `"Loyalty Points"`). |
+| `hasStorefrontSdk` | boolean | The app ships a storefront SDK pillar (`packages/<slug>-sdk`); opt-in. Default `false` (absent ⇒ false). |
 | `phase` | enum | Current phase. One of: `prd-architect` \| `trd-architect` \| `tdd-author` \| `vendor-scaffolder` \| `backend-builder` \| `frontend-builder` \| `code-reviewer` \| `pr-author` \| `deployer` \| `done`. |
 | `gates` | object | The five human-approval gates. Each value is `pending` \| `approved`. Keys: `prd` (PRD sign-off), `trd` (TRD sign-off), `tdd` (TDD test-plan sign-off), `pr` (before PR), `deploy` (before deploy). |
 | `docs` | object | Paths of the approved design docs produced before implementation: `prd`, `trd`, `tdd` (all under `docs/agent/apps/<slug>/`). Each is `null` until its phase produces it. |
@@ -53,6 +54,7 @@ orchestrator does not re-prompt for a gate already `approved`.
 {
   "slug": "loyalty",
   "displayName": "Loyalty Points",
+  "hasStorefrontSdk": false,
   "phase": "backend-builder",
   "gates": {
     "prd": "approved",
@@ -95,6 +97,7 @@ orchestrator does not re-prompt for a gate already `approved`.
 {
   "slug": "<slug>",
   "displayName": "<Display Name>",
+  "hasStorefrontSdk": false,
   "phase": "prd-architect",
   "gates": {
     "prd": "pending",

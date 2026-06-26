@@ -49,6 +49,22 @@ install-session bootstrap intact.
   attaching the Bearer token (handled by the `api()` wrapper).
 - Update `Navbar`/route tree so the new screens are reachable.
 
+### 4. Storefront SDK (only when `hasStorefrontSdk: true`)
+
+**Skip unless STATE.json sets `hasStorefrontSdk: true`** (most apps are false).
+When set, after the admin is done, implement the storefront SDK package
+(`packages/<slug>-sdk`, scaffolded from `_template-sdk`) per the **stack-patterns
+"Storefront SDK patterns"** section — the Lit 3 Web Components, the typed vendor
+`Client` (`src/client.ts`, real search-API base URL + endpoints, public creds
+only), the loader/widget/results bundles, and `RecentStore`/anon-id. Consult the
+**`packages/wizzy-sdk`** reference. Verify with the SDK's own gates:
+
+```bash
+cd packages/<slug>-sdk && pnpm typecheck && pnpm test && pnpm build && pnpm size
+```
+
+`size` (size-limit) must pass: loader ≤ 3 KB, widget ≤ 10 KB, results ≤ 16 KB.
+
 ## Remove every `// TEMPLATE:` marker
 
 ```bash

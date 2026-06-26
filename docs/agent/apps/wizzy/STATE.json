@@ -1,6 +1,7 @@
 {
   "slug": "wizzy",
   "displayName": "Wizzy",
+  "hasStorefrontSdk": true,
   "phase": "implemented",
   "gates": {
     "prd": "passed",
@@ -14,13 +15,15 @@
   "webhooks": ["app/uninstalled", "products/create", "products/update", "products/delete"],
   "paths": {
     "module": "apps/backend/src/modules/wizzy",
-    "admin": "apps/admin-wizzy"
+    "admin": "apps/admin-wizzy",
+    "sdk": "packages/wizzy-sdk"
   },
   "deployTarget": null,
   "prUrl": null,
   "notes": "Built by adapting the hardened `google` app: config (Store ID + write-only Store Secret), Ratio OAuth + token refresh, catalog transform/sync to Wizzy /products/save|delete, all=true bulk sync + hourly reconcile, SQS sync worker, guarded ScriptTag SDK (pending_api), product webhooks. Inherits the google fixes: prices are PAISE (/100), catalog fetch uses ?all=true (the API ignores page), webhook dedup via x-webhook-id, write-only-secret UI. Backend tsc + 251 tests green; admin-wizzy tsc + 11 tests + build green; migration 0001 applied locally. OPEN: Wizzy API base/headers + /products payload shape + ScriptTag API paths are placeholders (TBD with the Wizzy team) - see wizzy-api.client.ts / wizzy-transform.ts / script-tag.client.ts comments.",
   "history": [
     { "phase": "prd-architect", "ts": "2026-06-19T00:00:00.000Z" },
-    { "phase": "implemented", "ts": "2026-06-23T00:00:00.000Z" }
+    { "phase": "implemented", "ts": "2026-06-23T00:00:00.000Z" },
+    { "phase": "storefront-sdk", "ts": "2026-06-26T00:00:00.000Z", "note": "Added the storefront search SDK (packages/wizzy-sdk: overlay + faceted results, direct-to-Wizzy public API) + backend /wizzy/sdk/* serving + admin Storefront Search screen + migration 0003. Part B: storefront SDK promoted to an opt-in pillar (packages/_template-sdk, hasStorefrontSdk). pnpm verify + size-limit + Playwright E2E green. See docs/agent/changes/wizzy-storefront-sdk/." }
   ]
 }

@@ -78,6 +78,17 @@ and leave the flag `pending`.
 Reference skills (`house-conventions`, `stack-patterns`, `context-keeper`) are
 **consulted** by the workers, not invoked as phases.
 
+## The `hasStorefrontSdk` flag (opt-in third pillar)
+
+`hasStorefrontSdk` (set by `prd-architect`, default `false` — **most apps are
+false**) threads through the phases when an app needs a storefront
+search/discovery widget. When set: `vendor-scaffolder` also copies
+`packages/_template-sdk` → `packages/<slug>-sdk` and wires the backend
+`/<slug>/sdk/*` serving routes; the SDK package build is a **sub-step of the
+frontend phase** (`frontend-builder`, after the admin); and the deploy artifact
+must serve the `/<slug>/sdk/*` bundles. Reference impl: `packages/wizzy-sdk`. The
+four analytics vendors leave it false and skip all of this.
+
 ## Resuming a build
 
 Read `phase` and `gates` from STATE.json and jump to the matching skill above:

@@ -31,6 +31,11 @@ function makeConfig(overrides: Partial<WizzyConfig> = {}): WizzyConfig {
     autoSyncEnabled: true,
     includeOutOfStock: true,
     stripHtmlDescription: true,
+    searchEnabled: false,
+    inputSelector: '#search',
+    resultsMountSelector: '#wizzy-results',
+    resultsPagePath: '/search',
+    themePrimary: '#0fb3a9',
     ...overrides,
   };
 }

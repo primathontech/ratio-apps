@@ -29,7 +29,9 @@ describe('EventMapTable', () => {
     render(<Harness />);
     expect(OPEN_STORE_EVENT_NAMES).toHaveLength(13);
     for (const name of OPEN_STORE_EVENT_NAMES) {
-      expect(screen.getByText(name)).toBeInTheDocument();
+      // Some event names (e.g. "PageView") also appear as a mapped Meta event,
+      // so the name can render in more than one cell — assert it appears at least once.
+      expect(screen.getAllByText(name).length).toBeGreaterThan(0);
     }
   });
 });

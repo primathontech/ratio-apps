@@ -21,6 +21,11 @@ Do not introduce alternative frameworks for these concerns.
   (declared in `apps/backend/src/config/apps.ts` as
   `APPS = ['google', 'meta', 'posthog', 'moengage'] as const`).
 - **Admin:** React 19 + Vite + TanStack Router (one SPA per vendor).
+- **Storefront SDK (optional):** Lit 3 (Web Components, Shadow DOM) + Vite 6
+  library mode, one package per vendor at `packages/<slug>-sdk`, served by the
+  vendor backend at `/<slug>/sdk/*` (IIFE loader + ESM widget/results bundles +
+  public `config/:merchantId`). Opt-in per app via `hasStorefrontSdk`; the four
+  analytics vendors don't ship one. Reference impl: `packages/wizzy-sdk`.
 - **Shared:** Zod schemas + event constants in `packages/shared`.
 - **Tooling:** pnpm workspaces, Node 22, Biome (lint + format), Vitest.
 - **Deploy:** single artifact — the backend serves the built admin static
@@ -32,8 +37,11 @@ Do not introduce alternative frameworks for these concerns.
 template** — kept on disk as the scaffolder's **copy-source** (NOT wired or
 running; excluded from `APPS`/workspace per ADR 0002). A new vendor is always
 **scaffolded FROM the template** (copied + renamed) — **never hand-rolled**, and
-never built by editing `_template` itself. (Full rule + the `// TEMPLATE:` marker
-convention: the **`house-conventions`** skill.)
+never built by editing `_template` itself. When an app opts into a storefront SDK
+(`hasStorefrontSdk`), `packages/_template-sdk/` is the **third** golden copy-source
+(alongside the backend module + admin) — also excluded from the workspace, scaffolded
+only when the flag is set. (Full rule + the `// TEMPLATE:` marker convention: the
+**`house-conventions`** skill.)
 
 ## The `core/` boundary
 
@@ -55,6 +63,14 @@ barrel exports (`DEFAULT_<VENDOR>_EVENT_MAP`, not a generic alias); the
 `.env.example` block (`env.schema.ts` derives keys from `APPS` — never edit it) —
 and the collision check live in the **`vendor-scaffolder`** skill. Never scaffold
 by hand.
+
+When `hasStorefrontSdk` is set, the scaffolder also copies
+`packages/_template-sdk` → `packages/<slug>-sdk` (replacing the `__slug__`
+placeholders), **removes that package from the workspace exclusion** (unlike
+`_template-sdk`, it IS a real buildable package), and registers the backend
+`/<slug>/sdk/*` serving routes (loader/widget/results bundles + public
+`config/:merchantId`). The four analytics vendors skip this step. Full recipe in
+**`vendor-scaffolder`**.
 
 Verify wiring with `pnpm verify` (or `pnpm install && pnpm -r typecheck`).
 

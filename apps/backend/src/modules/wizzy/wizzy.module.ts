@@ -22,6 +22,8 @@ import { type RatioOAuthCreds, RatioOAuthHttp } from './oauth/ratio-oauth.http';
 import { RatioTokenProvider } from './oauth/ratio-token.provider';
 import { ScriptTagClient } from './sdk/script-tag.client';
 import { SdkRegistrationService } from './sdk/sdk-registration.service';
+import { StorefrontController } from './storefront/storefront.controller';
+import { StorefrontConfigService } from './storefront/storefront-config.service';
 import {
   WIZZY_CRYPTO,
   WIZZY_MERCHANTS,
@@ -66,9 +68,11 @@ export {
     CatalogController,
     WizzyWebhooksController,
     WizzyMerchantsController,
+    StorefrontController,
   ],
   providers: [
     WizzyConfigService,
+    StorefrontConfigService,
     WizzyBootstrap,
     // OAuth / token
     RatioTokenProvider,

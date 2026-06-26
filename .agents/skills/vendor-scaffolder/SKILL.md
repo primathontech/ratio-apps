@@ -217,6 +217,53 @@ RATIO_<SLUG>_ADMIN_BASE_URL=http://localhost:5173
 Remind the operator to add a real block to their local `.env` (with a generated
 encryption key) — never commit `.env`.
 
+## Step 8b — Storefront SDK (only when `hasStorefrontSdk: true`)
+
+**Skip this step entirely unless STATE.json / the PRD sets
+`hasStorefrontSdk: true`** (the four analytics vendors do NOT — absence ⇒ false).
+When set, the app ships a third pillar: a Lit 3 + Vite library-mode SDK package
+served by the vendor backend at `/<slug>/sdk/*`. Reference impl:
+`packages/wizzy-sdk`.
+
+1. **Copy + rename the package** from the golden SDK template:
+   ```bash
+   cp -R packages/_template-sdk packages/<slug>-sdk
+   ```
+   Replace the `__slug__` / `__Slug__` / `__SLUG__` placeholders with the vendor
+   slug (lower / Pascal / upper) in **file contents AND filenames** — including
+   `package.json` `"name": "@ratio-app/<slug>-sdk"`, the `vite.*.config.ts`
+   bundle names, and `.size-limit.json` paths (`dist/<slug>-loader.js`,
+   `dist/<slug>-widget.js`, `dist/<slug>-results.js`).
+
+2. **Fill the `// TEMPLATE:` markers** — especially the vendor **search-API base
+   URL + endpoints** in `src/client.ts` (the typed `Client`). Leave the rest of
+   the deeper implementation (UI components, result shapes) to `frontend-builder`;
+   the scaffold only needs to typecheck.
+
+3. **Add it to the workspace.** `_template-sdk` is excluded in
+   `pnpm-workspace.yaml` (its `__slug__` placeholders aren't valid TS), but
+   `packages/<slug>-sdk` IS a real buildable package — the `packages/*` glob picks
+   it up automatically, so just ensure no explicit `!packages/<slug>-sdk`
+   exclusion exists.
+
+4. **Register backend serving routes.** Copy the `storefront/` folder pattern
+   from the reference (`apps/backend/src/modules/wizzy/storefront/`): a
+   `StorefrontController` mounted `@Controller('<slug>/sdk')` that serves the
+   three built bundles from `packages/<slug>-sdk/dist` (loader/widget/results) and
+   a **public** `GET config/:merchantId` (no merchant guard, permissive CORS),
+   plus a `StorefrontConfigService`. Register both in `<slug>.module.ts`.
+
+5. **Add a `0003`-style migration** for the storefront config columns
+   (`search_enabled`, `input_selector`, `results_mount_selector`,
+   `results_page_path`, `theme_primary`) — additive `ALTER TABLE <slug>_configs`,
+   mirroring `wizzy/db/migrations/0003_add_storefront_config.ts`.
+
+**Size budget** (enforced via `size-limit`): loader ≤ 3 KB, widget ≤ 10 KB,
+results ≤ 16 KB. **Public-endpoint auth rule:** the storefront SDK runs in the
+shopper's browser, so it calls the vendor API with **public creds only** (e.g.
+store id + public api key) — the secret (`storeSecret`/`CLIENT_SECRET`) must NEVER
+reach the browser or the public config endpoint.
+
 ## Step 9 — Prove it wires
 
 ```bash

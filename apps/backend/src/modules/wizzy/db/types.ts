@@ -24,6 +24,12 @@ interface WizzyConfigsTable {
   autoSyncEnabled: Generated<boolean>;
   includeOutOfStock: Generated<boolean>;
   stripHtmlDescription: Generated<boolean>;
+  /** Storefront search SDK settings (plain, not secret). */
+  searchEnabled: Generated<boolean>;
+  inputSelector: Generated<string>;
+  resultsMountSelector: Generated<string>;
+  resultsPagePath: Generated<string>;
+  themePrimary: Generated<string>;
   lastBulkSyncAt: Date | null;
   createdAt: Generated<Date>;
   updatedAt: Generated<Date>;

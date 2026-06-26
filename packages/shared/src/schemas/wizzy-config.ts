@@ -53,6 +53,18 @@ export const wizzyConfigInputSchema = z.object({
   autoSyncEnabled: z.boolean().default(true),
   includeOutOfStock: z.boolean().default(true),
   stripHtmlDescription: z.boolean().default(true),
+
+  // Storefront search SDK settings (plain, not secret)
+  /** Master switch for the storefront search SDK. */
+  searchEnabled: z.boolean().default(false),
+  /** CSS selector of the storefront search input. */
+  inputSelector: z.string().max(255).default('#search'),
+  /** CSS selector where the results page mounts. */
+  resultsMountSelector: z.string().max(255).default('#wizzy-results'),
+  /** Path of the results page. */
+  resultsPagePath: z.string().max(255).default('/search'),
+  /** Primary theme color. */
+  themePrimary: z.string().max(32).default('#0fb3a9'),
 });
 
 export type WizzyConfigInput = z.infer<typeof wizzyConfigInputSchema>;
@@ -82,6 +94,18 @@ export const wizzyConfigSchema = z.object({
   autoSyncEnabled: z.boolean(),
   includeOutOfStock: z.boolean(),
   stripHtmlDescription: z.boolean(),
+
+  // Storefront search SDK settings (plain, echoed back)
+  /** Master switch for the storefront search SDK. */
+  searchEnabled: z.boolean(),
+  /** CSS selector of the storefront search input. */
+  inputSelector: z.string(),
+  /** CSS selector where the results page mounts. */
+  resultsMountSelector: z.string(),
+  /** Path of the results page. */
+  resultsPagePath: z.string(),
+  /** Primary theme color. */
+  themePrimary: z.string(),
 });
 
 export type WizzyConfig = z.infer<typeof wizzyConfigSchema>;

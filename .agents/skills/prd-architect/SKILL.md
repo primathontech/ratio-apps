@@ -36,7 +36,11 @@ Copy `docs/agent/PRD.template.md` to `docs/agent/apps/<slug>/PRD.md` and complet
 every section. Derive content from the idea; ask the user to fill genuine gaps —
 do not invent requirements.
 
-- **Vendor name & slug** — display name + validated slug.
+- **Vendor name & slug** — display name + validated slug, and the **Storefront
+  SDK?** answer. Set it to `yes` when the app has a storefront
+  search/discovery/widget surface that runs in the merchant's storefront — that
+  becomes `hasStorefrontSdk: true` in STATE.json (default `no`/false; most apps,
+  including the analytics vendors, are false).
 - **Problem** — the merchant problem, who uses it, why.
 - **Data model** — the vendor-specific tables beyond the standard `merchants`,
   `oauth_tokens`, `webhook_log` (every module already has those). For each new
@@ -62,6 +66,8 @@ screens map to routes. If anything in the PRD can't be built on the
 Via `context-keeper`, create `docs/agent/apps/<slug>/STATE.json` from the initial
 skeleton:
 - `slug`, `displayName` set.
+- `hasStorefrontSdk` set from the PRD's **Storefront SDK?** answer (default
+  `false`).
 - `phase: "prd-architect"`.
 - `gates: { prd, trd, tdd, pr, deploy }` all `"pending"`.
 - `docs: { prd, trd, tdd }` — set `prd` to `docs/agent/apps/<slug>/PRD.md`; `trd`

@@ -7,6 +7,7 @@ import {
   Layout,
   Menu,
   MenuOutlined,
+  SearchOutlined,
   SettingOutlined,
   Typography,
 } from '@primathonos/orion';
@@ -17,6 +18,11 @@ const items = [
   { key: '/', icon: <HomeOutlined />, label: <Link to="/">Overview</Link> },
   { key: '/config', icon: <SettingOutlined />, label: <Link to="/config">Config</Link> },
   { key: '/catalog', icon: <DatabaseOutlined />, label: <Link to="/catalog">Catalog</Link> },
+  {
+    key: '/storefront',
+    icon: <SearchOutlined />,
+    label: <Link to="/storefront">Storefront Search</Link>,
+  },
   { key: '/install', icon: <BarChartOutlined />, label: <Link to="/install">Install</Link> },
 ];
 

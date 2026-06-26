@@ -13,8 +13,8 @@ import {
   Tag,
   Typography,
 } from '@primathonos/orion';
-import type { ComponentProps } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
+import type { ComponentProps } from 'react';
 import { useEffect, useState } from 'react';
 import {
   type CatalogSyncRun,
@@ -185,9 +185,7 @@ function CatalogPage() {
             <Alert
               type="success"
               message={
-                save.data?.initialSyncStarted
-                  ? 'Saved. Initial full sync started.'
-                  : 'Saved.'
+                save.data?.initialSyncStarted ? 'Saved. Initial full sync started.' : 'Saved.'
               }
               showIcon
             />
@@ -216,9 +214,7 @@ function CatalogPage() {
                   </PrimaryButton>
                   <Dropdown
                     menu={{
-                      items: [
-                        { key: 'force', label: 'Force resync (re-send all products)' },
-                      ],
+                      items: [{ key: 'force', label: 'Force resync (re-send all products)' }],
                       onClick: ({ key }: { key: string }) => {
                         if (key === 'force') syncNow.mutate(true);
                       },
@@ -242,18 +238,18 @@ function CatalogPage() {
             <Alert type="info" message="Sync started in background." showIcon />
           )}
           {stopSync.isSuccess && (
-            <Alert type="warning" message="Stop requested — sync will halt after the current page." showIcon />
+            <Alert
+              type="warning"
+              message="Stop requested — sync will halt after the current page."
+              showIcon
+            />
           )}
         </Space>
       </Card>
 
       {feedUrl && (
         <Card title="Data feed URL" size="small">
-          <Typography.Paragraph
-            copyable
-            code
-            style={{ wordBreak: 'break-all', marginBottom: 0 }}
-          >
+          <Typography.Paragraph copyable code style={{ wordBreak: 'break-all', marginBottom: 0 }}>
             {feedUrl}
           </Typography.Paragraph>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
@@ -267,9 +263,9 @@ function CatalogPage() {
           {webhookUrl}
         </Typography.Paragraph>
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          Paste this into your Ratio marketplace app config (product created / updated /
-          deleted events) for real-time catalog updates. Optional — the scheduled feed
-          above keeps the catalog in sync on its own.
+          Paste this into your Ratio marketplace app config (product created / updated / deleted
+          events) for real-time catalog updates. Optional — the scheduled feed above keeps the
+          catalog in sync on its own.
         </Typography.Text>
       </Card>
 

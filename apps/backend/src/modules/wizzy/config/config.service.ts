@@ -80,6 +80,11 @@ export class WizzyConfigService {
       autoSyncEnabled: input.autoSyncEnabled,
       includeOutOfStock: input.includeOutOfStock,
       stripHtmlDescription: input.stripHtmlDescription,
+      searchEnabled: input.searchEnabled,
+      inputSelector: input.inputSelector,
+      resultsMountSelector: input.resultsMountSelector,
+      resultsPagePath: input.resultsPagePath,
+      themePrimary: input.themePrimary,
     };
 
     // Secret columns are only touched when the caller intends to change them.
@@ -122,6 +127,11 @@ export class WizzyConfigService {
       autoSyncEnabled: Boolean(row.autoSyncEnabled),
       includeOutOfStock: Boolean(row.includeOutOfStock),
       stripHtmlDescription: Boolean(row.stripHtmlDescription),
+      searchEnabled: Boolean(row.searchEnabled),
+      inputSelector: row.inputSelector,
+      resultsMountSelector: row.resultsMountSelector,
+      resultsPagePath: row.resultsPagePath,
+      themePrimary: row.themePrimary,
     };
   }
 }
