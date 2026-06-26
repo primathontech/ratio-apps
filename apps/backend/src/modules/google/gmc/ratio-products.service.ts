@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { HttpException, Inject, Injectable, Logger } from '@nestjs/common';
 import { z } from 'zod';
 import type { RatioClient } from '../../../core/ratio-client/ratio.client';
 import { RatioTokenProvider } from '../google-oauth/ratio-token.provider';
@@ -14,6 +14,20 @@ type Rec = Record<string, unknown>;
 // different key). Accept ANY object (or a bare array) here and locate the items
 // array + page count defensively below, so a shape change can't hard-fail sync.
 const envelopeSchema = z.union([z.array(z.unknown()), z.record(z.string(), z.unknown())]);
+
+// The single-product endpoint wraps the product under `{ product: {...} }`.
+const byIdSchema = z.record(z.string(), z.unknown());
+
+/** True when a RatioClient error wraps an upstream 404 (product not found). */
+function isUpstreamNotFound(err: unknown): boolean {
+  if (!(err instanceof HttpException)) return false;
+  const body = err.getResponse();
+  return (
+    typeof body === 'object' &&
+    body !== null &&
+    (body as { details?: { status?: number } }).details?.status === 404
+  );
+}
 
 /** Return `v` as an array of records, or null when it isn't an array. */
 function asArray(v: unknown): Rec[] | null {
@@ -132,6 +146,22 @@ export class RatioProductsService implements RatioProductsPort {
     const out = [...byId.values()];
     this.logger.log({ msg: 'ratio products fetched', merchantId, products: out.length, total });
     return out;
+  }
+
+  async getById(merchantId: string, productId: string): Promise<Rec | null> {
+    const accessToken = await this.tokens.getAccessToken(merchantId);
+    try {
+      const env = await this.ratio.request(
+        `/api/v1/v1/products/${encodeURIComponent(productId)}?show_variants=true`,
+        byIdSchema,
+        { accessToken },
+      );
+      const product = (env as Rec).product;
+      return product && typeof product === 'object' ? (product as Rec) : null;
+    } catch (err) {
+      if (isUpstreamNotFound(err)) return null; // gone → caller removes from GMC
+      throw err; // transient/5xx/timeout → SQS redrive
+    }
   }
 
   /** GET the products list with the given query string. */

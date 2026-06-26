@@ -1,3 +1,4 @@
+import { HttpException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import type { RatioClient } from '../../../../src/core/ratio-client/ratio.client';
 import { RatioProductsService } from '../../../../src/modules/google/gmc/ratio-products.service';
@@ -81,5 +82,42 @@ describe('RatioProductsService.listAll', () => {
     );
     await expect(svc.listAll('m1')).rejects.toThrow('no Ratio oauth_tokens row');
     expect(request).not.toHaveBeenCalled();
+  });
+});
+
+describe('RatioProductsService.getById', () => {
+  it('GETs /products/:id?show_variants=true and returns the product object', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValue({ product: { id: '7942069485646', title: 'Hair Mask', status: 'active' } });
+    const svc = new RatioProductsService(fakeTokens('tok'), { request } as unknown as RatioClient);
+
+    const product = await svc.getById('m1', '7942069485646');
+
+    expect(String(request.mock.calls[0]?.[0])).toContain('/products/7942069485646');
+    expect(String(request.mock.calls[0]?.[0])).toContain('show_variants=true');
+    expect(product?.id).toBe('7942069485646');
+  });
+
+  it('returns null when the upstream 404s (product gone)', async () => {
+    const request = vi
+      .fn()
+      .mockRejectedValue(
+        new HttpException({ message: 'ratio upstream error', details: { status: 404 } }, 502),
+      );
+    const svc = new RatioProductsService(fakeTokens('tok'), { request } as unknown as RatioClient);
+
+    expect(await svc.getById('m1', 'gone')).toBeNull();
+  });
+
+  it('rethrows on a transient upstream error (non-404)', async () => {
+    const request = vi
+      .fn()
+      .mockRejectedValue(
+        new HttpException({ message: 'ratio upstream error', details: { status: 503 } }, 502),
+      );
+    const svc = new RatioProductsService(fakeTokens('tok'), { request } as unknown as RatioClient);
+
+    await expect(svc.getById('m1', 'p1')).rejects.toBeInstanceOf(HttpException);
   });
 });

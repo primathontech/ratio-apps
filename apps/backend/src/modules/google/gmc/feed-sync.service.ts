@@ -12,6 +12,8 @@ import { type MappedOffer, mapProduct, type RatioProduct } from './product-mappe
 /** Seam over "read this merchant's full Ratio product catalog". */
 export interface RatioProductsPort {
   listAll(merchantId: string): Promise<RatioProduct[]>;
+  /** Fetch the authoritative raw product by id, or null if it 404s (gone). */
+  getById(merchantId: string, productId: string): Promise<Record<string, unknown> | null>;
 }
 
 type SyncType = 'webhook' | 'auto' | 'reconcile' | 'initial' | 'manual';
@@ -133,6 +135,10 @@ export class FeedSyncService {
       .where('merchantId', '=', merchantId)
       .where('productId', '=', productId)
       .execute();
+    // Never synced → nothing to remove from GMC and no history to record. Return
+    // before any GMC call / sync-log write so an unpublished-but-never-synced
+    // product produces no log noise.
+    if (items.length === 0) return;
     for (const { offerId } of items) {
       try {
         await ctx.client.deleteProduct(ctx.restId(offerId));

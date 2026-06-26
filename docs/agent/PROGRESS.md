@@ -6,10 +6,12 @@ summary into the relevant change journal (`apps/<slug>/CONTEXT.md` or
 `STATE.json` (one vendor app's lifecycle state machine).
 
 ## Active task
-_None._
+_None._ (Two changes implemented + green, **uncommitted** in the working tree:
+`add-feed-event-log` and `webhook-verify-published` — awaiting branch/commit/PR decision.)
 
 ## Blockers
-_None._
+_None._ (Prod merchant token shared in chat must be rotated — operator action.)
 
 ## Next step
-_None._
+Decide branch/PR strategy (combined vs separate) and run the `google_feed_events` migration
+(`pnpm migrate:google`) on deploy.

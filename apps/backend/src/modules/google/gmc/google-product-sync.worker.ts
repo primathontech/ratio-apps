@@ -1,7 +1,9 @@
-import { Injectable, Logger, type OnModuleInit, type OnModuleDestroy } from '@nestjs/common';
+import { Inject, Injectable, Logger, type OnModuleInit, type OnModuleDestroy } from '@nestjs/common';
 import { QueueService } from '../../../core/queue/queue.service';
-import { FeedSyncService } from './feed-sync.service';
-import { GOOGLE_QUEUE_NAMES, type GoogleSyncMessage } from './google-product-sync.queue';
+import { GOOGLE_RATIO_PRODUCTS } from '../tokens';
+import { FeedSyncService, type RatioProductsPort } from './feed-sync.service';
+import { GOOGLE_QUEUE_NAMES, type GoogleSyncMessage, isSellable } from './google-product-sync.queue';
+import { parseRestProduct } from './parse-ratio-product';
 
 /**
  * Drains the `google-product-sync` SQS queue and pushes each product to GMC.
@@ -33,6 +35,7 @@ export class GoogleProductSyncWorker implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly queue: QueueService,
     private readonly feedSync: FeedSyncService,
+    @Inject(GOOGLE_RATIO_PRODUCTS) private readonly products: RatioProductsPort,
   ) {}
 
   onModuleDestroy(): void {
@@ -84,11 +87,33 @@ export class GoogleProductSyncWorker implements OnModuleInit, OnModuleDestroy {
   }
 
   private async process(msg: GoogleSyncMessage): Promise<void> {
-    if (msg.op === 'upsert') {
-      await this.feedSync.syncProduct(msg.merchantId, msg.product, 'webhook');
-    } else {
+    if (msg.op !== 'upsert') {
       await this.feedSync.deleteProduct(msg.merchantId, msg.productId);
+      return;
     }
+    // Rollover: a message enqueued before the fetch-by-id change carries the
+    // parsed product. Honor it directly for one deploy.
+    if (msg.product) {
+      await this.feedSync.syncProduct(msg.merchantId, msg.product, 'webhook');
+      return;
+    }
+    // Authoritative read-after-event: only sync active + published products.
+    const raw = await this.products.getById(msg.merchantId, msg.productId);
+    if (raw && isSellable(raw)) {
+      const product = parseRestProduct(raw);
+      if (product) {
+        await this.feedSync.syncProduct(msg.merchantId, product, 'webhook');
+        return;
+      }
+      this.logger.warn({
+        msg: 'authoritative product unparseable — leaving GMC as-is',
+        merchantId: msg.merchantId,
+        productId: msg.productId,
+      });
+      return;
+    }
+    // Gone, draft, or unpublished → remove from GMC (no-op if never synced).
+    await this.feedSync.deleteProduct(msg.merchantId, msg.productId);
   }
 
   private sleep(ms: number): Promise<void> {
