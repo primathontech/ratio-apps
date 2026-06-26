@@ -71,6 +71,8 @@ function isTransientGmcError(err: unknown): boolean {
 @Injectable()
 export class FeedSyncService {
   private readonly logger = new Logger(FeedSyncService.name);
+  /** Merchants whose full sync is currently running (in-flight dedup). */
+  private readonly running = new Set<string>();
 
   constructor(
     @Inject(GOOGLE_DB_TOKEN) private readonly handle: KyselyClient<GoogleDatabase>,
@@ -193,25 +195,34 @@ export class FeedSyncService {
     merchantId: string,
     syncType: SyncType,
   ): Promise<{ updated: number; errored: number }> {
-    const ctx = await this.context(merchantId);
-    if (!ctx) {
-      // GMC disabled or no Merchant Center id — record WHY so the admin's sync
-      // history shows a real reason instead of silently doing nothing.
-      const detail = 'GMC not enabled or no Merchant Center ID configured';
-      this.logger.warn({ msg: 'fullSync skipped', merchantId, detail });
-      await this.writeSyncLog(merchantId, syncType, 0, 0, 0, detail);
-      return { updated: 0, errored: 0 };
-    }
+    // Mark this merchant's sync in-flight for the whole run (also covers the
+    // reconcile / initial paths) and clear it in the finally. The HTTP entry
+    // point reserves synchronously via startForceSyncInBackground, so duplicate
+    // requests are rejected before this even runs.
+    this.running.add(merchantId);
     try {
-      return await this.runFullSync(merchantId, syncType, ctx);
-    } catch (err) {
-      // Catalog fetch / GMC batch threw (e.g. Ratio products API error). Surface
-      // it: log it AND persist a failed sync-log row so the admin sees the cause
-      // rather than a fire-and-forget no-op.
-      const detail = err instanceof Error ? err.message : `${err}`;
-      this.logger.error({ msg: 'fullSync failed', merchantId, syncType, detail });
-      await this.writeSyncLog(merchantId, syncType, 0, 0, 0, `sync failed: ${detail}`);
-      throw err;
+      const ctx = await this.context(merchantId);
+      if (!ctx) {
+        // GMC disabled or no Merchant Center id — record WHY so the admin's sync
+        // history shows a real reason instead of silently doing nothing.
+        const detail = 'GMC not enabled or no Merchant Center ID configured';
+        this.logger.warn({ msg: 'fullSync skipped', merchantId, detail });
+        await this.writeSyncLog(merchantId, syncType, 0, 0, 0, detail);
+        return { updated: 0, errored: 0 };
+      }
+      try {
+        return await this.runFullSync(merchantId, syncType, ctx);
+      } catch (err) {
+        // Catalog fetch / GMC batch threw (e.g. Ratio products API error). Surface
+        // it: log it AND persist a failed sync-log row so the admin sees the cause
+        // rather than a fire-and-forget no-op.
+        const detail = err instanceof Error ? err.message : `${err}`;
+        this.logger.error({ msg: 'fullSync failed', merchantId, syncType, detail });
+        await this.writeSyncLog(merchantId, syncType, 0, 0, 0, `sync failed: ${detail}`);
+        throw err;
+      }
+    } finally {
+      this.running.delete(merchantId);
     }
   }
 
@@ -282,6 +293,32 @@ export class FeedSyncService {
 
   forceSync(merchantId: string): Promise<{ updated: number; errored: number }> {
     return this.fullSync(merchantId, 'manual');
+  }
+
+  /** True iff a full sync is currently running for this merchant. */
+  isSyncRunning(merchantId: string): boolean {
+    return this.running.has(merchantId);
+  }
+
+  /**
+   * Fire a Force Sync in the background, deduped per merchant. Returns `false`
+   * (and starts nothing) when a sync is already running. The reservation
+   * (`running.add`) happens synchronously here — BEFORE fullSync's first await —
+   * so two back-to-back requests can't both pass the check and spawn
+   * overlapping syncs (which pile up, exhaust the DB pool / upstream, and
+   * surface as intermittent 500s on later requests).
+   */
+  startForceSyncInBackground(merchantId: string): boolean {
+    if (this.running.has(merchantId)) {
+      this.logger.warn({
+        msg: 'feed sync already in progress — ignoring duplicate request',
+        merchantId,
+      });
+      return false;
+    }
+    this.running.add(merchantId);
+    void this.fullSync(merchantId, 'manual').catch(() => undefined);
+    return true;
   }
 
   /** Resolve the per-merchant GMC client + mapper config, or null if GMC is off. */
@@ -381,7 +418,19 @@ export class FeedSyncService {
     }
   }
 
-  /** Append one row to the audit log (never overwrites). */
+  /**
+   * Append one row to the audit log (never overwrites).
+   *
+   * The audit log is best-effort: a failure here must NEVER break the sync or
+   * the feed-item write (which has already committed by the time we get here).
+   * Crucially, swallowing the throw also stops the silent data loss it used to
+   * cause — when the event insert threw, the caller's error handling treated the
+   * whole product as failed and (for webhooks) redelivered the message; the
+   * retry then saw the item already at its new status, detected no transition,
+   * and acked without ever recording the event. So the throw didn't just fail
+   * to log — it guaranteed the transition was lost. We log the failure loudly
+   * instead, mirroring the Meta side's logWebhookDelivery.
+   */
   private async recordFeedEvent(
     merchantId: string,
     offer: {
@@ -395,20 +444,31 @@ export class FeedSyncService {
     previousStatus: FeedItemStatus | null,
     syncType: SyncType,
   ): Promise<void> {
-    await this.handle.db
-      .insertInto('google_feed_events')
-      .values({
+    try {
+      await this.handle.db
+        .insertInto('google_feed_events')
+        .values({
+          merchantId,
+          offerId: offer.offerId,
+          productId: offer.productId,
+          variantId: offer.variantId,
+          title: offer.title?.slice(0, 255) ?? null,
+          status,
+          previousStatus,
+          issue: offer.issue ?? null,
+          syncType,
+        } as never)
+        .execute();
+    } catch (err) {
+      this.logger.error({
+        msg: 'failed to write feed status-change event (audit log only — sync unaffected)',
         merchantId,
         offerId: offer.offerId,
-        productId: offer.productId,
-        variantId: offer.variantId,
-        title: offer.title?.slice(0, 255) ?? null,
-        status,
         previousStatus,
-        issue: offer.issue ?? null,
-        syncType,
-      } as never)
-      .execute();
+        status,
+        err: `${err}`,
+      });
+    }
   }
 
   private async writeSyncLog(

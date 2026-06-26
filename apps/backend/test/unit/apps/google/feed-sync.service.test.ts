@@ -74,6 +74,12 @@ function makeFakeKysely(opts: {
     variantId?: string | null;
     title?: string | null;
   }[];
+  /**
+   * When set, every insert into google_feed_events throws this — simulating the
+   * FK rejection (ER_NO_REFERENCED_ROW) seen when the merchant row is absent.
+   * Used to prove an audit-log failure never breaks the sync.
+   */
+  feedEventError?: Error;
 }): {
   handle: KyselyClient<GoogleDatabase>;
   feedItemWrites: FeedItemWrite[];
@@ -148,6 +154,10 @@ function makeFakeKysely(opts: {
       return this;
     },
     async execute() {
+      if (opts.feedEventError) {
+        this.staged = null;
+        throw opts.feedEventError;
+      }
       const v = this.staged ?? {};
       feedEventWrites.push({
         offerId: String(v.offerId ?? ''),
@@ -349,7 +359,12 @@ describe('FeedSyncService', () => {
       await svc.syncProduct(MERCHANT_ID, makeProduct());
 
       expect(fake.feedEventWrites).toEqual([
-        { offerId: `${MERCHANT_ID}:v1`, status: 'SYNCED', previousStatus: null, syncType: 'webhook' },
+        {
+          offerId: `${MERCHANT_ID}:v1`,
+          status: 'SYNCED',
+          previousStatus: null,
+          syncType: 'webhook',
+        },
       ]);
     });
 
@@ -365,7 +380,12 @@ describe('FeedSyncService', () => {
       await svc.syncProduct(MERCHANT_ID, makeProduct());
 
       expect(fake.feedEventWrites).toEqual([
-        { offerId: `${MERCHANT_ID}:v1`, status: 'SYNCED', previousStatus: 'ERROR', syncType: 'webhook' },
+        {
+          offerId: `${MERCHANT_ID}:v1`,
+          status: 'SYNCED',
+          previousStatus: 'ERROR',
+          syncType: 'webhook',
+        },
       ]);
     });
 
@@ -381,6 +401,28 @@ describe('FeedSyncService', () => {
       await svc.syncProduct(MERCHANT_ID, makeProduct());
 
       expect(fake.feedEventWrites).toHaveLength(0);
+    });
+
+    it('does NOT throw or lose the item write when the audit-event insert fails (FK rejection)', async () => {
+      // The append-only audit log must never break the sync. If recording the
+      // event fails (e.g. the merchant row is absent → FK constraint rejection),
+      // the product still syncs and the feed item is still written.
+      const fake = makeFakeKysely({
+        config: configRow(),
+        feedEventError: new Error('ER_NO_REFERENCED_ROW_2: fk_google_feed_events_merchant'),
+      });
+      const { fetch } = fakeFetch(() => ok());
+      vi.stubGlobal('fetch', fetch);
+
+      const svc = new FeedSyncService(fake.handle, makeAuth(), products);
+
+      // syncProduct resolves normally — the failure is swallowed, not propagated.
+      const result = await svc.syncProduct(MERCHANT_ID, makeProduct());
+      expect(result).toEqual({ updated: 1, errored: 0 });
+      // The feed item was still written SYNCED despite the audit-log failure.
+      expect(fake.feedItemWrites).toEqual([
+        { offerId: `${MERCHANT_ID}:v1`, status: 'SYNCED', issue: null },
+      ]);
     });
 
     it('on an ERROR offer does NOT call the API and records ERROR', async () => {
@@ -491,6 +533,23 @@ describe('FeedSyncService', () => {
         ['m:v1', 'DELETED'],
         ['m:v2', 'DELETED'],
       ]);
+    });
+
+    it('still marks items DELETED when the audit-event insert fails (FK rejection)', async () => {
+      const fake = makeFakeKysely({
+        config: configRow(),
+        feedItemRows: [{ offerId: 'm:v1', status: 'SYNCED' }],
+        feedEventError: new Error('ER_NO_REFERENCED_ROW_2: fk_google_feed_events_merchant'),
+      });
+      const { fetch } = fakeFetch(() => new Response(null, { status: 204 }));
+      vi.stubGlobal('fetch', fetch);
+
+      const svc = new FeedSyncService(fake.handle, makeAuth(), makeProducts());
+
+      // Resolves normally; the DELETED state is still persisted.
+      await expect(svc.deleteProduct(MERCHANT_ID, 'p1')).resolves.toBeUndefined();
+      expect(fake.feedItemUpdates).toHaveLength(1);
+      expect(fake.feedItemUpdates[0]?.status).toBe('DELETED');
     });
 
     it('is a no-op (no GMC call, no logs) when the product was never synced', async () => {
