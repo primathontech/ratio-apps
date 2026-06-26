@@ -84,6 +84,25 @@ interface GoogleFeedItemsTable {
   updatedAt: Generated<Date>;
 }
 
+/**
+ * Append-only per-offer status-change log (audit history). Distinct from
+ * google_feed_items (current state per offer): a row is inserted on every status
+ * transition, so a failure that later recovers is preserved rather than overwritten.
+ */
+interface GoogleFeedEventsTable {
+  id: Generated<number>;
+  merchantId: string;
+  offerId: string;
+  productId: string;
+  variantId: string | null;
+  title: string | null;
+  status: FeedItemStatus;
+  previousStatus: FeedItemStatus | null;
+  issue: string | null;
+  syncType: SyncType | null;
+  createdAt: Generated<Date>;
+}
+
 /** Sync-history rows for the admin. */
 interface GoogleSyncLogTable {
   id: Generated<number>;
@@ -103,6 +122,7 @@ export interface GoogleDatabase {
   google_configs: GoogleConfigsTable;
   google_credentials: GoogleCredentialsTable;
   google_feed_items: GoogleFeedItemsTable;
+  google_feed_events: GoogleFeedEventsTable;
   google_sync_log: GoogleSyncLogTable;
 }
 
@@ -110,4 +130,5 @@ export type GoogleMerchantRow = Selectable<BaseMerchantsTable>;
 export type GoogleConfigRow = Selectable<GoogleConfigsTable>;
 export type GoogleCredentialsRow = Selectable<GoogleCredentialsTable>;
 export type GoogleFeedItemRow = Selectable<GoogleFeedItemsTable>;
+export type GoogleFeedEventRow = Selectable<GoogleFeedEventsTable>;
 export type GoogleSyncLogRow = Selectable<GoogleSyncLogTable>;

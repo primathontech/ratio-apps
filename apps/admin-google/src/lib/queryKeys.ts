@@ -7,4 +7,6 @@ export const queryKeys = {
   feedItems: (status: string, page: number, limit: number) =>
     ['google', 'feed', 'items', status, page, limit] as const,
   feedHistory: () => ['google', 'feed', 'history'] as const,
+  feedEvents: (offerId: string, page: number, limit: number) =>
+    ['google', 'feed', 'events', offerId, page, limit] as const,
 } as const;

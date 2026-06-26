@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import type { FeedItemStatus } from '@ratio-app/shared/schemas/google-config';
 import { sql } from 'kysely';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
 import type { GoogleDatabase } from '../db/types';
@@ -14,6 +15,19 @@ export interface RatioProductsPort {
 }
 
 type SyncType = 'webhook' | 'auto' | 'reconcile' | 'initial' | 'manual';
+
+/**
+ * A feed-item status change worth recording in the append-only event log: any
+ * time the new status differs from the stored one. A null/undefined prior status
+ * means the offer was never seen before — that first observation is logged too.
+ * Steady-state re-syncs (status unchanged) return false, so the log isn't spammed.
+ */
+export function isFeedStatusTransition(
+  previous: FeedItemStatus | null | undefined,
+  next: FeedItemStatus,
+): boolean {
+  return (previous ?? null) !== next;
+}
 
 /**
  * Normalize a configured storefront value into the bare host the mapper needs
@@ -76,13 +90,13 @@ export class FeedSyncService {
 
     for (const offer of offers) {
       if (offer.status === 'ERROR' || !offer.gmc) {
-        await this.writeFeedItem(merchantId, offer);
+        await this.writeFeedItem(merchantId, offer, { syncType });
         errored += 1;
         continue;
       }
       try {
         await ctx.client.insertProduct(offer.gmc as unknown as Record<string, unknown>);
-        await this.writeFeedItem(merchantId, offer, true);
+        await this.writeFeedItem(merchantId, offer, { synced: true, syncType });
         updated += 1;
       } catch (err) {
         // Transient (rate-limit / 5xx / network): rethrow so the worker leaves
@@ -101,7 +115,7 @@ export class FeedSyncService {
         // Permanent (4xx validation): record ERROR and move on — retrying the
         // same payload would just fail again. Reconcile / a data fix heals it.
         const issue = err instanceof ContentApiError ? err.message : `${err}`;
-        await this.writeFeedItem(merchantId, { ...offer, status: 'ERROR', issue });
+        await this.writeFeedItem(merchantId, { ...offer, status: 'ERROR', issue }, { syncType });
         errored += 1;
       }
     }
@@ -115,7 +129,7 @@ export class FeedSyncService {
     if (!ctx) return;
     const items = await this.handle.db
       .selectFrom('google_feed_items')
-      .select(['offerId'])
+      .select(['offerId', 'productId', 'variantId', 'title', 'status'])
       .where('merchantId', '=', merchantId)
       .where('productId', '=', productId)
       .execute();
@@ -147,6 +161,24 @@ export class FeedSyncService {
       .where('merchantId', '=', merchantId)
       .where('productId', '=', productId)
       .execute();
+    // Preserve each offer's removal in the audit log (skip offers already DELETED).
+    for (const it of items) {
+      if (isFeedStatusTransition(it.status, 'DELETED')) {
+        await this.recordFeedEvent(
+          merchantId,
+          {
+            offerId: it.offerId,
+            productId: it.productId,
+            variantId: it.variantId,
+            title: it.title,
+            issue: null,
+          },
+          'DELETED',
+          it.status,
+          'webhook',
+        );
+      }
+    }
     await this.writeSyncLog(merchantId, 'webhook', items.length, 0, 0);
   }
 
@@ -189,7 +221,7 @@ export class FeedSyncService {
     let errored = offers.length - syncable.length;
 
     for (const offer of offers.filter((o) => o.status === 'ERROR' || !o.gmc)) {
-      await this.writeFeedItem(merchantId, offer);
+      await this.writeFeedItem(merchantId, offer, { syncType });
     }
 
     for (const batch of ContentApiClient.chunk(syncable, 1000)) {
@@ -206,14 +238,14 @@ export class FeedSyncService {
           const offer = batch[i];
           if (!offer) continue;
           if (failed.has(i)) {
-            await this.writeFeedItem(merchantId, {
-              ...offer,
-              status: 'ERROR',
-              issue: 'GMC batch rejected',
-            });
+            await this.writeFeedItem(
+              merchantId,
+              { ...offer, status: 'ERROR', issue: 'GMC batch rejected' },
+              { syncType },
+            );
             errored += 1;
           } else {
-            await this.writeFeedItem(merchantId, offer, true);
+            await this.writeFeedItem(merchantId, offer, { synced: true, syncType });
             updated += 1;
           }
         }
@@ -296,11 +328,23 @@ export class FeedSyncService {
   private async writeFeedItem(
     merchantId: string,
     offer: MappedOffer,
-    synced = false,
+    opts: { synced?: boolean; syncType: SyncType },
   ): Promise<void> {
     // `offer.status` already carries the right state (SYNCED/WARNING from the
     // mapper, or ERROR set by the caller on a failed push).
     const status = offer.status;
+
+    // Read the current status BEFORE the upsert so we can tell whether this is a
+    // real transition. google_feed_items keeps only the current row per offer;
+    // the append-only google_feed_events log preserves the history.
+    const prior = await this.handle.db
+      .selectFrom('google_feed_items')
+      .select('status')
+      .where('merchantId', '=', merchantId)
+      .where('offerId', '=', offer.offerId)
+      .executeTakeFirst();
+    const previousStatus = prior?.status ?? null;
+
     await this.handle.db
       .insertInto('google_feed_items')
       .values({
@@ -312,7 +356,7 @@ export class FeedSyncService {
         status,
         hasGtin: offer.hasGtin,
         issue: offer.issue,
-        lastSyncedAt: synced ? sql`CURRENT_TIMESTAMP(3)` : null,
+        lastSyncedAt: opts.synced ? sql`CURRENT_TIMESTAMP(3)` : null,
       } as never)
       .onDuplicateKeyUpdate({
         productId: offer.productId,
@@ -321,8 +365,42 @@ export class FeedSyncService {
         status,
         hasGtin: offer.hasGtin,
         issue: offer.issue,
-        ...(synced ? { lastSyncedAt: sql`CURRENT_TIMESTAMP(3)` } : {}),
+        ...(opts.synced ? { lastSyncedAt: sql`CURRENT_TIMESTAMP(3)` } : {}),
         updatedAt: sql`CURRENT_TIMESTAMP(3)`,
+      } as never)
+      .execute();
+
+    if (isFeedStatusTransition(previousStatus, status)) {
+      await this.recordFeedEvent(merchantId, offer, status, previousStatus, opts.syncType);
+    }
+  }
+
+  /** Append one row to the audit log (never overwrites). */
+  private async recordFeedEvent(
+    merchantId: string,
+    offer: {
+      offerId: string;
+      productId: string;
+      variantId: string | null;
+      title: string | null;
+      issue: string | null;
+    },
+    status: FeedItemStatus,
+    previousStatus: FeedItemStatus | null,
+    syncType: SyncType,
+  ): Promise<void> {
+    await this.handle.db
+      .insertInto('google_feed_events')
+      .values({
+        merchantId,
+        offerId: offer.offerId,
+        productId: offer.productId,
+        variantId: offer.variantId,
+        title: offer.title?.slice(0, 255) ?? null,
+        status,
+        previousStatus,
+        issue: offer.issue ?? null,
+        syncType,
       } as never)
       .execute();
   }

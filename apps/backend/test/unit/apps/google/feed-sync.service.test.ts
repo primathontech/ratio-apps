@@ -3,6 +3,7 @@ import type { KyselyClient } from '../../../../src/core/db/kysely-factory';
 import type { GoogleDatabase } from '../../../../src/modules/google/db/types';
 import {
   FeedSyncService,
+  isFeedStatusTransition,
   type RatioProductsPort,
 } from '../../../../src/modules/google/gmc/feed-sync.service';
 import type { RatioProduct } from '../../../../src/modules/google/gmc/product-mapper';
@@ -61,17 +62,39 @@ function configRow(overrides: Record<string, unknown> = {}): Record<string, unkn
  */
 function makeFakeKysely(opts: {
   config: Record<string, unknown> | null;
-  /** Rows returned by selectFrom('google_feed_items').select(['offerId']). */
-  feedItemRows?: { offerId: string }[];
+  /**
+   * Rows returned by selectFrom('google_feed_items') — both the list read
+   * (deleteProduct) and the prior-status read (writeFeedItem, via
+   * executeTakeFirst → row[0]). Carry `status` to drive transition logging.
+   */
+  feedItemRows?: {
+    offerId: string;
+    status?: string;
+    productId?: string;
+    variantId?: string | null;
+    title?: string | null;
+  }[];
 }): {
   handle: KyselyClient<GoogleDatabase>;
   feedItemWrites: FeedItemWrite[];
   syncLogWrites: SyncLogWrite[];
   feedItemUpdates: { status: string; issue: string | null }[];
+  feedEventWrites: {
+    offerId: string;
+    status: string;
+    previousStatus: string | null;
+    syncType: string | null;
+  }[];
 } {
   const feedItemWrites: FeedItemWrite[] = [];
   const syncLogWrites: SyncLogWrite[] = [];
   const feedItemUpdates: { status: string; issue: string | null }[] = [];
+  const feedEventWrites: {
+    offerId: string;
+    status: string;
+    previousStatus: string | null;
+    syncType: string | null;
+  }[] = [];
 
   // --- selectFrom builders -------------------------------------------------
   const configSelect = {
@@ -112,6 +135,25 @@ function makeFakeKysely(opts: {
         offerId: String(v.offerId ?? ''),
         status: String(v.status ?? ''),
         issue: (v.issue ?? null) as string | null,
+      });
+      this.staged = null;
+      return [];
+    },
+  };
+
+  const feedEventInsert = {
+    staged: null as Record<string, unknown> | null,
+    values(v: Record<string, unknown>) {
+      this.staged = v;
+      return this;
+    },
+    async execute() {
+      const v = this.staged ?? {};
+      feedEventWrites.push({
+        offerId: String(v.offerId ?? ''),
+        status: String(v.status ?? ''),
+        previousStatus: (v.previousStatus ?? null) as string | null,
+        syncType: (v.syncType ?? null) as string | null,
       });
       this.staged = null;
       return [];
@@ -167,6 +209,7 @@ function makeFakeKysely(opts: {
     },
     insertInto(table: string) {
       if (table === 'google_feed_items') return feedItemInsert;
+      if (table === 'google_feed_events') return feedEventInsert;
       if (table === 'google_sync_log') return syncLogInsert;
       throw new Error(`unexpected insertInto("${table}")`);
     },
@@ -181,6 +224,7 @@ function makeFakeKysely(opts: {
     feedItemWrites,
     syncLogWrites,
     feedItemUpdates,
+    feedEventWrites,
   };
 }
 
@@ -245,6 +289,19 @@ function fakeFetch(handler: (url: string) => Response): {
 
 const ok = () => new Response(JSON.stringify({ id: 'x' }), { status: 200 });
 
+describe('isFeedStatusTransition', () => {
+  it('logs first observation (no prior row)', () => {
+    expect(isFeedStatusTransition(null, 'ERROR')).toBe(true);
+  });
+  it('logs a real change (failure → success)', () => {
+    expect(isFeedStatusTransition('ERROR', 'SYNCED')).toBe(true);
+  });
+  it('does not log when status is unchanged', () => {
+    expect(isFeedStatusTransition('SYNCED', 'SYNCED')).toBe(false);
+    expect(isFeedStatusTransition('ERROR', 'ERROR')).toBe(false);
+  });
+});
+
 describe('FeedSyncService', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -281,6 +338,49 @@ describe('FeedSyncService', () => {
       expect(fake.syncLogWrites).toHaveLength(1);
 
       expect(result).toEqual({ updated: 1, errored: 0 });
+    });
+
+    it('logs a feed event on first observation (previousStatus null)', async () => {
+      const fake = makeFakeKysely({ config: configRow() }); // no prior row
+      const { fetch } = fakeFetch(() => ok());
+      vi.stubGlobal('fetch', fetch);
+
+      const svc = new FeedSyncService(fake.handle, makeAuth(), products);
+      await svc.syncProduct(MERCHANT_ID, makeProduct());
+
+      expect(fake.feedEventWrites).toEqual([
+        { offerId: `${MERCHANT_ID}:v1`, status: 'SYNCED', previousStatus: null, syncType: 'webhook' },
+      ]);
+    });
+
+    it('logs a feed event when a failed offer later succeeds (ERROR → SYNCED)', async () => {
+      const fake = makeFakeKysely({
+        config: configRow(),
+        feedItemRows: [{ offerId: `${MERCHANT_ID}:v1`, status: 'ERROR' }],
+      });
+      const { fetch } = fakeFetch(() => ok());
+      vi.stubGlobal('fetch', fetch);
+
+      const svc = new FeedSyncService(fake.handle, makeAuth(), products);
+      await svc.syncProduct(MERCHANT_ID, makeProduct());
+
+      expect(fake.feedEventWrites).toEqual([
+        { offerId: `${MERCHANT_ID}:v1`, status: 'SYNCED', previousStatus: 'ERROR', syncType: 'webhook' },
+      ]);
+    });
+
+    it('does NOT log a feed event when the status is unchanged', async () => {
+      const fake = makeFakeKysely({
+        config: configRow(),
+        feedItemRows: [{ offerId: `${MERCHANT_ID}:v1`, status: 'SYNCED' }],
+      });
+      const { fetch } = fakeFetch(() => ok());
+      vi.stubGlobal('fetch', fetch);
+
+      const svc = new FeedSyncService(fake.handle, makeAuth(), products);
+      await svc.syncProduct(MERCHANT_ID, makeProduct());
+
+      expect(fake.feedEventWrites).toHaveLength(0);
     });
 
     it('on an ERROR offer does NOT call the API and records ERROR', async () => {
@@ -367,7 +467,10 @@ describe('FeedSyncService', () => {
     it('deletes each offer from GMC and marks feed items DELETED', async () => {
       const fake = makeFakeKysely({
         config: configRow(),
-        feedItemRows: [{ offerId: 'm:v1' }, { offerId: 'm:v2' }],
+        feedItemRows: [
+          { offerId: 'm:v1', status: 'SYNCED' },
+          { offerId: 'm:v2', status: 'SYNCED' },
+        ],
       });
       const { fetch, calls } = fakeFetch(() => new Response(null, { status: 204 }));
       vi.stubGlobal('fetch', fetch);
@@ -382,6 +485,12 @@ describe('FeedSyncService', () => {
       expect(fake.feedItemUpdates).toHaveLength(1);
       expect(fake.feedItemUpdates[0]?.status).toBe('DELETED');
       expect(fake.feedItemUpdates[0]?.issue).toBeNull();
+
+      // Each offer's SYNCED → DELETED transition is logged to the audit history.
+      expect(fake.feedEventWrites.map((e) => [e.offerId, e.status])).toEqual([
+        ['m:v1', 'DELETED'],
+        ['m:v2', 'DELETED'],
+      ]);
     });
   });
 
