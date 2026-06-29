@@ -51,7 +51,7 @@ export class CatalogTransformerService {
           imageUrl: featured,
           additionalImageUrls: additional,
           availability: this.availability(product, inventory, variants),
-          price: product.price ?? 0,
+          price: this.metaPrice(product.compare_at_price ?? product.compareAtPrice, product.price),
           salePrice: this.salePrice(product.compare_at_price ?? product.compareAtPrice, product.price),
           currency: 'INR',
           condition: 'new',
@@ -75,7 +75,7 @@ export class CatalogTransformerService {
           imageUrl: featured,
           additionalImageUrls: additional,
           availability: this.availability(product, this.qty(product as OsItemVariant), []),
-          price: product.price ?? 0,
+          price: this.metaPrice(product.compare_at_price ?? product.compareAtPrice, product.price),
           salePrice: this.salePrice(product.compare_at_price ?? product.compareAtPrice, product.price),
           currency: 'INR',
           condition: 'new',
@@ -102,7 +102,7 @@ export class CatalogTransformerService {
           imageUrl: this.imageUrl(v.image) || featured,
           additionalImageUrls: additional,
           availability: this.variantAvailability(product, vQty),
-          price: v.price ?? product.price ?? 0,
+          price: this.metaPrice(vCompare, v.price ?? product.price),
           salePrice: this.salePrice(vCompare, v.price ?? product.price),
           currency: 'INR',
           condition: 'new',
@@ -150,7 +150,21 @@ export class CatalogTransformerService {
     return v.inventory_quantity ?? v.inventoryQuantity ?? 0;
   }
 
-  /** Only treat compare-at as a sale price when it's strictly higher than price. */
+  /**
+   * Meta `price` = the original/list price (shown crossed-out when on sale).
+   * When compare_at > price → use compare_at as the list price.
+   * When no compare_at → use price as-is.
+   */
+  private metaPrice(compareAt: number | undefined, price: number | undefined): number {
+    const p = price ?? 0;
+    return compareAt !== undefined && compareAt > p ? compareAt : p;
+  }
+
+  /**
+   * Meta `sale_price` = the actual selling price, only set when there's a real
+   * discount (compare_at strictly greater than price).
+   * No compare_at → no sale_price (Meta just shows price as-is).
+   */
   private salePrice(compareAt: number | undefined, price: number | undefined): number | undefined {
     if (compareAt === undefined || price === undefined) return undefined;
     return compareAt > price ? price : undefined;
