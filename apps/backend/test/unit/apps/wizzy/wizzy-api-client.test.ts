@@ -110,6 +110,21 @@ describe('WizzyApiClient — testConnection', () => {
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/401/);
   });
+
+  it('returns ok:true when Wizzy rejects the empty array for "no products" (valid auth)', async () => {
+    // Real Wizzy response to an empty-array /products/save: HTTP 200 but body
+    // statusCode 400 "Please add at least one product." — auth succeeded, only
+    // the (intentionally empty) payload was rejected. This must read as valid.
+    const fetchFn = makeFetch(200, {
+      status: 0,
+      statusCode: 400,
+      message: 'Please fix the issues to feed products.',
+      payload: { params: { products: '0', error: 'Please add at least one product for sync.' } },
+    });
+    const client = new WizzyApiClient(fetchFn);
+    const result = await client.testConnection(STORE_ID, STORE_SECRET, API_KEY);
+    expect(result.ok).toBe(true);
+  });
 });
 
 describe('WizzyApiError', () => {

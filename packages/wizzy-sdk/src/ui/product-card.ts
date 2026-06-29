@@ -1,6 +1,6 @@
 import type { WizzyProduct } from '@ratio-app/shared';
 import { css, html, LitElement } from 'lit';
-import { customElement, property } from 'lit/decorators.js';
+import { property } from 'lit/decorators.js';
 import { baseStyles } from './theme';
 
 /** INR currency formatter — renders e.g. `₹588` (no fraction digits). */
@@ -15,8 +15,13 @@ const inr = new Intl.NumberFormat('en-IN', {
  *
  * Renders an image, name, final price, and (when discounted) a struck MRP plus
  * a discount badge, all wrapped in an anchor to the product URL.
+ *
+ * NOTE: registered via a guarded `customElements.define` (not `@customElement`)
+ * because this component is bundled into BOTH `wizzy-widget.js` and
+ * `wizzy-results.js`. On the results page the loader injects both bundles, and a
+ * second unconditional `define()` for the same tag throws `NotSupportedError`,
+ * which aborts the second bundle. The guard makes registration idempotent.
  */
-@customElement('wizzy-product-card')
 export class WizzyProductCard extends LitElement {
   static override styles = [
     baseStyles,
@@ -96,6 +101,11 @@ export class WizzyProductCard extends LitElement {
       </a>
     `;
   }
+}
+
+// Idempotent registration — safe when both SDK bundles load on the same page.
+if (!customElements.get('wizzy-product-card')) {
+  customElements.define('wizzy-product-card', WizzyProductCard);
 }
 
 declare global {

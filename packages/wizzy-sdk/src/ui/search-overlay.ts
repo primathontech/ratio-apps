@@ -126,7 +126,7 @@ export class WizzySearchOverlay extends LitElement {
       const top = this.trending[0];
       if (top) {
         this.products = (
-          await this.client.autocomplete(top, { productsCount: 6 })
+          await this.client.autocomplete(top, { productsCount: 5 })
         ).payload.products;
       }
     } catch {
@@ -148,7 +148,7 @@ export class WizzySearchOverlay extends LitElement {
 
   private async fetchAutocomplete(q: string): Promise<void> {
     try {
-      const r = await this.client.autocomplete(q, { productsCount: 6 });
+      const r = await this.client.autocomplete(q, { productsCount: 5 });
       this.categories = r.payload.categories;
       this.suggestions = [...r.payload.others, ...r.payload.brands];
       this.products = r.payload.products;

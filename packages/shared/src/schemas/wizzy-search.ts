@@ -79,12 +79,24 @@ export const wizzyAutocompleteResultSchema = z.object({
 export type WizzyAutocompleteResult = z.infer<typeof wizzyAutocompleteResultSchema>;
 
 // ─── Facets (search.facets[]) ─────────────────────────────────────────────────
+/** One selectable option within a list facet — the live API returns these under `data`. */
+export const wizzyFacetOptionSchema = z.object({
+  key: z.string(),
+  label: z.string().optional(),
+  count: z.number().optional(),
+});
+export type WizzyFacetOption = z.infer<typeof wizzyFacetOptionSchema>;
+
 export const wizzyFacetSchema = z.object({
   label: z.string(),
   order: z.number().optional(),
   position: z.enum(['left', 'top', 'right']).optional(),
   key: z.string(),
-  type: z.enum(['list', 'range', 'dictionary']),
+  // Live API returns more than the documented set (e.g. `range-list`, `bool-list`),
+  // so keep this permissive rather than a strict enum.
+  type: z.string(),
+  // The facet's selectable options live here (live API), not in `filterSuggestions`.
+  data: z.array(wizzyFacetOptionSchema).default([]),
 });
 
 export type WizzyFacet = z.infer<typeof wizzyFacetSchema>;

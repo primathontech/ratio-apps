@@ -42,11 +42,13 @@ function routeApi(config: WizzyConfig) {
   mockedApi.mockImplementation((_method: string, path: string) => {
     if (path === '/api/wizzy-config') return Promise.resolve(config);
     if (path === '/api/catalog/summary') {
+      // Shape must match the backend CatalogQueryService.summary() response.
       return Promise.resolve({
         synced: 42,
         pending: 3,
-        error: 1,
-        lastBulkSyncAt: '2026-06-08T10:00:00.000Z',
+        errors: 7,
+        deleted: 0,
+        lastSyncAt: '2026-06-08T10:00:00.000Z',
       });
     }
     if (path === '/api/catalog/sync') return Promise.resolve({ started: true });
@@ -68,6 +70,9 @@ describe('Dashboard', () => {
     await waitFor(() => expect(screen.getByText('Catalog Sync')).toBeInTheDocument());
     expect(screen.getByText('Storefront Search')).toBeInTheDocument();
     expect(screen.getByText('42')).toBeInTheDocument();
+    // Errors stat must reflect the backend's `errors` field (regression: the
+    // Overview previously read `error`/`lastBulkSyncAt`, so it always showed 0).
+    expect(screen.getByText('7')).toBeInTheDocument();
   });
 
   it('Force Sync triggers POST /api/catalog/sync', async () => {

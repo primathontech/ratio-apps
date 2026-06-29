@@ -142,6 +142,14 @@ export class WizzyApiClient {
       await this.saveProducts(storeId, storeSecret, apiKey, []);
       return { ok: true };
     } catch (err) {
+      // Wizzy authenticates the request BEFORE validating the payload, so an
+      // empty-array save can only be rejected for "no products to sync" — a body
+      // 400 (the HTTP call itself succeeds with 200) that PROVES the credentials
+      // are valid. Genuine credential failures surface as 401/403 (or status 0
+      // for a network error). Treat the no-products rejection as a passing auth check.
+      if (err instanceof WizzyApiError && err.status === 400 && /product/i.test(err.message)) {
+        return { ok: true };
+      }
       const message = err instanceof Error ? err.message : `${err}`;
       return { ok: false, error: message };
     }

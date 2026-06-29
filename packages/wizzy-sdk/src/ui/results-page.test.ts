@@ -19,10 +19,20 @@ const searchResult = {
     total: 1,
     pages: 1,
     facets: [
-      { label: 'Brand', key: 'brands', type: 'list', position: 'left', order: 1 },
-      { label: 'Price', key: 'sellingPrice', type: 'range', position: 'left', order: 2 },
+      {
+        label: 'Brand',
+        key: 'brands',
+        type: 'list',
+        position: 'left',
+        order: 1,
+        // Live API returns options under `data`, not `filterSuggestions`.
+        data: [
+          { key: 'Wellcore', label: 'Wellcore', count: 2 },
+          { key: 'YouWeFit', label: 'YouWeFit', count: 1 },
+        ],
+      },
+      { label: 'Price', key: 'sellingPrice', type: 'range', position: 'left', order: 2, data: [] },
     ],
-    filterSuggestions: { brands: ['Wellcore', 'YouWeFit'], sellingPrice: [] },
   },
 };
 const filterResult = {
@@ -31,7 +41,6 @@ const filterResult = {
     total: 0,
     pages: 0,
     facets: searchResult.payload.facets,
-    filterSuggestions: searchResult.payload.filterSuggestions,
   },
 };
 function stubClient() {
@@ -66,7 +75,7 @@ describe('wizzy-results-page', () => {
     el.remove();
   });
 
-  it('renders a facet-list for the brands facet (values from filterSuggestions) and a facet-range for price', async () => {
+  it('renders a facet-list for the brands facet (values from facet.data) and a facet-range for price', async () => {
     const el = await mount();
     const list = el.shadowRoot!.querySelector('wizzy-facet-list');
     const range = el.shadowRoot!.querySelector('wizzy-facet-range');

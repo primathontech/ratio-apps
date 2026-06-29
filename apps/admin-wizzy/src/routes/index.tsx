@@ -60,13 +60,13 @@ export function Overview() {
                   <Statistic title="Pending" value={summary.data?.pending ?? 0} />
                 </Col>
                 <Col span={8}>
-                  <Statistic title="Errors" value={summary.data?.error ?? 0} />
+                  <Statistic title="Errors" value={summary.data?.errors ?? 0} />
                 </Col>
               </Row>
               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                Last bulk sync:{' '}
-                {summary.data?.lastBulkSyncAt
-                  ? new Date(summary.data.lastBulkSyncAt).toLocaleString()
+                Last sync:{' '}
+                {summary.data?.lastSyncAt
+                  ? new Date(summary.data.lastSyncAt).toLocaleString()
                   : 'never'}
               </Typography.Text>
               <Space wrap>

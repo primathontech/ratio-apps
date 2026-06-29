@@ -153,7 +153,7 @@ export class WizzyResultsPage extends LitElement {
     return html`<wizzy-facet-list
       .facetKey=${f.key}
       .label=${f.label}
-      .values=${(this.filterSuggestions[f.key] as string[]) ?? []}
+      .values=${(f.data ?? []).map((d) => d.key)}
       .selected=${this.selected[f.key] ?? []}
     ></wizzy-facet-list>`;
   }

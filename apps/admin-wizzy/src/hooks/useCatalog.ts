@@ -7,8 +7,10 @@ import { useMerchantStore } from '../stores/useMerchantStore';
 export interface CatalogSummary {
   synced: number;
   pending: number;
-  error: number;
-  lastBulkSyncAt: string | null;
+  // Must match the backend CatalogQueryService.summary() response exactly.
+  errors: number;
+  deleted: number;
+  lastSyncAt: string | null;
 }
 
 export interface CatalogItem {
