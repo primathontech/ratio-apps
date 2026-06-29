@@ -46,7 +46,7 @@ export function Overview() {
           type="warning"
           showIcon
           message="Google connection needs attention"
-          description="Your Google authorization expired or was revoked. Reconnect to resume syncing."
+          description="Google can't access your Merchant Center account, or your authorization expired. Reconnect below (or confirm your account has access), then re-sync."
           action={
             <PrimaryButton
               onClick={() => {

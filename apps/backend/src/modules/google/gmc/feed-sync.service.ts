@@ -60,6 +60,19 @@ function isTransientGmcError(err: unknown): boolean {
 }
 
 /**
+ * Whether a GMC failure is an account-level authorization problem — the
+ * connected Google identity can't reach the configured Merchant Center account
+ * (e.g. "User cannot access account <id>"). The Content API returns 401/403 for
+ * these; throttling is 429 (handled by {@link isTransientGmcError}). Such a
+ * failure never heals by retrying the same request — the merchant must reconnect
+ * or be granted access — so we flag `needs_reconnect` and stop syncing instead of
+ * hammering Google with doomed requests.
+ */
+export function isAccountAccessError(err: unknown): boolean {
+  return err instanceof ContentApiError && (err.status === 401 || err.status === 403);
+}
+
+/**
  * Pushes the Ratio catalog to Google Merchant Center via the Content API and
  * keeps `google_feed_items` / `google_sync_log` in step.
  *
@@ -116,6 +129,24 @@ export class FeedSyncService {
           });
           throw err;
         }
+        // Account access lost (401/403): the merchant must reconnect / be granted
+        // access — flag it and stop. NOT rethrown (redriving won't help) and we
+        // don't trudge through the remaining offers, which would all fail the same.
+        if (isAccountAccessError(err)) {
+          await this.auth.setNeedsReconnect(merchantId, true);
+          this.logger.warn({
+            msg: 'GMC account access lost during product sync — flagged for reconnect',
+            merchantId,
+            offerId: offer.offerId,
+          });
+          await this.writeFeedItem(
+            merchantId,
+            { ...offer, status: 'ERROR', issue: 'GMC account access lost — reconnect required' },
+            { syncType },
+          );
+          errored += 1;
+          break;
+        }
         // Permanent (4xx validation): record ERROR and move on — retrying the
         // same payload would just fail again. Reconcile / a data fix heals it.
         const issue = err instanceof ContentApiError ? err.message : `${err}`;
@@ -148,6 +179,18 @@ export class FeedSyncService {
         // Already gone (404/410) → the delete's goal is met; treat as success.
         if (err instanceof ContentApiError && (err.status === 404 || err.status === 410)) {
           continue;
+        }
+        // Account access lost (401/403): flag for reconnect and bail out BEFORE
+        // the DELETED marking below — we can't confirm the products were removed,
+        // so don't mark them deleted, and don't rethrow (redrive won't help).
+        if (isAccountAccessError(err)) {
+          await this.auth.setNeedsReconnect(merchantId, true);
+          this.logger.warn({
+            msg: 'GMC account access lost during delete — flagged for reconnect',
+            merchantId,
+            offerId,
+          });
+          return;
         }
         // Transient → rethrow so the worker redelivers the delete (don't ack a
         // product that's still live in GMC). Permanent 4xx → log and move on.
@@ -231,6 +274,23 @@ export class FeedSyncService {
     syncType: SyncType,
     ctx: NonNullable<Awaited<ReturnType<FeedSyncService['context']>>>,
   ): Promise<{ updated: number; errored: number }> {
+    // Pre-flight: prove the connected identity can actually reach this GMC
+    // account before fetching the catalog and firing thousands of products. A
+    // 401/403 here means access is broken (wrong account id, revoked, or never
+    // granted) — flag for reconnect, record why, and abort. Otherwise every
+    // batch would 403 identically and flood the logs (the bug this fixes).
+    const access = await this.checkAccountAccess(merchantId, ctx);
+    if (!access.ok) {
+      this.logger.warn({
+        msg: 'fullSync aborted — GMC account access check failed',
+        merchantId,
+        gmcMerchantId: ctx.gmcMerchantId,
+        syncType,
+      });
+      await this.writeSyncLog(merchantId, syncType, 0, 0, 0, access.detail);
+      return { updated: 0, errored: 0 };
+    }
+
     const catalog = await this.products.listAll(merchantId);
     const offers = catalog.flatMap((p) => mapProduct(p, ctx.mapperConfig));
     const syncable = offers.filter((o) => o.status !== 'ERROR' && o.gmc);
@@ -267,8 +327,21 @@ export class FeedSyncService {
           }
         }
       } catch (err) {
-        this.logger.error({ msg: 'custombatch failed', merchantId, err: `${err}` });
         errored += batch.length;
+        // Backstop for an access change mid-sync (or a pre-flight that passed but
+        // a later batch is rejected): on the first account-access failure, flag
+        // for reconnect and stop — every remaining batch would fail identically.
+        if (isAccountAccessError(err)) {
+          await this.auth.setNeedsReconnect(merchantId, true);
+          this.logger.error({
+            msg: 'custombatch failed — GMC account access lost, aborting remaining batches',
+            merchantId,
+            gmcMerchantId: ctx.gmcMerchantId,
+            err: `${err}`,
+          });
+          break;
+        }
+        this.logger.error({ msg: 'custombatch failed', merchantId, err: `${err}` });
       }
     }
     await this.writeSyncLog(merchantId, syncType, offers.length, updated, errored);
@@ -285,6 +358,42 @@ export class FeedSyncService {
       errored,
     });
     return { updated, errored };
+  }
+
+  /**
+   * Cheap, account-scoped probe that the connected identity can reach the GMC
+   * account — the same proof {@link GmcValidationService} uses. A 401/403 means
+   * access is broken: flag `needs_reconnect` (lighting the admin's reconnect
+   * banner) and return the reason for the sync log. A successful probe clears any
+   * stale flag (access restored while the token was still valid, so no refresh
+   * fired to clear it). A transient/unexpected probe error does NOT block the
+   * sync — we fall through and let the normal batch path handle it.
+   */
+  private async checkAccountAccess(
+    merchantId: string,
+    ctx: NonNullable<Awaited<ReturnType<FeedSyncService['context']>>>,
+  ): Promise<{ ok: true } | { ok: false; detail: string }> {
+    try {
+      await ctx.client.listProducts();
+      await this.auth.setNeedsReconnect(merchantId, false);
+      return { ok: true };
+    } catch (err) {
+      if (isAccountAccessError(err)) {
+        await this.auth.setNeedsReconnect(merchantId, true);
+        return {
+          ok: false,
+          detail: `Google account cannot access Merchant Center ${ctx.gmcMerchantId} — reconnect or grant access`,
+        };
+      }
+      // Transient (rate-limit / 5xx / network) or unexpected — don't block on a
+      // blip; the batch loop's own error handling covers it.
+      this.logger.warn({
+        msg: 'GMC access pre-check inconclusive — proceeding with sync',
+        merchantId,
+        err: `${err}`,
+      });
+      return { ok: true };
+    }
   }
 
   initialSync(merchantId: string): Promise<{ updated: number; errored: number }> {
