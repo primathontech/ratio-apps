@@ -11,7 +11,7 @@ import { WIZZY_CRYPTO } from '../tokens';
 
 // Bump this alongside the `@ratio-app/wizzy-sdk` package version so the
 // storefront SDK and the config it bootstraps stay in lockstep.
-const SDK_VERSION = '0.1.0';
+const SDK_VERSION = '0.1.1';
 
 /**
  * Builds the PUBLIC, redacted storefront config served to the browser SDK.

@@ -184,39 +184,68 @@ export class CatalogSyncService {
     ctx: NonNullable<Awaited<ReturnType<CatalogSyncService['context']>>>,
   ): Promise<{ updated: number; errored: number }> {
     const catalog = await this.products.listAll(merchantId);
-    let updated = 0;
-    let errored = 0;
 
-    // Transform all products, collecting payloads and per-product results.
-    const syncable: WizzyProductPayload[] = [];
+    // One outcome per product (status + issue), derived from BOTH the transform
+    // and the actual save result — so the run's synced/errored totals match the
+    // per-item statuses written to wizzy_catalog_items (no more "items show ERROR
+    // but sync history shows errored 0").
+    type Outcome = {
+      product: (typeof catalog)[number];
+      status: 'SYNCED' | 'ERROR' | 'DELETED';
+      issue: string | null;
+    };
+    const outcomes: Outcome[] = [];
+    const syncable: { product: (typeof catalog)[number]; payload: WizzyProductPayload }[] = [];
+
+    // Transform once. Failures are terminal outcomes (missing image → ERROR,
+    // any other filter reason → DELETED/excluded). The rest are saveable.
     for (const product of catalog) {
       const result = transformProduct(product, ctx.transformConfig);
       if (result.ok) {
-        syncable.push(result.payload);
+        syncable.push({ product, payload: result.payload });
+      } else {
+        outcomes.push({
+          product,
+          status: result.issue === 'missing image' ? 'ERROR' : 'DELETED',
+          issue: result.issue,
+        });
       }
     }
 
-    if (syncable.length > 0) {
-      // Chunk into batches of 100 to avoid very large request bodies.
-      const BATCH_SIZE = 100;
-      for (let i = 0; i < syncable.length; i += BATCH_SIZE) {
-        const batch = syncable.slice(i, i + BATCH_SIZE);
-        try {
-          await this.wizzy.saveProducts(ctx.storeId, ctx.storeSecret, ctx.apiKey, batch);
-          updated += batch.length;
-        } catch (err) {
-          this.logger.error({ msg: 'wizzy batch save failed', merchantId, err: `${err}` });
-          errored += batch.length;
-        }
+    // Save in batches of 100; a batch failure marks ITS products ERROR (they did
+    // not reach Wizzy), not SYNCED.
+    const BATCH_SIZE = 100;
+    for (let i = 0; i < syncable.length; i += BATCH_SIZE) {
+      const batch = syncable.slice(i, i + BATCH_SIZE);
+      try {
+        await this.wizzy.saveProducts(
+          ctx.storeId,
+          ctx.storeSecret,
+          ctx.apiKey,
+          batch.map((b) => b.payload),
+        );
+        for (const b of batch) outcomes.push({ product: b.product, status: 'SYNCED', issue: null });
+      } catch (err) {
+        this.logger.error({ msg: 'wizzy batch save failed', merchantId, err: `${err}` });
+        const issue = err instanceof WizzyApiError ? err.message : `${err}`;
+        for (const b of batch) outcomes.push({ product: b.product, status: 'ERROR', issue });
       }
     }
 
-    // Upsert catalog items for all products in this sync.
-    for (const product of catalog) {
-      const result = transformProduct(product, ctx.transformConfig);
-      const status = result.ok ? 'SYNCED' : result.issue === 'missing image' ? 'ERROR' : 'DELETED';
-      const issue = result.ok ? null : result.issue;
-      await this.writeCatalogItem(merchantId, product.id, product.id, product.title, status, issue);
+    // Persist each product's status and tally the run from the SAME outcomes.
+    let synced = 0;
+    let errored = 0;
+    for (const o of outcomes) {
+      if (o.status === 'SYNCED') synced += 1;
+      else if (o.status === 'ERROR') errored += 1;
+      await this.writeCatalogItem(
+        merchantId,
+        o.product.id,
+        o.product.id,
+        o.product.title,
+        o.status,
+        o.issue,
+      );
     }
 
     // Update last_bulk_sync_at
@@ -229,16 +258,16 @@ export class CatalogSyncService {
       .where('merchantId', '=', merchantId)
       .execute();
 
-    await this.writeSyncLog(merchantId, syncType, catalog.length, updated, errored);
+    await this.writeSyncLog(merchantId, syncType, catalog.length, synced, errored);
     this.logger.log({
       msg: 'fullSync complete',
       merchantId,
       syncType,
       products: catalog.length,
-      updated,
+      synced,
       errored,
     });
-    return { updated, errored };
+    return { updated: synced, errored };
   }
 
   initialSync(merchantId: string): Promise<{ updated: number; errored: number }> {
