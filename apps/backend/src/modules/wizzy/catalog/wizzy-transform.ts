@@ -518,6 +518,18 @@ const METAFIELD_FACETS: Record<string, string> = {
 };
 
 /**
+ * Metafield keys that carry the average customer rating / review count. Covers
+ * the standard Shopify reviews metafield and common Loox conventions (production
+ * feeds Loox). If a real catalog uses a different key, add it here.
+ */
+const RATING_VALUE_KEYS = new Set(['reviews/rating', 'loox/avg_rating', 'loox/rating']);
+const RATING_COUNT_KEYS = new Set([
+  'reviews/rating_count',
+  'loox/num_reviews',
+  'loox/reviews_count',
+]);
+
+/**
  * Returns true for strings that look like unresolved reference IDs (Shopify
  * global IDs, metaobject refs, or long bare numeric IDs). These should never
  * be surfaced as human-facing facet values.
@@ -596,13 +608,21 @@ function buildMetafieldFacets(
   for (const mf of metafields ?? []) {
     const nsKey = `${mf.namespace}/${mf.key}`;
 
-    // Special-case: rating scalars — never become facet attributes.
-    if (nsKey === 'reviews/rating') {
+    // Special-case: rating scalars — never become facet attributes. Ratings can
+    // arrive under the standard Shopify reviews metafield OR a Loox-specific one
+    // (production feeds Loox → `product_avg_rating_loox`), so cover both.
+    if (RATING_VALUE_KEYS.has(nsKey)) {
       const n = metafieldToNumber(mf.value);
-      if (n !== null && n >= 0) avgRatings = Math.min(5, Math.max(0, n));
+      if (n !== null && n >= 0) {
+        // Source ratings are 0–5; Wizzy's product-level avgRatings is 0–100
+        // (production shows 98 for a 4.9 rating). Scale ×20; pass through if a
+        // value already looks like 0–100.
+        const scaled = n <= 5 ? n * 20 : n;
+        avgRatings = Math.min(100, Math.max(0, Math.round(scaled)));
+      }
       continue;
     }
-    if (nsKey === 'reviews/rating_count') {
+    if (RATING_COUNT_KEYS.has(nsKey)) {
       const n = metafieldToNumber(mf.value);
       if (n !== null && n >= 0) totalReviews = Math.floor(n);
       continue;

@@ -892,7 +892,7 @@ describe('transformProduct — metafield enrichment: reviews/rating and reviews/
     const result = transformProduct(product, baseConfig);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.payload.avgRatings).toBe(4.6);
+    expect(result.payload.avgRatings).toBe(92); // 4.6 (0–5) → 92 (0–100)
     expect(result.payload.totalReviews).toBe(120);
   });
 
@@ -907,7 +907,7 @@ describe('transformProduct — metafield enrichment: reviews/rating and reviews/
     const result = transformProduct(product, baseConfig);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.payload.avgRatings).toBe(4.6);
+    expect(result.payload.avgRatings).toBe(92); // 4.6 (0–5) → 92 (0–100)
     expect(result.payload.totalReviews).toBe(120);
   });
 
