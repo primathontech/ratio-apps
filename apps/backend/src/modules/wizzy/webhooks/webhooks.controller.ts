@@ -12,10 +12,11 @@ import { WIZZY_WEBHOOKS } from '../tokens';
  * `envelope.event` inside the per-module WebhooksService. Must return 200
  * within 5 s per Ratio's spec — handlers enqueue to SQS and return fast.
  *
- * The `x-webhook-id` header is the per-delivery dedup key (copied from google's
- * controller pattern).
+ * The `x-webhook-id` header is the per-delivery dedup key. Route mirrors the
+ * golden-path/google convention: the webhook lives under the `oauth` prefix
+ * (`/wizzy/api/v1/oauth/webhook`), alongside the OAuth controller.
  */
-@Controller('wizzy/api/v1/webhooks')
+@Controller('wizzy/api/v1/oauth')
 @UseGuards(WizzyWebhookSignatureGuard)
 export class WizzyWebhooksController {
   constructor(@Inject(WIZZY_WEBHOOKS) private readonly webhooks: WebhooksService<WizzyDatabase>) {}
