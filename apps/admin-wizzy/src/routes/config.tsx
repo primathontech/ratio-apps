@@ -53,7 +53,6 @@ export function ConfigPage() {
       storeId: '',
       storeSecret: '',
       apiKey: '',
-      sdkUrl: 'https://cdn.wizzy.ai/sdk/v2/wizzy.min.js',
       storeUrl: '',
       autoSyncEnabled: true,
       includeOutOfStock: true,
@@ -70,7 +69,6 @@ export function ConfigPage() {
       // storeSecret and apiKey are write-only: never returned, always leave empty
       storeSecret: '',
       apiKey: '',
-      sdkUrl: data.sdkUrl,
       storeUrl: data.storeUrl ?? '',
       autoSyncEnabled: data.autoSyncEnabled,
       includeOutOfStock: data.includeOutOfStock,
@@ -123,7 +121,11 @@ export function ConfigPage() {
                 )}
               />
 
-              <FieldRow label="Wizzy Store ID" error={form.formState.errors.storeId?.message}>
+              <FieldRow
+                label="Wizzy Store ID"
+                error={form.formState.errors.storeId?.message}
+                hint="Public Wizzy Store ID. The storefront search loader uses this + the API Key to query Wizzy (sent to the browser as x-store-id)."
+              >
                 <Controller
                   control={form.control}
                   name="storeId"
@@ -142,7 +144,9 @@ export function ConfigPage() {
                 label="Store Secret"
                 {...(hasStoreSecret && !replacingSecret
                   ? {}
-                  : { hint: 'Your Wizzy Store Secret. Stored encrypted; never displayed back.' })}
+                  : {
+                      hint: 'Wizzy Store Secret — used server-side for catalog sync only, never sent to the storefront. Stored encrypted; never displayed back.',
+                    })}
                 error={form.formState.errors.storeSecret?.message}
               >
                 {hasStoreSecret && !replacingSecret ? (
@@ -190,7 +194,9 @@ export function ConfigPage() {
                 label="API Key"
                 {...(hasApiKey && !replacingApiKey
                   ? {}
-                  : { hint: 'Your Wizzy API Key. Stored encrypted; never displayed back.' })}
+                  : {
+                      hint: 'Public Wizzy API Key — powers storefront search (sent to the browser as x-api-key). Stored encrypted; never displayed back.',
+                    })}
                 error={form.formState.errors.apiKey?.message}
               >
                 {hasApiKey && !replacingApiKey ? (
@@ -232,25 +238,6 @@ export function ConfigPage() {
                     )}
                   </>
                 )}
-              </FieldRow>
-
-              <FieldRow
-                label="SDK URL"
-                error={form.formState.errors.sdkUrl?.message}
-                hint="The Wizzy JS SDK URL injected via ScriptTag. Change only for version upgrades."
-              >
-                <Controller
-                  control={form.control}
-                  name="sdkUrl"
-                  render={({ field, fieldState }) => (
-                    <Input
-                      {...field}
-                      value={field.value ?? ''}
-                      placeholder="https://cdn.wizzy.ai/sdk/v2/wizzy.min.js"
-                      {...(fieldState.invalid ? { status: 'error' as const } : {})}
-                    />
-                  )}
-                />
               </FieldRow>
 
               <FieldRow

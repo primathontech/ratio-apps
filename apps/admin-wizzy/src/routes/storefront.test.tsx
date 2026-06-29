@@ -18,9 +18,7 @@ function makeConfig(overrides: Partial<WizzyConfig> = {}): WizzyConfig {
     hasStoreSecret: false,
     hasApiKey: false,
     needsReconnect: false,
-    sdkUrl: 'https://cdn.wizzy.ai/sdk/v2/wizzy.min.js',
     storeUrl: null,
-    scriptTagStatus: 'disabled',
     lastBulkSyncAt: null,
     autoSyncEnabled: true,
     includeOutOfStock: true,
@@ -63,12 +61,13 @@ afterEach(() => {
 });
 
 describe('StorefrontPage', () => {
-  it('renders the copy-paste SDK snippet', async () => {
+  it('renders the storefront env-var install block', async () => {
     routeApi(makeConfig());
     renderWithProviders(<StorefrontPage />);
     await waitFor(() => expect(screen.getByText('Storefront Search')).toBeInTheDocument());
-    const snippet = await screen.findByText(/wizzy\/sdk\/wizzy-loader\.js/);
-    expect(snippet.textContent).toContain('store=');
+    const block = await screen.findByText(/NEXT_PUBLIC_WIZZY_MERCHANT_ID=/);
+    expect(block.textContent).toContain('NEXT_PUBLIC_WIZZY_ENABLED=true');
+    expect(block.textContent).toContain('merchant-123');
   });
 
   it('pre-fills storefront selector/path/theme inputs from config', async () => {

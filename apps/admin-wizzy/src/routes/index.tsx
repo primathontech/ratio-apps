@@ -15,20 +15,6 @@ import { useConfig, useUpdateConfig } from '@/hooks/useConfig';
 
 export const Route = createFileRoute('/')({ component: Overview });
 
-const SCRIPT_TAG_STATUS_COLOR: Record<string, string> = {
-  active: 'green',
-  pending_api: 'blue',
-  error: 'red',
-  disabled: 'default',
-};
-
-const SCRIPT_TAG_STATUS_LABEL: Record<string, string> = {
-  active: 'Active',
-  pending_api: 'Pending API',
-  error: 'Error',
-  disabled: 'Disabled',
-};
-
 export function Overview() {
   const config = useConfig();
   const _update = useUpdateConfig();
@@ -38,7 +24,6 @@ export function Overview() {
   if (config.isLoading) return <Typography.Text>Loading…</Typography.Text>;
 
   const data = config.data;
-  const scriptTagStatus = data?.scriptTagStatus ?? 'disabled';
 
   return (
     <Space direction="vertical" size="large" style={{ display: 'flex' }}>
@@ -50,7 +35,7 @@ export function Overview() {
           Wizzy AI Search for Ratio
         </Typography.Title>
         <Typography.Text type="secondary">
-          Catalog sync status and storefront SDK — at a glance.
+          Catalog sync status and storefront search — at a glance.
         </Typography.Text>
       </div>
 
@@ -100,47 +85,20 @@ export function Overview() {
         </Col>
 
         <Col xs={24} md={12}>
-          <Card title="Storefront SDK (ScriptTag)" style={{ height: '100%' }}>
+          <Card title="Storefront Search" style={{ height: '100%' }}>
             <Space direction="vertical" size="small" style={{ display: 'flex' }}>
               <div>
-                <Tag color={SCRIPT_TAG_STATUS_COLOR[scriptTagStatus] ?? 'default'}>
-                  {SCRIPT_TAG_STATUS_LABEL[scriptTagStatus] ?? scriptTagStatus}
+                <Tag color={data?.searchEnabled ? 'green' : 'default'}>
+                  {data?.searchEnabled ? 'Enabled' : 'Disabled'}
                 </Tag>
               </div>
-              {data?.sdkUrl && (
-                <div>
-                  <Typography.Text type="secondary">SDK URL</Typography.Text>
-                  <div>
-                    <Typography.Text code style={{ wordBreak: 'break-all', fontSize: 11 }}>
-                      {data.sdkUrl}
-                    </Typography.Text>
-                  </div>
-                </div>
-              )}
-              {scriptTagStatus === 'pending_api' && (
-                <Alert
-                  type="info"
-                  showIcon
-                  message="ScriptTag API pending"
-                  description="The Ratio ScriptTag API is not yet generally available. The SDK will be registered automatically once the API lands — no action needed."
-                />
-              )}
-              {scriptTagStatus === 'error' && (
-                <Alert
-                  type="error"
-                  showIcon
-                  message="SDK registration failed"
-                  description="Check your Wizzy Store ID and Secret, then re-save the configuration."
-                />
-              )}
-              {scriptTagStatus === 'disabled' && (
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  Enable the Wizzy integration on the <Link to="/config">Config page</Link> to
-                  register the SDK.
-                </Typography.Text>
-              )}
-              <Link to="/install">
-                <PrimaryButton ghost>Installation guide</PrimaryButton>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                The Wizzy search loader powers autocomplete and the faceted results page on your
+                storefront. Configure the install snippet, selectors, and theme on the Storefront
+                Search page.
+              </Typography.Text>
+              <Link to="/storefront">
+                <PrimaryButton ghost>Manage Storefront Search</PrimaryButton>
               </Link>
             </Space>
           </Card>

@@ -1,5 +1,4 @@
 import {
-  BarChartOutlined,
   Button,
   DatabaseOutlined,
   Drawer,
@@ -23,7 +22,6 @@ const items = [
     icon: <SearchOutlined />,
     label: <Link to="/storefront">Storefront Search</Link>,
   },
-  { key: '/install', icon: <BarChartOutlined />, label: <Link to="/install">Install</Link> },
 ];
 
 const MOBILE_BREAKPOINT = 720;

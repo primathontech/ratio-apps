@@ -14,10 +14,7 @@ function makeRow(overrides: Partial<WizzyConfigRow> = {}): WizzyConfigRow {
     storeId: 'store-1',
     storeSecretEnc: 'enc-secret',
     apiKeyEnc: 'enc-key',
-    sdkUrl: 'https://cdn.wizzy.ai/sdk/v2/wizzy.min.js',
     storeUrl: 'https://example.com',
-    scriptTagId: null,
-    scriptTagStatus: 'active',
     autoSyncEnabled: true,
     includeOutOfStock: true,
     stripHtmlDescription: true,
@@ -92,7 +89,6 @@ describe('WizzyConfigService — storefront fields', () => {
 
     await service.upsert(MERCHANT_ID, {
       wizzyEnabled: true,
-      sdkUrl: 'https://cdn.wizzy.ai/sdk/v2/wizzy.min.js',
       autoSyncEnabled: true,
       includeOutOfStock: true,
       stripHtmlDescription: true,

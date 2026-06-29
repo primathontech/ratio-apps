@@ -42,9 +42,17 @@ const resolver: typeof baseResolver = (values, context, options) => {
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
 
-function buildSnippet(merchantId: string): string {
+// This storefront loads Wizzy via the `search-wizzy` integration module
+// (wired in `src/app/layout.tsx` as `<WizzySearchScript/>`), which reads these
+// public env vars and injects the loader. Match the storefront's convention:
+// configure by env, not a hand-pasted <script>.
+function buildEnvBlock(merchantId: string): string {
   const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-  return `<script src="${base}/wizzy/sdk/wizzy-loader.js?store=${merchantId}"></script>`;
+  return [
+    'NEXT_PUBLIC_WIZZY_ENABLED=true',
+    `NEXT_PUBLIC_WIZZY_BACKEND_URL=${base || 'https://<your-backend>'}`,
+    `NEXT_PUBLIC_WIZZY_MERCHANT_ID=${merchantId}`,
+  ].join('\n');
 }
 
 export function StorefrontPage() {
@@ -60,7 +68,6 @@ export function StorefrontPage() {
       storeId: '',
       storeSecret: '',
       apiKey: '',
-      sdkUrl: 'https://cdn.wizzy.ai/sdk/v2/wizzy.min.js',
       storeUrl: '',
       autoSyncEnabled: true,
       includeOutOfStock: true,
@@ -82,7 +89,6 @@ export function StorefrontPage() {
       // storeSecret and apiKey are write-only: never returned, always leave empty
       storeSecret: '',
       apiKey: '',
-      sdkUrl: data.sdkUrl,
       storeUrl: data.storeUrl ?? '',
       autoSyncEnabled: data.autoSyncEnabled,
       includeOutOfStock: data.includeOutOfStock,
@@ -117,10 +123,10 @@ export function StorefrontPage() {
 
   // Prefer the real Ratio merchant id; fall back to a clearly-labeled placeholder.
   const merchantId = merchant.data?.id ?? data?.storeId ?? '<MERCHANT_ID>';
-  const snippet = buildSnippet(merchantId);
+  const envBlock = buildEnvBlock(merchantId);
 
   const onCopy = () => {
-    void navigator.clipboard?.writeText(snippet);
+    void navigator.clipboard?.writeText(envBlock);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -138,18 +144,21 @@ export function StorefrontPage() {
           <Card title="Storefront Search">
             <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
               <Typography.Paragraph>
-                Add the Wizzy search loader to your storefront, then point it at the page elements
-                below. The loader registers the search input, mounts results, and applies your theme
-                color.
+                This storefront loads Wizzy through the <Typography.Text code>search-wizzy</Typography.Text>{' '}
+                integration module — already wired in{' '}
+                <Typography.Text code>src/app/layout.tsx</Typography.Text> as{' '}
+                <Typography.Text code>&lt;WizzySearchScript/&gt;</Typography.Text>. Configure it by
+                environment variables (matching the storefront's integration convention), then point
+                it at the page elements below.
               </Typography.Paragraph>
 
               <div>
                 <Typography.Text strong style={{ display: 'block', marginBottom: 4 }}>
-                  Install snippet
+                  Storefront environment variables
                 </Typography.Text>
                 <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
-                  Paste this script tag into your storefront theme, just before the closing
-                  &lt;/body&gt; tag.
+                  Set these in your storefront (e.g. <Typography.Text code>.env.local</Typography.Text>),
+                  then restart the dev server / redeploy so the values take effect.
                 </Typography.Paragraph>
                 <pre
                   style={{
@@ -162,7 +171,7 @@ export function StorefrontPage() {
                     fontSize: 13,
                   }}
                 >
-                  <code>{snippet}</code>
+                  <code>{envBlock}</code>
                 </pre>
                 <Button style={{ marginTop: 8 }} onClick={onCopy}>
                   {copied ? 'Copied ✓' : 'Copy'}

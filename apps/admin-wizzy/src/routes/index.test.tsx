@@ -24,9 +24,7 @@ function makeConfig(overrides: Partial<WizzyConfig> = {}): WizzyConfig {
     hasStoreSecret: true,
     hasApiKey: false,
     needsReconnect: false,
-    sdkUrl: 'https://cdn.wizzy.ai/sdk/v2/wizzy.min.js',
     storeUrl: null,
-    scriptTagStatus: 'active',
     lastBulkSyncAt: '2026-06-08T10:00:00.000Z',
     autoSyncEnabled: true,
     includeOutOfStock: true,
@@ -64,11 +62,11 @@ beforeEach(() => {
 afterEach(() => vi.clearAllMocks());
 
 describe('Dashboard', () => {
-  it('renders catalog sync and storefront SDK cards', async () => {
+  it('renders catalog sync and storefront search cards', async () => {
     routeApi(makeConfig());
     renderWithProviders(<Overview />);
     await waitFor(() => expect(screen.getByText('Catalog Sync')).toBeInTheDocument());
-    expect(screen.getByText('Storefront SDK (ScriptTag)')).toBeInTheDocument();
+    expect(screen.getByText('Storefront Search')).toBeInTheDocument();
     expect(screen.getByText('42')).toBeInTheDocument();
   });
 
@@ -93,10 +91,10 @@ describe('Dashboard', () => {
     );
   });
 
-  it('shows pending_api explainer for script tag status', async () => {
-    routeApi(makeConfig({ scriptTagStatus: 'pending_api' }));
+  it('shows storefront search enabled status + manage link', async () => {
+    routeApi(makeConfig({ searchEnabled: true }));
     renderWithProviders(<Overview />);
-    await waitFor(() => expect(screen.getByText('Pending API')).toBeInTheDocument());
-    expect(screen.getByText(/ScriptTag API pending/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('Enabled')).toBeInTheDocument());
+    expect(screen.getByText('Manage Storefront Search')).toBeInTheDocument();
   });
 });

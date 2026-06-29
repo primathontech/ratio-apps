@@ -3,7 +3,6 @@ import type { BaseMerchantsTable } from '../../../core/merchants/merchant.types'
 import type { BaseOauthTokensTable } from '../../../core/oauth/oauth-tokens.types';
 import type { BaseWebhookLogTable } from '../../../core/webhooks/webhook-log.types';
 
-type ScriptTagStatus = 'active' | 'pending_api' | 'error' | 'disabled';
 type CatalogStatus = 'SYNCED' | 'PENDING' | 'ERROR' | 'DELETED';
 type SyncType = 'initial' | 'webhook' | 'auto' | 'manual' | 'reconcile';
 
@@ -16,11 +15,8 @@ interface WizzyConfigsTable {
   storeSecretEnc: string | null;
   /** Encrypted (CryptoService) Wizzy API Key. Never returned raw. */
   apiKeyEnc: string | null;
-  sdkUrl: Generated<string>;
   /** Storefront URL/domain for building absolute product links. */
   storeUrl: string | null;
-  scriptTagId: string | null;
-  scriptTagStatus: Generated<ScriptTagStatus>;
   autoSyncEnabled: Generated<boolean>;
   includeOutOfStock: Generated<boolean>;
   stripHtmlDescription: Generated<boolean>;

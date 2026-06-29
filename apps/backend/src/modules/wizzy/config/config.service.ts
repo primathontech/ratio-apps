@@ -75,7 +75,6 @@ export class WizzyConfigService {
     const cols = {
       wizzyEnabled: input.wizzyEnabled,
       storeId: input.storeId ?? null,
-      sdkUrl: input.sdkUrl,
       storeUrl: input.storeUrl ?? null,
       autoSyncEnabled: input.autoSyncEnabled,
       includeOutOfStock: input.includeOutOfStock,
@@ -120,9 +119,7 @@ export class WizzyConfigService {
       hasStoreSecret: Boolean(row.storeSecretEnc),
       hasApiKey: Boolean(row.apiKeyEnc),
       needsReconnect,
-      sdkUrl: row.sdkUrl,
       storeUrl: row.storeUrl,
-      scriptTagStatus: row.scriptTagStatus,
       lastBulkSyncAt: row.lastBulkSyncAt ? new Date(row.lastBulkSyncAt).toISOString() : null,
       autoSyncEnabled: Boolean(row.autoSyncEnabled),
       includeOutOfStock: Boolean(row.includeOutOfStock),

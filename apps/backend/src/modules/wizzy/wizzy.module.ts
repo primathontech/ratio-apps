@@ -20,8 +20,6 @@ import { WizzyMerchantsController } from './merchants/merchants.controller';
 import { WizzyOAuthController } from './oauth/oauth.controller';
 import { type RatioOAuthCreds, RatioOAuthHttp } from './oauth/ratio-oauth.http';
 import { RatioTokenProvider } from './oauth/ratio-token.provider';
-import { ScriptTagClient } from './sdk/script-tag.client';
-import { SdkRegistrationService } from './sdk/sdk-registration.service';
 import { StorefrontController } from './storefront/storefront.controller';
 import { StorefrontConfigService } from './storefront/storefront-config.service';
 import {
@@ -56,9 +54,8 @@ export {
  *
  * Per-module DB isolation: the shared Crypto / Ratio / Merchants / OAuth /
  * Webhooks providers come from `createAppProviders`. The vendor-specific pieces
- * — config, catalog transform + push, initial bulk sync, reconcile, and the
- * guarded ScriptTag SDK registration — are wired here.
- * `ScheduleModule.forRoot()` powers the hourly reconcile cron.
+ * — config, catalog transform + push, initial bulk sync, and reconcile — are
+ * wired here. `ScheduleModule.forRoot()` powers the hourly reconcile cron.
  */
 @Module({
   imports: [WizzyKyselyModule, ScheduleModule.forRoot()],
@@ -82,8 +79,6 @@ export {
     CatalogQueryService,
     ReconcileService,
     WizzyApiClient,
-    // SDK / ScriptTag
-    SdkRegistrationService,
     // Durable SQS queue
     QueueService,
     // Worker that drains `wizzy-product-sync`
@@ -111,12 +106,6 @@ export {
         clientId: config.get('RATIO_WIZZY_CLIENT_ID' as never, { infer: true }) as string,
         clientSecret: config.get('RATIO_WIZZY_CLIENT_SECRET' as never, { infer: true }) as string,
       }),
-    },
-    {
-      provide: 'WIZZY_SCRIPT_TAG_CLIENT',
-      inject: [ConfigService],
-      useFactory: (config: ConfigService<Env, true>): ScriptTagClient =>
-        new ScriptTagClient(config.get('RATIO_API_BASE_URL', { infer: true }) as string),
     },
     // Shared factory providers (Crypto / Ratio / Merchants / OAuth / Webhooks).
     ...createAppProviders<WizzyDatabase>(

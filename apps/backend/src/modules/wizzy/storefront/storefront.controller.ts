@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { Controller, Get, Header, NotFoundException, Param } from '@nestjs/common';
-import type { WizzyStorefrontConfig } from '@ratio-app/shared/schemas/wizzy-search';
+import { Controller, Get, NotFoundException, Param, Res } from '@nestjs/common';
+import type { FastifyReply } from 'fastify';
 import { StorefrontConfigService } from './storefront-config.service';
 
 /** The three built SDK bundles served from `packages/wizzy-sdk/dist`. */
@@ -14,6 +14,10 @@ type SdkBundle = 'wizzy-loader.js' | 'wizzy-widget.js' | 'wizzy-results.js';
  *
  * Serves the three built SDK bundles from `packages/wizzy-sdk/dist` (cached in
  * memory after first read) plus the redacted public config for a merchant.
+ *
+ * All four routes use `@Res() reply: FastifyReply` and send via `reply.send()`
+ * to bypass the global ResponseInterceptor, which would otherwise wrap the raw
+ * JS/JSON in a `{ status_code, message, data }` envelope and break the SDK.
  */
 @Controller('wizzy/sdk')
 export class StorefrontController {
@@ -23,34 +27,41 @@ export class StorefrontController {
   constructor(private readonly cfg: StorefrontConfigService) {}
 
   @Get('wizzy-loader.js')
-  @Header('content-type', 'text/javascript; charset=utf-8')
-  @Header('access-control-allow-origin', '*')
-  @Header('cache-control', 'public, max-age=3600')
-  loader(): string {
-    return this.readBundle('wizzy-loader.js');
+  loader(@Res() reply: FastifyReply): void {
+    reply
+      .header('content-type', 'text/javascript; charset=utf-8')
+      .header('access-control-allow-origin', '*')
+      .header('cache-control', 'public, max-age=3600')
+      .send(this.readBundle('wizzy-loader.js'));
   }
 
   @Get('wizzy-widget.js')
-  @Header('content-type', 'text/javascript; charset=utf-8')
-  @Header('access-control-allow-origin', '*')
-  @Header('cache-control', 'public, max-age=3600')
-  widget(): string {
-    return this.readBundle('wizzy-widget.js');
+  widget(@Res() reply: FastifyReply): void {
+    reply
+      .header('content-type', 'text/javascript; charset=utf-8')
+      .header('access-control-allow-origin', '*')
+      .header('cache-control', 'public, max-age=3600')
+      .send(this.readBundle('wizzy-widget.js'));
   }
 
   @Get('wizzy-results.js')
-  @Header('content-type', 'text/javascript; charset=utf-8')
-  @Header('access-control-allow-origin', '*')
-  @Header('cache-control', 'public, max-age=3600')
-  results(): string {
-    return this.readBundle('wizzy-results.js');
+  results(@Res() reply: FastifyReply): void {
+    reply
+      .header('content-type', 'text/javascript; charset=utf-8')
+      .header('access-control-allow-origin', '*')
+      .header('cache-control', 'public, max-age=3600')
+      .send(this.readBundle('wizzy-results.js'));
   }
 
   @Get('config/:merchantId')
-  @Header('access-control-allow-origin', '*')
-  @Header('cache-control', 'no-store')
-  async config(@Param('merchantId') merchantId: string): Promise<WizzyStorefrontConfig> {
-    return this.cfg.publicConfig(merchantId);
+  async config(
+    @Param('merchantId') merchantId: string,
+    @Res() reply: FastifyReply,
+  ): Promise<void> {
+    reply
+      .header('access-control-allow-origin', '*')
+      .header('cache-control', 'no-store')
+      .send(await this.cfg.publicConfig(merchantId));
   }
 
   /**
