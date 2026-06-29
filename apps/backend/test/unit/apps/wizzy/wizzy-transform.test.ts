@@ -392,14 +392,14 @@ describe('transformProduct — childData (per-variation price arrays)', () => {
 });
 
 describe('transformProduct — createdAt (Newest sort)', () => {
-  it('sets createdAt as an ISO string when the product carries one', () => {
+  it('formats createdAt as Wizzy yyyy-mm-dd hh:mm:ss (not ISO 8601)', () => {
     const result = transformProduct(
       baseProduct({ createdAt: '2026-06-10T07:36:54.170Z' }),
       baseConfig,
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.payload.createdAt).toBe('2026-06-10T07:36:54.170Z');
+    expect(result.payload.createdAt).toBe('2026-06-10 07:36:54');
   });
 
   it('omits createdAt when absent or null', () => {
@@ -416,14 +416,14 @@ describe('transformProduct — createdAt (Newest sort)', () => {
     expect(result.payload.createdAt).toBeUndefined();
   });
 
-  it('sets updatedAt as an ISO string when present', () => {
+  it('formats updatedAt as Wizzy yyyy-mm-dd hh:mm:ss when present', () => {
     const result = transformProduct(
       baseProduct({ updatedAt: '2026-06-29T19:29:15.000Z' }),
       baseConfig,
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.payload.updatedAt).toBe('2026-06-29T19:29:15.000Z');
+    expect(result.payload.updatedAt).toBe('2026-06-29 19:29:15');
   });
 });
 

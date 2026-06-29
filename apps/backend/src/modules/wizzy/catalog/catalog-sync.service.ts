@@ -406,22 +406,28 @@ export class CatalogSyncService {
     status: 'SYNCED' | 'PENDING' | 'ERROR' | 'DELETED',
     issue: string | null,
   ): Promise<void> {
+    // `issue` is varchar(512). A Wizzy validation error can list every product
+    // in the failed batch (far over 512 chars) — truncate so the write never
+    // throws "Data too long", which would otherwise strand the product in
+    // PENDING and abort the whole sync.
+    const safeIssue = issue === null ? null : issue.slice(0, 500);
+    const safeTitle = (title ?? '').slice(0, 255) || null;
     await this.handle.db
       .insertInto('wizzy_catalog_items')
       .values({
         merchantId,
         productId,
         wizzyId,
-        title: (title ?? '').slice(0, 255) || null,
+        title: safeTitle,
         status,
-        issue,
+        issue: safeIssue,
         lastSyncedAt: status === 'SYNCED' ? sql`CURRENT_TIMESTAMP(3)` : null,
       } as never)
       .onDuplicateKeyUpdate({
         wizzyId,
-        title: (title ?? '').slice(0, 255) || null,
+        title: safeTitle,
         status,
-        issue,
+        issue: safeIssue,
         ...(status === 'SYNCED' ? { lastSyncedAt: sql`CURRENT_TIMESTAMP(3)` } : {}),
         updatedAt: sql`CURRENT_TIMESTAMP(3)`,
       } as never)
@@ -436,6 +442,8 @@ export class CatalogSyncService {
     errored: number,
     detail?: string,
   ): Promise<void> {
+    // `detail` is varchar(512) — truncate so a long error never overflows.
+    const safeDetail = (detail ?? `${synced} synced, ${errored} errors`).slice(0, 500);
     await this.handle.db
       .insertInto('wizzy_sync_log')
       .values({
@@ -444,7 +452,7 @@ export class CatalogSyncService {
         productsChecked: checked,
         productsSynced: synced,
         productsErrored: errored,
-        detail: detail ?? `${synced} synced, ${errored} errors`,
+        detail: safeDetail,
       } as never)
       .execute();
   }

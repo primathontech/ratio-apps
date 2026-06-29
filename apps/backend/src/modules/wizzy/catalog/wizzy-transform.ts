@@ -204,9 +204,9 @@ export interface WizzyProductPayload {
   avgRatings?: number;
   /** Total number of ratings, from the reviews/rating_count metafield. */
   totalReviews?: number;
-  /** ISO 8601 recency timestamp (published/created date) — enables a "Newest" sort. */
+  /** Recency timestamp `yyyy-mm-dd hh:mm:ss` (published/created) — enables a "Newest" sort. */
   createdAt?: string;
-  /** ISO 8601 last-modified timestamp — Wizzy sortable field `updatedAt`. */
+  /** Last-modified timestamp `yyyy-mm-dd hh:mm:ss` — Wizzy sortable field `updatedAt`. */
   updatedAt?: string;
   /** Surface the product in search results. Omitted → Wizzy treats it as hidden. */
   isSearchable: boolean;
@@ -326,14 +326,17 @@ function normalizeStoreDomain(raw: string | null | undefined): string | null {
 }
 
 /**
- * Normalize a raw date value into an ISO 8601 string, or null when it is
- * missing/unparseable. Accepts an ISO string or epoch number. Used for the
- * Wizzy `createdAt` recency field (drives a "Newest" sort).
+ * Normalize a raw date value into Wizzy's required `yyyy-mm-dd hh:mm:ss` (UTC)
+ * format, or null when missing/unparseable. Accepts an ISO string or epoch
+ * number. Wizzy REJECTS ISO 8601 (`...T...Z`) for createdAt/updatedAt, so we
+ * derive the space-separated form from the UTC ISO string (drop millis + 'Z').
  */
-function toIsoDate(raw: string | number | null | undefined): string | null {
+function toWizzyDate(raw: string | number | null | undefined): string | null {
   if (raw === null || raw === undefined || raw === '') return null;
   const d = new Date(raw);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  if (Number.isNaN(d.getTime())) return null;
+  // "2026-06-10T07:36:54.170Z" → "2026-06-10 07:36:54"
+  return d.toISOString().slice(0, 19).replace('T', ' ');
 }
 
 /**
@@ -754,10 +757,10 @@ export function transformProduct(
   if (mf.avgRatings !== undefined) payload.avgRatings = mf.avgRatings;
   if (mf.totalReviews !== undefined) payload.totalReviews = mf.totalReviews;
 
-  // Recency timestamps (ISO 8601) for "Newest"/recently-updated sorts — only when valid.
-  const createdAt = toIsoDate(product.createdAt);
+  // Recency timestamps (Wizzy `yyyy-mm-dd hh:mm:ss`) for "Newest"/recently-updated sorts.
+  const createdAt = toWizzyDate(product.createdAt);
   if (createdAt) payload.createdAt = createdAt;
-  const updatedAt = toIsoDate(product.updatedAt);
+  const updatedAt = toWizzyDate(product.updatedAt);
   if (updatedAt) payload.updatedAt = updatedAt;
 
   // Absolute product URL — needs a configured storefront domain.
