@@ -68,6 +68,20 @@ const baseEnv = z.object({
   // stripping in validate() keeps it on process.env.
   GOOGLE_SYNC_WORKER_ENABLED: z.enum(['true', 'false']).default('false'),
 
+  // ─── wizzy app: catalog sync ──────────────────────────────────────────────
+  // WIZZY_SYNC_WORKER_ENABLED gates the WizzySyncWorker (drains the wizzy sync
+  // SQS queue → Wizzy catalog API). WIZZY_API_BASE_URL is the Wizzy catalog API
+  // base (real endpoint: https://api.wizsearch.in/v1). Both are read off
+  // process.env directly; declared here so unknown-key stripping in validate()
+  // keeps them. WIZZY_STORE_ID / WIZZY_STORE_SECRET / WIZZY_API_KEY are
+  // deployment-wide credential fallbacks (used when a merchant has no per-merchant
+  // config — mirrors google's GMC_STORE_URL env-fallback pattern).
+  WIZZY_SYNC_WORKER_ENABLED: z.enum(['true', 'false']).default('false'),
+  WIZZY_API_BASE_URL: z.string().url().default('https://api.wizsearch.in/v1'),
+  WIZZY_STORE_ID: emptyAsUndefined(z.string()),
+  WIZZY_STORE_SECRET: emptyAsUndefined(z.string()),
+  WIZZY_API_KEY: emptyAsUndefined(z.string()),
+
   // GMC_STORE_URL: deployment-wide fallback storefront domain for GMC product
   // links, used when a merchant's `google_configs.gmc_store_url` is unset. Bare
   // host (`shop.example.com`) or full URL — the feed mapper normalizes it. Read

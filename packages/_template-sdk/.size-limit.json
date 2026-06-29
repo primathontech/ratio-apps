@@ -1,0 +1,5 @@
+[
+  { "path": "dist/__slug__-loader.js", "limit": "3 KB" },
+  { "path": "dist/__slug__-widget.js", "limit": "10 KB" },
+  { "path": "dist/__slug__-results.js", "limit": "16 KB" }
+]

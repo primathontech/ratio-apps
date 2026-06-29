@@ -39,6 +39,13 @@ const validEnv = {
   RATIO_MOENGAGE_CLIENT_SECRET: 'moengage_secret',
   RATIO_MOENGAGE_CALLBACK_URL: 'http://localhost:3000/moengage/api/v1/oauth/callback',
   RATIO_MOENGAGE_ADMIN_BASE_URL: 'http://localhost:5174',
+  // `wizzy` app keys (derived from the APPS tuple — required by the schema).
+  RATIO_WIZZY_DATABASE_URL: 'mysql://app:app@localhost:3306/wizzy_app',
+  RATIO_WIZZY_DATA_ENCRYPTION_KEY: Buffer.alloc(32).toString('base64'),
+  RATIO_WIZZY_CLIENT_ID: 'wizzy_id',
+  RATIO_WIZZY_CLIENT_SECRET: 'wizzy_secret',
+  RATIO_WIZZY_CALLBACK_URL: 'http://localhost:3000/wizzy/api/v1/oauth/callback',
+  RATIO_WIZZY_ADMIN_BASE_URL: 'http://localhost:5174',
 };
 
 describe('envSchema', () => {

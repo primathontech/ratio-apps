@@ -65,6 +65,9 @@ services:
         condition: service_started
     env_file: .env
     environment:
+      # Pin the in-container port to 3000 (matches the ports + healthcheck below)
+      # regardless of PORT in .env (which may be set for a host/server deploy).
+      PORT: "3000"
       # API-only: the backend serves no static UI (admin deployed separately).
       SERVE_STATIC: "false"
       # Point each module at the compose mysql service (host `mysql`, not
@@ -73,6 +76,7 @@ services:
       RATIO_META_DATABASE_URL: mysql://app:app@mysql:3306/meta_app
       RATIO_POSTHOG_DATABASE_URL: mysql://app:app@mysql:3306/posthog_app
       RATIO_MOENGAGE_DATABASE_URL: mysql://app:app@mysql:3306/moengage_app
+      RATIO_WIZZY_DATABASE_URL: mysql://app:app@mysql:3306/wizzy_app
       # Inside the compose network, reach the broker/cache by SERVICE NAME, not
       # localhost (127.0.0.1 inside the container is the container itself). These
       # override the localhost values in .env, which are correct only for a

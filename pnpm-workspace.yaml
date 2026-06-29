@@ -4,3 +4,6 @@ packages:
   # `_template-admin` stays on disk as the scaffolder's copy source, but is not
   # part of the runnable/buildable workspace (it is not a shipped vendor app).
   - "!apps/_template-admin"
+  # `_template-sdk` is the copy-source for the scaffolder; not a runnable package
+  # (its `__slug__` placeholders are intentionally not valid TS).
+  - "!packages/_template-sdk"

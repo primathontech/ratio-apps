@@ -1,0 +1,91 @@
+import { css, html, LitElement } from 'lit';
+import { customElement, property } from 'lit/decorators.js';
+import { baseStyles } from './theme';
+
+/**
+ * `<wizzy-facet-list>` — a multi-select checkbox facet.
+ *
+ * Renders a label and one checkbox per value. Toggling a checkbox recomputes
+ * the selection (preserving the original `values` order) and dispatches a
+ * `wizzy-facet-change` event with `{ key, selected }`.
+ *
+ * Standalone: used only by the lazy-loaded results page.
+ */
+@customElement('wizzy-facet-list')
+export class WizzyFacetList extends LitElement {
+  static override styles = [
+    baseStyles,
+    css`
+      .wz-fl-label {
+        font-weight: 600;
+        font-size: 13px;
+        margin-bottom: 8px;
+      }
+      .wz-fl-opt {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        padding: 4px 0;
+        cursor: pointer;
+      }
+      .wz-fl-opt input {
+        accent-color: var(--wz-primary);
+      }
+      .wz-fl-opts {
+        display: flex;
+        flex-direction: column;
+      }
+    `,
+  ];
+
+  @property() facetKey = '';
+  @property() label = '';
+  @property({ attribute: false }) values: string[] = [];
+  @property({ attribute: false }) selected: string[] = [];
+
+  private onToggle(value: string, checked: boolean) {
+    const next = new Set(this.selected);
+    if (checked) {
+      next.add(value);
+    } else {
+      next.delete(value);
+    }
+    const selected = this.values.filter((v) => next.has(v));
+    this.dispatchEvent(
+      new CustomEvent('wizzy-facet-change', {
+        detail: { key: this.facetKey, selected },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
+
+  override render() {
+    return html`
+      <div class="wz-fl-label">${this.label}</div>
+      <div class="wz-fl-opts">
+        ${this.values.map(
+          (value) => html`
+            <label class="wz-fl-opt">
+              <input
+                type="checkbox"
+                .value=${value}
+                .checked=${this.selected.includes(value)}
+                @change=${(e: Event) =>
+                  this.onToggle(value, (e.target as HTMLInputElement).checked)}
+              />
+              <span>${value}</span>
+            </label>
+          `,
+        )}
+      </div>
+    `;
+  }
+}
+
+declare global {
+  interface HTMLElementTagNameMap {
+    'wizzy-facet-list': WizzyFacetList;
+  }
+}

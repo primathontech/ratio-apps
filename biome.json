@@ -11,7 +11,8 @@
       "!**/coverage-e2e",
       "!**/routeTree.gen.ts",
       "!**/db/migrations",
-      "!**/drizzle/migrations"
+      "!**/drizzle/migrations",
+      "!packages/_template-sdk"
     ]
   },
   "formatter": {

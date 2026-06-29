@@ -149,10 +149,71 @@ forms, `@primathonos/orion` for UI components.
   tsc --noEmit && vite build`, emitting static assets to `dist/` that the backend
   serves as the single deploy artifact.
 
+## Storefront SDK patterns
+
+**Only for apps with `hasStorefrontSdk: true`** (opt-in; the four analytics
+vendors don't ship one). The SDK is a third pillar: a **Lit 3 + Vite 6
+library-mode** package at `packages/<slug>-sdk`, served by the vendor backend at
+`/<slug>/sdk/*`. Canonical reference: **`packages/wizzy-sdk`** (golden copy-source:
+`packages/_template-sdk`).
+
+### 1. Lit 3 Web Components (Shadow DOM)
+
+Each UI piece is a `LitElement` Web Component rendering into its own Shadow DOM
+(style isolation from the host storefront). Theming flows through CSS custom
+properties: a shared `baseStyles` (`css\`\`` — resets + `--<px>-*` token defaults)
+imported by every component, plus a `themeVars(theme)` helper that emits a
+`:host { --<px>-primary: …; --<px>-radius: … }` block from the merchant's config.
+Reference: `src/ui/theme.ts` (`baseStyles`, `themeVars`) and `src/ui/*.ts`.
+
+### 2. The two/three-bundle build
+
+Three separate Vite builds (`vite.config.ts` = widget, `vite.loader.config.ts`,
+`vite.results.config.ts`) emit:
+- **`<slug>-loader.js`** — a tiny **IIFE** the merchant pastes as one
+  `<script src=".../<slug>/sdk/<slug>-loader.js?store=<merchantId>">`. It reads
+  the public config from its own script origin (`GET /<slug>/sdk/config/<id>`),
+  stashes it on `window.__<SLUG>__`, and **lazily injects** the ESM `widget`
+  bundle on first search-input focus (idle/timeout fallback) — and the ESM
+  `results` bundle on the results route. Reference: `src/loader.ts`.
+- **`<slug>-widget.js`** (ESM) — boots the search overlay; `src/widget.ts`.
+- **`<slug>-results.js`** (ESM) — boots the results page; `src/results.ts`.
+Keeping loader tiny + lazy-loading the rest is what holds the size budget (loader
+≤ 3 KB, widget ≤ 10 KB, results ≤ 16 KB via `size-limit` / `.size-limit.json`).
+
+### 3. The typed vendor `Client`
+
+`src/client.ts` is a typed REST wrapper over the vendor's **public** storefront
+search API using native `fetch` + `AbortController` (cancel in-flight
+autocomplete). It imports the shared result types **type-only**
+(`import type { … } from '@ratio-app/shared'`) so **Zod is NOT bundled** into the
+browser SDK. **Public creds only** — store id + public api key in headers; a
+secret must never reach the browser (the config interface has no field for one).
+
+### 4. `RecentStore` + anon id
+
+`src/recent-store.ts` persists recent queries in `localStorage` (per-store key,
+deduped, capped, private-mode-safe). `src/anon-id.ts` mints + persists a stable
+anonymous user id for the vendor's per-user header. Both swallow storage errors.
+
+### 5. Backend public-config + bundle-serving controller
+
+A `storefront/` folder in the module (reference:
+`apps/backend/src/modules/wizzy/storefront/`):
+- `StorefrontController` mounted `@Controller('<slug>/sdk')` — **PUBLIC** (no
+  merchant guard), permissive CORS (`access-control-allow-origin: *`). `GET`
+  routes for `<slug>-loader.js` / `<slug>-widget.js` / `<slug>-results.js` read
+  (and memoize) the built bundles from `packages/<slug>-sdk/dist`; a public
+  `GET config/:merchantId` returns the **redacted** storefront config.
+- `StorefrontConfigService.publicConfig(merchantId)` composes that redacted
+  config (selectors, theme, enabled flag, public creds — never the secret).
+- Storefront config columns live on `<slug>_configs` via a `0003`-style additive
+  migration (`search_enabled`, `*_selector`, `results_page_path`, `theme_primary`).
+
 ## When stuck
 
 - Compare your file side-by-side with the same file in `modules/_template/` /
-  `apps/_template-admin/`. The template is always-buildable; if yours doesn't
-  compile, you diverged from a pattern above.
+  `apps/_template-admin/` (or `packages/_template-sdk/` for an SDK). The template
+  is always-buildable; if yours doesn't compile, you diverged from a pattern above.
 - For the env keys a provider expects, re-read `core/factories/app-module.factory.ts`
   and `apps/backend/src/config/env.schema.ts`.

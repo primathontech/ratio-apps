@@ -17,6 +17,16 @@
       "@core/*": ["./src/core/*"]
     }
   },
+  // POLLING watcher: macOS/Windows Docker bind mounts deliver no inotify events
+  // to the Linux container, so `nest start --watch` (tsc) must poll to see host
+  // edits. TS polling is adaptive (changed files polled often, stable ones
+  // rarely), so the cost on native host `pnpm dev` is negligible.
+  "watchOptions": {
+    "watchFile": "priorityPollingInterval",
+    "watchDirectory": "dynamicPriorityPolling",
+    "fallbackPolling": "dynamicPriority",
+    "synchronousWatchDirectory": true
+  },
   "include": ["src/**/*", "scripts/**/*", "../../packages/shared/src/**/*"],
   "exclude": [
     "node_modules",

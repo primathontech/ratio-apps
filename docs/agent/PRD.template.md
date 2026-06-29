@@ -8,10 +8,15 @@
 
 - **Display name:** <e.g. Loyalty Points>
 - **Slug:** <lowercase `[a-z0-9-]`, e.g. `loyalty`>
+- **Storefront SDK?** <`yes` | `no` — does this app need a storefront
+  search/discovery widget that runs in the merchant's storefront? Sets
+  `hasStorefrontSdk` in STATE.json. Opt-in (default `no`); when `yes`, the build
+  also scaffolds `packages/<slug>-sdk` and the backend `/<slug>/sdk/*` routes.>
 
 The slug drives every derived name: the backend module
 (`apps/backend/src/modules/<slug>/`), the admin app (`apps/admin-<slug>/`), the
-URL prefix (`/<slug>/*`), and the `RATIO_<SLUG_UPPER>_*` env keys.
+URL prefix (`/<slug>/*`), the `RATIO_<SLUG_UPPER>_*` env keys, and — when a
+storefront SDK is needed — the SDK package (`packages/<slug>-sdk/`).
 
 ## Problem
 

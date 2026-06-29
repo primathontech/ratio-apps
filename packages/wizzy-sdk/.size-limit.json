@@ -1,0 +1,5 @@
+[
+  { "path": "dist/wizzy-loader.js", "limit": "3 KB" },
+  { "path": "dist/wizzy-widget.js", "limit": "10 KB" },
+  { "path": "dist/wizzy-results.js", "limit": "16 KB" }
+]
