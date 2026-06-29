@@ -230,10 +230,23 @@ export class GoogleAuthService {
     }
   }
 
-  private async markReconnect(merchantId: string): Promise<void> {
+  private markReconnect(merchantId: string): Promise<void> {
+    return this.setNeedsReconnect(merchantId, true);
+  }
+
+  /**
+   * Set (or clear) the merchant's `needs_reconnect` flag — the single writer for
+   * it. Exposed so the feed sync can flag an account-access failure (the
+   * connected identity can't reach the configured Merchant Center account),
+   * which surfaces the admin's reconnect banner, and clear it once access is
+   * proven again. A no-op for merchants with no credentials row (e.g. a
+   * manual/service-account merchant who never ran OAuth) — the sync log still
+   * records the reason for those.
+   */
+  async setNeedsReconnect(merchantId: string, value: boolean): Promise<void> {
     await this.handle.db
       .updateTable('google_credentials')
-      .set({ needsReconnect: true, updatedAt: sql`CURRENT_TIMESTAMP(3)` } as never)
+      .set({ needsReconnect: value, updatedAt: sql`CURRENT_TIMESTAMP(3)` } as never)
       .where('merchantId', '=', merchantId)
       .execute();
   }
