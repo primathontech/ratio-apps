@@ -69,6 +69,8 @@ function normalizeWebhookProduct(raw: OsItemProduct): OsItemProduct {
     ...raw,
     // Map top-level imageUrl string to the image object the transformer expects.
     image: raw.image ?? (typeof r.imageUrl === 'string' ? { src: r.imageUrl as string } : null),
+    // No inventory system yet — always treat webhook products as in-stock.
+    track_inventory: false,
   };
   if (variants.length > 0) result.variants = variants as unknown as NonNullable<OsItemProduct['variants']>;
   return result;
