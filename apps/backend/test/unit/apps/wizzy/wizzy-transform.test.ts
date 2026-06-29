@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  parseMetafields,
+  parseRestProduct,
+} from '../../../../src/modules/wizzy/catalog/parse-ratio-product';
+import {
   type RatioProduct,
   stripHtml,
   transformProduct,
@@ -387,6 +391,61 @@ describe('transformProduct — childData (per-variation price arrays)', () => {
   });
 });
 
+describe('transformProduct — createdAt (Newest sort)', () => {
+  it('sets createdAt as an ISO string when the product carries one', () => {
+    const result = transformProduct(
+      baseProduct({ createdAt: '2026-06-10T07:36:54.170Z' }),
+      baseConfig,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.payload.createdAt).toBe('2026-06-10T07:36:54.170Z');
+  });
+
+  it('omits createdAt when absent or null', () => {
+    const result = transformProduct(baseProduct({ createdAt: null }), baseConfig);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.payload.createdAt).toBeUndefined();
+  });
+
+  it('omits createdAt when the value is unparseable', () => {
+    const result = transformProduct(baseProduct({ createdAt: 'not-a-date' }), baseConfig);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.payload.createdAt).toBeUndefined();
+  });
+
+  it('sets updatedAt as an ISO string when present', () => {
+    const result = transformProduct(
+      baseProduct({ updatedAt: '2026-06-29T19:29:15.000Z' }),
+      baseConfig,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.payload.updatedAt).toBe('2026-06-29T19:29:15.000Z');
+  });
+});
+
+describe('transformProduct — hoverImage (2nd image)', () => {
+  it('sets hoverImage to the second image when present', () => {
+    const result = transformProduct(baseProduct(), baseConfig);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.payload.hoverImage).toBe('https://img.example.com/2.jpg');
+  });
+
+  it('omits hoverImage for a single-image product', () => {
+    const result = transformProduct(
+      baseProduct({ images: [{ src: 'https://img.example.com/only.jpg' }] }),
+      baseConfig,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.payload.hoverImage).toBeUndefined();
+  });
+});
+
 describe('transformProduct — product url from configured store domain', () => {
   it('builds an absolute url from storeDomain + handle', () => {
     const result = transformProduct(baseProduct({ handle: 'cool-shirt' }), {
@@ -593,5 +652,395 @@ describe('stripHtml', () => {
 
   it('returns empty string for empty input', () => {
     expect(stripHtml('')).toBe('');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rich by-id product fixture — mirrors the real GET /products/:id response.
+// ---------------------------------------------------------------------------
+
+/** Fixture mirroring a real OSMO Electrolytes by-id response. */
+function osmoFixture(): RatioProduct {
+  return {
+    id: 'P1',
+    title: 'OSMO',
+    handle: 'osmo',
+    product_type: 'Electrolytes',
+    productType: 'Electrolytes',
+    vendor: 'Osmo',
+    tags: ['electrolyte', 'New Arrival'],
+    collections: [
+      { id: 'c1', title: 'Best Sellers' },
+      { id: 'c2', title: 'Supplements' },
+      { id: 'c3', title: 'Essentials' },
+      { id: 'c4', title: 'All Products' },
+      { id: 'c5', title: 'TEST MF-X COLLECTION' },
+    ],
+    images: [{ src: 'https://x/i.jpg' }],
+    variants: [{ id: 'v1', price: 58800, compareAtPrice: 69900, availableForSale: true }],
+  } as unknown as RatioProduct;
+}
+
+describe('transformProduct — rich by-id collections → categories', () => {
+  it('builds categories from product_type + non-skipped collections', () => {
+    const result = transformProduct(osmoFixture(), baseConfig);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const names = result.payload.categories.map((c) => c.name);
+    expect(names).toEqual(['Electrolytes', 'Best Sellers', 'Supplements', 'Essentials']);
+  });
+
+  it('drops "All Products" collection', () => {
+    const result = transformProduct(osmoFixture(), baseConfig);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.payload.categories.map((c) => c.name)).not.toContain('All Products');
+  });
+
+  it('drops collections whose title matches /^test /i', () => {
+    const result = transformProduct(osmoFixture(), baseConfig);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const names = result.payload.categories.map((c) => c.name);
+    expect(names.some((n) => /^test/i.test(n))).toBe(false);
+  });
+
+  it('root category has parentId="" and pathIds=[rootId]', () => {
+    const result = transformProduct(osmoFixture(), baseConfig);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const root = result.payload.categories[0]!;
+    expect(root.id).toBe('electrolytes');
+    expect(root.name).toBe('Electrolytes');
+    expect(root.parentId).toBe('');
+    expect(root.pathIds).toEqual(['electrolytes']);
+  });
+
+  it('collection children have parentId=rootId and pathIds=[rootId, childId]', () => {
+    const result = transformProduct(osmoFixture(), baseConfig);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const bestSellers = result.payload.categories.find((c) => c.name === 'Best Sellers');
+    expect(bestSellers).toBeDefined();
+    expect(bestSellers?.parentId).toBe('electrolytes');
+    expect(bestSellers?.pathIds).toEqual(['electrolytes', 'best-sellers']);
+  });
+
+  it('all categories have isSearchable=true and includeInMenu=true', () => {
+    const result = transformProduct(osmoFixture(), baseConfig);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    for (const cat of result.payload.categories) {
+      expect(cat.isSearchable).toBe(true);
+      expect(cat.includeInMenu).toBe(true);
+    }
+  });
+
+  it('sets groupId equal to product id', () => {
+    const result = transformProduct(osmoFixture(), baseConfig);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.payload.groupId).toBe('P1');
+  });
+
+  it('existing fields unchanged: sellingPrice=58800, price=69900, brand=Osmo, inStock=true', () => {
+    const result = transformProduct(osmoFixture(), baseConfig);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const p = result.payload;
+    expect(p.sellingPrice).toBe(58800);
+    expect(p.price).toBe(69900);
+    expect(p.brand).toBe('Osmo');
+    expect(p.inStock).toBe(true);
+  });
+
+  it('tags facet attribute is present', () => {
+    const result = transformProduct(osmoFixture(), baseConfig);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const tagsAttr = (result.payload.attributes ?? []).find((a) => a.id === 'tags');
+    expect(tagsAttr).toBeDefined();
+  });
+});
+
+describe('transformProduct — groupId is always set to product id', () => {
+  it('sets groupId on a plain product (no collections)', () => {
+    const result = transformProduct(baseProduct({ id: 'prod-42' }), baseConfig);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.payload.groupId).toBe('prod-42');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Metafield enrichment tests
+// ---------------------------------------------------------------------------
+
+/** Real metafield shape (null value — current store reality). */
+function nullMetafield(key: string) {
+  return { namespace: 'custom', key, name: key, data_type: 'single_line_text_field', value: null };
+}
+
+describe('parseMetafields', () => {
+  it('returns [] for a non-array (list endpoint omits metafields entirely)', () => {
+    expect(parseMetafields(undefined)).toEqual([]);
+    expect(parseMetafields(null)).toEqual([]);
+    expect(parseMetafields('string')).toEqual([]);
+  });
+
+  it('skips entries where value is null, keeps entries with a value', () => {
+    const input = [
+      { namespace: 'custom', key: 'form_factor', name: 'Form Factor', value: null },
+      { namespace: 'custom', key: 'flavour_name', name: 'Flavour', value: 'Mango' },
+    ];
+    const result = parseMetafields(input);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ namespace: 'custom', key: 'flavour_name', value: 'Mango' });
+  });
+
+  it('skips entries with no key', () => {
+    const input = [{ namespace: 'custom', key: '', name: 'No Key', value: 'something' }];
+    expect(parseMetafields(input)).toEqual([]);
+  });
+});
+
+describe('parseRestProduct — createdAt date source', () => {
+  it('prefers published_at, then created_at, then updated_at', () => {
+    const withPublished = parseRestProduct({
+      id: '1',
+      title: 'P',
+      published_at: '2026-01-01T00:00:00.000Z',
+      created_at: '2025-01-01T00:00:00.000Z',
+      updated_at: '2024-01-01T00:00:00.000Z',
+    });
+    expect(withPublished?.createdAt).toBe('2026-01-01T00:00:00.000Z');
+
+    const noPublished = parseRestProduct({
+      id: '2',
+      title: 'P',
+      published_at: null,
+      created_at: '2025-06-29T12:31:17.733Z',
+      updated_at: '2024-01-01T00:00:00.000Z',
+    });
+    expect(noPublished?.createdAt).toBe('2025-06-29T12:31:17.733Z');
+
+    const onlyUpdated = parseRestProduct({
+      id: '3',
+      title: 'P',
+      updated_at: '2024-03-03T00:00:00.000Z',
+    });
+    expect(onlyUpdated?.createdAt).toBe('2024-03-03T00:00:00.000Z');
+  });
+
+  it('is null when no date field is present', () => {
+    const p = parseRestProduct({ id: '4', title: 'P' });
+    expect(p?.createdAt).toBeNull();
+  });
+});
+
+describe('transformProduct — metafield enrichment: all-null metafields', () => {
+  it('produces no metafield attributes and no avgRatings/totalReviews when all values are null', () => {
+    // Current store reality: metafields are all null.
+    const product: RatioProduct = {
+      ...baseProduct(),
+      metafields: [],
+    };
+    const result = transformProduct(product, baseConfig);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const p = result.payload;
+    expect(p.avgRatings).toBeUndefined();
+    expect(p.totalReviews).toBeUndefined();
+    // No metafield-derived attributes (no tags on this product, so attributes should be absent).
+    expect(p.attributes).toBeUndefined();
+  });
+});
+
+describe('transformProduct — metafield enrichment: populated custom/form_factor', () => {
+  it('emits a "Form Factor" attribute with isSearchable+isFilterable true', () => {
+    const product: RatioProduct = {
+      ...baseProduct(),
+      metafields: [
+        { namespace: 'custom', key: 'form_factor', name: 'Form Factor', value: 'Sachets' },
+      ],
+    };
+    const result = transformProduct(product, baseConfig);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const attrs = result.payload.attributes ?? [];
+    const ff = attrs.find((a) => a.name === 'Form Factor');
+    expect(ff).toBeDefined();
+    expect(ff?.id).toBe('form-factor');
+    expect(ff?.type).toBe('string');
+    expect(ff?.isSearchable).toBe(true);
+    expect(ff?.isFilterable).toBe(true);
+    expect(ff?.addInAutocomplete).toBe(false);
+    expect(ff?.values.map((v) => v.value[0])).toContain('Sachets');
+  });
+});
+
+describe('transformProduct — metafield enrichment: reviews/rating and reviews/rating_count', () => {
+  it('sets avgRatings and totalReviews from plain number values', () => {
+    const product: RatioProduct = {
+      ...baseProduct(),
+      metafields: [
+        { namespace: 'reviews', key: 'rating', name: 'Rating', value: 4.6 },
+        { namespace: 'reviews', key: 'rating_count', name: 'Rating Count', value: 120 },
+      ],
+    };
+    const result = transformProduct(product, baseConfig);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.payload.avgRatings).toBe(4.6);
+    expect(result.payload.totalReviews).toBe(120);
+  });
+
+  it('sets avgRatings and totalReviews from object { value } shapes', () => {
+    const product: RatioProduct = {
+      ...baseProduct(),
+      metafields: [
+        { namespace: 'reviews', key: 'rating', name: 'Rating', value: { value: 4.6, scale_min: 0, scale_max: 5 } },
+        { namespace: 'reviews', key: 'rating_count', name: 'Rating Count', value: { value: 120 } },
+      ],
+    };
+    const result = transformProduct(product, baseConfig);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.payload.avgRatings).toBe(4.6);
+    expect(result.payload.totalReviews).toBe(120);
+  });
+
+  it('does not emit rating keys as facet attributes', () => {
+    const product: RatioProduct = {
+      ...baseProduct(),
+      metafields: [
+        { namespace: 'reviews', key: 'rating', name: 'Rating', value: 4.6 },
+      ],
+    };
+    const result = transformProduct(product, baseConfig);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const attrs = result.payload.attributes ?? [];
+    expect(attrs.find((a) => a.name === 'Rating')).toBeUndefined();
+  });
+});
+
+describe('transformProduct — metafield enrichment: reference ID is dropped', () => {
+  it('does NOT emit "Dietary Preferences" when value is a gid reference', () => {
+    const product: RatioProduct = {
+      ...baseProduct(),
+      metafields: [
+        {
+          namespace: 'shopify',
+          key: 'dietary-preferences',
+          name: 'Dietary Preferences',
+          value: 'gid://shopify/Metaobject/123',
+        },
+      ],
+    };
+    const result = transformProduct(product, baseConfig);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const attrs = result.payload.attributes ?? [];
+    expect(attrs.find((a) => a.name === 'Dietary Preferences')).toBeUndefined();
+  });
+});
+
+describe('transformProduct — metafield enrichment: flavour merge deduplication', () => {
+  it('merges custom/flavour_name and shopify/flavor into a single "Flavour" attribute with deduplicated values', () => {
+    const product: RatioProduct = {
+      ...baseProduct(),
+      metafields: [
+        { namespace: 'custom', key: 'flavour_name', name: 'Flavour Name', value: 'Mango' },
+        { namespace: 'shopify', key: 'flavor', name: 'Flavor', value: 'Mango' },
+      ],
+    };
+    const result = transformProduct(product, baseConfig);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const attrs = result.payload.attributes ?? [];
+    const flavour = attrs.filter((a) => a.name === 'Flavour');
+    // Only one "Flavour" attribute.
+    expect(flavour).toHaveLength(1);
+    // Only one "Mango" value (deduped).
+    const mangoValues = flavour[0]?.values.filter((v) => v.value[0] === 'Mango') ?? [];
+    expect(mangoValues).toHaveLength(1);
+  });
+});
+
+describe('transformProduct — metafield enrichment: non-allowlisted key ignored', () => {
+  it('does NOT emit an attribute for custom/faqs', () => {
+    const product: RatioProduct = {
+      ...baseProduct(),
+      metafields: [
+        { namespace: 'custom', key: 'faqs', name: 'FAQs', value: 'What is this?' },
+      ],
+    };
+    const result = transformProduct(product, baseConfig);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const attrs = result.payload.attributes ?? [];
+    expect(attrs.find((a) => a.name === 'FAQs')).toBeUndefined();
+  });
+});
+
+describe('transformProduct — SKIP_COLLECTION edge cases', () => {
+  it('skips a "Bestsellers SearchTap" collection (exact match, case variant)', () => {
+    const result = transformProduct(
+      baseProduct({
+        collections: [
+          { id: 'b1', title: 'Bestsellers SearchTap' },
+          { id: 'b2', title: 'Bestsellers Searchtap' },
+          { id: 'b3', title: 'Real Collection' },
+        ],
+      }),
+      baseConfig,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const names = result.payload.categories.map((c) => c.name);
+    expect(names).not.toContain('Bestsellers SearchTap');
+    expect(names).not.toContain('Bestsellers Searchtap');
+    expect(names).toContain('Real Collection');
+  });
+
+  it('skips any collection starting with "test" (case-insensitive)', () => {
+    const result = transformProduct(
+      baseProduct({
+        collections: [
+          { id: 't1', title: 'TEST internal' },
+          { id: 't2', title: 'Test Beta' },
+          { id: 't3', title: 'Visible' },
+        ],
+      }),
+      baseConfig,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const names = result.payload.categories.map((c) => c.name);
+    expect(names).not.toContain('TEST internal');
+    expect(names).not.toContain('Test Beta');
+    expect(names).toContain('Visible');
+  });
+
+  it('dedupes collections whose titles slugify to the same id as the root category', () => {
+    const result = transformProduct(
+      baseProduct({
+        productType: 'Apparel',
+        collections: [
+          // "Apparel" slugifies to the same id as the root → should be skipped
+          { id: 'dup', title: 'Apparel' },
+          { id: 'ok', title: 'Unique Collection' },
+        ],
+      }),
+      baseConfig,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const ids = result.payload.categories.map((c) => c.id);
+    // Only one 'apparel' entry (the root) + the unique child.
+    expect(ids.filter((id) => id === 'apparel')).toHaveLength(1);
+    expect(ids).toContain('unique-collection');
   });
 });

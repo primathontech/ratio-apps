@@ -1,4 +1,4 @@
-import type { RatioProduct, RatioVariant } from './wizzy-transform';
+import type { RatioMetafield, RatioProduct, RatioVariant } from './wizzy-transform';
 
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 
@@ -46,6 +46,57 @@ const slugify = (s: string): string =>
     .trim()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
+
+/**
+ * Pick the best recency date for a "Newest" sort: prefer `published_at`, then
+ * `created_at`, then `updated_at`. Returns the first non-empty string, or null.
+ */
+const pickDate = (item: Record<string, unknown>): string | null =>
+  str(item.published_at) ?? str(item.created_at) ?? str(item.updated_at);
+
+/**
+ * Parse the `collections` field from a by-id product response.
+ * Each entry is expected to be `{ id: string; title: string }`.
+ * Non-conforming entries are skipped defensively.
+ */
+const parseCollections = (v: unknown): { id: string; title: string }[] => {
+  if (!Array.isArray(v)) return [];
+  const out: { id: string; title: string }[] = [];
+  for (const item of v) {
+    if (!item || typeof item !== 'object') continue;
+    const rec = item as Record<string, unknown>;
+    const id = str(rec.id) ?? str(rec._id) ?? '';
+    const title = str(rec.title) ?? '';
+    if (title) out.push({ id, title });
+  }
+  return out;
+};
+
+/**
+ * Parse the `metafields` array from a by-id product response into a list of
+ * {@link RatioMetafield} entries that have a non-null value. The list endpoint
+ * does not include metafields, so `v` will typically be `undefined` there —
+ * returning `[]` cleanly in that case.
+ */
+export function parseMetafields(v: unknown): RatioMetafield[] {
+  if (!Array.isArray(v)) return [];
+  const out: RatioMetafield[] = [];
+  for (const item of v) {
+    if (!item || typeof item !== 'object') continue;
+    const rec = item as Record<string, unknown>;
+    const key = str(rec.key) ?? '';
+    if (!key) continue; // require a non-empty key
+    const value = rec.value;
+    if (value === null || value === undefined) continue; // skip null/undefined values
+    out.push({
+      namespace: str(rec.namespace) ?? '',
+      key,
+      name: str(rec.name) ?? '',
+      value,
+    });
+  }
+  return out;
+}
 
 /**
  * Parse a WEBHOOK `product` object into the mapper's {@link RatioProduct}.
@@ -128,6 +179,8 @@ export function parseWebhookProduct(product: Record<string, unknown>): RatioProd
     ...tagsField(product.tags),
     images,
     variants,
+    createdAt: pickDate(product),
+    updatedAt: str(product.updated_at),
   };
 }
 
@@ -214,5 +267,9 @@ export function parseRestProduct(item: Record<string, unknown>): RatioProduct | 
     ...tagsField(item.tags),
     images,
     variants,
+    collections: parseCollections(item.collections),
+    metafields: parseMetafields(item.metafields),
+    createdAt: pickDate(item),
+    updatedAt: str(item.updated_at),
   };
 }

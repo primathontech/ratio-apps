@@ -20,6 +20,15 @@
  * DO NOT divide again here.
  */
 
+/** A populated product metafield (value is guaranteed non-null). */
+export interface RatioMetafield {
+  namespace: string;
+  key: string;
+  name: string;
+  /** Raw non-null value (string | number | boolean | array | object), coerced in the transform. */
+  value: unknown;
+}
+
 /** A single Ratio product variant. */
 export interface RatioVariant {
   id: string;
@@ -51,6 +60,25 @@ export interface RatioProduct {
   tags?: string[];
   images?: { src: string }[];
   variants: RatioVariant[];
+  /**
+   * Collections the product belongs to (from the by-id endpoint).
+   * Used to build rich category facets. Absent (default []) when fetched
+   * via the shallow list endpoint.
+   */
+  collections?: { id: string; title: string }[];
+  /**
+   * Product recency timestamp as an ISO 8601 string, used to drive a "Newest"
+   * sort in Wizzy. Sourced from `published_at`, falling back to `created_at`
+   * then `updated_at`. Absent/null when none are present.
+   */
+  createdAt?: string | null;
+  /** Last-modified timestamp (ISO 8601) from `updated_at`. Wizzy sorts on `updatedAt`. */
+  updatedAt?: string | null;
+  /**
+   * Populated product metafields (from the by-id endpoint). Absent via the list endpoint.
+   * Only entries with a non-null value are included (see parseMetafields).
+   */
+  metafields?: RatioMetafield[];
 }
 
 /** Configuration controlling how products map into Wizzy payloads. */
@@ -130,10 +158,14 @@ export interface WizzyChildDataPayload {
 export interface WizzyProductPayload {
   /** Ratio product id used as the stable Wizzy product id. */
   id: string;
+  /** Groups all variants under the same product (= product id). */
+  groupId?: string;
   /** Product title / name. */
   name: string;
   /** Primary image URL (required — products without images are skipped). */
   mainImage: string;
+  /** Secondary image shown on hover in result cards (the product's 2nd image). */
+  hoverImage?: string;
   /** Product categories (required, non-empty). */
   categories: WizzyCategoryPayload[];
   /** Selling / sale price in rupees (required). */
@@ -168,6 +200,14 @@ export interface WizzyProductPayload {
   attributes?: WizzyAttributePayload[];
   /** Per-variation price arrays (only for multi-variant products). */
   childData?: WizzyChildDataPayload;
+  /** Average customer rating (0–5), from the reviews/rating metafield. */
+  avgRatings?: number;
+  /** Total number of ratings, from the reviews/rating_count metafield. */
+  totalReviews?: number;
+  /** ISO 8601 recency timestamp (published/created date) — enables a "Newest" sort. */
+  createdAt?: string;
+  /** ISO 8601 last-modified timestamp — Wizzy sortable field `updatedAt`. */
+  updatedAt?: string;
   /** Surface the product in search results. Omitted → Wizzy treats it as hidden. */
   isSearchable: boolean;
   /** Show the product in the catalog (dashboard "Products" count). Omitted → hidden. */
@@ -285,6 +325,74 @@ function normalizeStoreDomain(raw: string | null | undefined): string | null {
   return cleaned === '' ? null : cleaned;
 }
 
+/**
+ * Normalize a raw date value into an ISO 8601 string, or null when it is
+ * missing/unparseable. Accepts an ISO string or epoch number. Used for the
+ * Wizzy `createdAt` recency field (drives a "Newest" sort).
+ */
+function toIsoDate(raw: string | number | null | undefined): string | null {
+  if (raw === null || raw === undefined || raw === '') return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+/**
+ * Returns true for collection titles that should NOT become Wizzy categories:
+ * - Titles starting with "test" (case-insensitive) — internal test collections.
+ * - "All Products" — a catch-all with no facet value.
+ * - Searchtap bestsellers list (a different search vendor).
+ */
+const SKIP_COLLECTION = (t: string): boolean =>
+  /^test\b/i.test(t.trim()) ||
+  ['all products', 'bestsellers searchtap'].includes(t.trim().toLowerCase());
+
+/**
+ * Build the Wizzy categories array from a product's `product_type` and
+ * `collections[]` (from the by-id endpoint).
+ *
+ * Structure:
+ *   - Root category = product_type (or "Uncategorized"), parentId = '', pathIds = [rootId].
+ *   - Each non-skipped collection becomes a child: parentId = rootId, pathIds = [rootId, childId].
+ *
+ * Collections matching SKIP_COLLECTION are omitted.
+ */
+function buildCategories(product: RatioProduct): WizzyCategoryPayload[] {
+  const productType = product.productType?.trim() || '';
+  const rootName = productType || 'Uncategorized';
+  const rootId = slug(rootName);
+
+  const categories: WizzyCategoryPayload[] = [
+    {
+      id: rootId,
+      name: rootName,
+      parentId: '',
+      pathIds: [rootId],
+      isSearchable: true,
+      includeInMenu: true,
+    },
+  ];
+
+  // Dedupe by slug so two collections with the same normalised name collapse.
+  const seen = new Set<string>([rootId]);
+  for (const col of product.collections ?? []) {
+    const title = col.title?.trim() ?? '';
+    if (!title || SKIP_COLLECTION(title)) continue;
+    const childId = slug(title);
+    if (seen.has(childId)) continue;
+    seen.add(childId);
+    categories.push({
+      id: childId,
+      name: title,
+      parentId: rootId,
+      pathIds: [rootId, childId],
+      isSearchable: true,
+      includeInMenu: true,
+    });
+  }
+
+  return categories;
+}
+
 /** Accumulates distinct swatch (color/size) values across variants. */
 function collectSwatch(
   map: Map<string, WizzySwatchPayload>,
@@ -386,6 +494,151 @@ function buildTagsAttribute(
 }
 
 /**
+ * Curated allowlist of metafield keys (namespace/key) → facet display name.
+ * Only these keys surface as Wizzy search facets; everything else is ignored.
+ */
+const METAFIELD_FACETS: Record<string, string> = {
+  'custom/form_factor': 'Form Factor',
+  'custom/flavour_name': 'Flavour',
+  'shopify/flavor': 'Flavour',
+  'custom/product_weight': 'Serving Size',
+  'custom/net_weight': 'Net Weight',
+  'custom/prodcut_type_veg_nonveg': 'Dietary Type',
+  'shopify/dietary-preferences': 'Dietary Preferences',
+  'shopify/dietary-use': 'Dietary Use',
+  'shopify/creatine-type': 'Creatine Type',
+  'shopify/supplement-health-focus': 'Health Focus',
+  'shopify/ingredient-category': 'Ingredient Category',
+  'shopify/food-supplement-form': 'Supplement Form',
+  'shopify/target-gender': 'Gender',
+  'shopify/age-group': 'Age Group',
+};
+
+/**
+ * Returns true for strings that look like unresolved reference IDs (Shopify
+ * global IDs, metaobject refs, or long bare numeric IDs). These should never
+ * be surfaced as human-facing facet values.
+ */
+function looksLikeReferenceId(s: string): boolean {
+  const t = s.trim();
+  return /^gid:\/\//i.test(t) || /^(mod|mfd|gid)_/i.test(t) || /^\d{10,}$/.test(t);
+}
+
+/**
+ * Coerce a raw metafield value into a deduplicated array of human-readable
+ * strings. Reference IDs and empty strings are dropped automatically.
+ */
+function metafieldToStrings(value: unknown): string[] {
+  const collect = (v: unknown): string[] => {
+    if (typeof v === 'string') return [v.trim()];
+    if (typeof v === 'number' && Number.isFinite(v)) return [String(v)];
+    if (typeof v === 'boolean') return [String(v)];
+    if (Array.isArray(v)) return v.flatMap(collect);
+    if (v !== null && typeof v === 'object') {
+      const obj = v as Record<string, unknown>;
+      if ('value' in obj) return collect(obj.value);
+    }
+    return [];
+  };
+
+  const raw = collect(value);
+  // Trim, drop empties, drop reference IDs, dedupe case-insensitively (keep first-seen).
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const s of raw) {
+    const t = s.trim();
+    if (!t || looksLikeReferenceId(t)) continue;
+    const key = t.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(t);
+  }
+  return out;
+}
+
+/**
+ * Coerce a raw metafield value into a finite number, or null when the value
+ * cannot be meaningfully interpreted as a number.
+ */
+function metafieldToNumber(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'string') {
+    const n = Number(value.trim());
+    return Number.isFinite(n) ? n : null;
+  }
+  if (value !== null && typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    if ('value' in obj) return metafieldToNumber(obj.value);
+  }
+  return null;
+}
+
+/**
+ * Build Wizzy attribute facets from product metafields, plus rating scalar
+ * fields. Only allowlisted keys become attributes; reference IDs are dropped.
+ * Multiple keys that map to the same facet name (e.g. custom/flavour_name and
+ * shopify/flavor both → "Flavour") are merged into a single attribute with
+ * deduplicated values.
+ */
+function buildMetafieldFacets(
+  metafields: RatioMetafield[] | undefined,
+  variationId: string,
+  inStock: boolean,
+): { attributes: WizzyAttributePayload[]; avgRatings?: number; totalReviews?: number } {
+  let avgRatings: number | undefined;
+  let totalReviews: number | undefined;
+  // facet name → (value label → payload entry); preserves insertion order.
+  const facetMap = new Map<string, Map<string, WizzyAttributeValuePayload>>();
+
+  for (const mf of metafields ?? []) {
+    const nsKey = `${mf.namespace}/${mf.key}`;
+
+    // Special-case: rating scalars — never become facet attributes.
+    if (nsKey === 'reviews/rating') {
+      const n = metafieldToNumber(mf.value);
+      if (n !== null && n >= 0) avgRatings = Math.min(5, Math.max(0, n));
+      continue;
+    }
+    if (nsKey === 'reviews/rating_count') {
+      const n = metafieldToNumber(mf.value);
+      if (n !== null && n >= 0) totalReviews = Math.floor(n);
+      continue;
+    }
+
+    const facetName = METAFIELD_FACETS[nsKey];
+    if (!facetName) continue; // not in allowlist — ignore
+
+    const strings = metafieldToStrings(mf.value);
+    if (strings.length === 0) continue;
+
+    let valueMap = facetMap.get(facetName);
+    if (!valueMap) {
+      valueMap = new Map();
+      facetMap.set(facetName, valueMap);
+    }
+    for (const s of strings) {
+      // Dedupe across merged sources (case-insensitive, keep first-seen label).
+      const key = s.toLowerCase();
+      if (!valueMap.has(key)) {
+        valueMap.set(key, { value: [s], variationId, inStock });
+      }
+    }
+  }
+
+  const attributes: WizzyAttributePayload[] = [...facetMap.entries()].map(([name, valueMap]) => ({
+    id: slug(name),
+    name,
+    type: 'string' as const,
+    values: [...valueMap.values()],
+    isSearchable: true,
+    isFilterable: true,
+    addInAutocomplete: false,
+  }));
+
+  return { attributes, ...(avgRatings !== undefined ? { avgRatings } : {}), ...(totalReviews !== undefined ? { totalReviews } : {}) };
+}
+
+/**
  * Transform a Ratio product into one Wizzy catalog payload.
  *
  * Returns ok:true + payload on success, ok:false + issue string when the
@@ -426,20 +679,8 @@ export function transformProduct(
     return { ok: false, issue: 'missing or zero selling price' };
   }
 
-  // Synthesize a single category from productType (required, non-empty).
-  const productType = product.productType?.trim() || '';
-  const catName = productType || 'Uncategorized';
-  const catId = slug(catName);
-  const categories: WizzyCategoryPayload[] = [
-    {
-      id: catId,
-      name: catName,
-      parentId: '',
-      pathIds: [catId],
-      isSearchable: true,
-      includeInMenu: true,
-    },
-  ];
+  // Build rich categories from product_type (root) + collections[] (children).
+  const categories = buildCategories(product);
 
   // Collect SKUs from all active variants (filter nulls).
   const skus = activeVariants
@@ -463,10 +704,17 @@ export function transformProduct(
   const { colors, sizes, attributes } = buildVariantFacets(product.variants);
   // Surface product tags as a filterable "Tags" attribute alongside variant attributes.
   const tagsAttr = buildTagsAttribute(product.tags, rep.id, inStock);
-  const allAttributes = tagsAttr ? [...attributes, tagsAttr] : attributes;
+  // Opportunistic metafield enrichment — only populated from the by-id endpoint.
+  const mf = buildMetafieldFacets(product.metafields, rep.id, inStock);
+  const allAttributes = [
+    ...attributes,
+    ...(tagsAttr ? [tagsAttr] : []),
+    ...mf.attributes,
+  ];
 
   const payload: WizzyProductPayload = {
     id: product.id,
+    groupId: product.id,
     name: product.title,
     // imageSrcs.length > 0 is guaranteed by the early return above.
     // biome-ignore lint/style/noNonNullAssertion: length checked above
@@ -491,7 +739,11 @@ export function transformProduct(
   }
 
   // Additional images (after the first, which is mainImage).
-  if (imageSrcs.length > 1) payload.images = imageSrcs.slice(1);
+  if (imageSrcs.length > 1) {
+    // biome-ignore lint/style/noNonNullAssertion: length checked above
+    payload.hoverImage = imageSrcs[1]!;
+    payload.images = imageSrcs.slice(1);
+  }
 
   if (product.vendor) payload.brand = product.vendor;
   if (skus.length > 0) payload.sku = skus;
@@ -499,6 +751,14 @@ export function transformProduct(
   if (colors.length > 0) payload.colors = colors;
   if (sizes.length > 0) payload.sizes = sizes;
   if (allAttributes.length > 0) payload.attributes = allAttributes;
+  if (mf.avgRatings !== undefined) payload.avgRatings = mf.avgRatings;
+  if (mf.totalReviews !== undefined) payload.totalReviews = mf.totalReviews;
+
+  // Recency timestamps (ISO 8601) for "Newest"/recently-updated sorts — only when valid.
+  const createdAt = toIsoDate(product.createdAt);
+  if (createdAt) payload.createdAt = createdAt;
+  const updatedAt = toIsoDate(product.updatedAt);
+  if (updatedAt) payload.updatedAt = updatedAt;
 
   // Absolute product URL — needs a configured storefront domain.
   const storeDomain = normalizeStoreDomain(config.storeDomain);

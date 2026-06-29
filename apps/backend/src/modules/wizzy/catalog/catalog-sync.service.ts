@@ -12,6 +12,7 @@ import { transformProduct, type WizzyTransformConfig } from './wizzy-transform';
 /** Seam over "read this merchant's full Ratio product catalog". */
 export interface RatioProductsPort {
   listAll(merchantId: string): Promise<RatioProduct[]>;
+  getById(merchantId: string, productId: string): Promise<RatioProduct>;
 }
 
 type SyncType = 'webhook' | 'auto' | 'reconcile' | 'initial' | 'manual';
@@ -183,69 +184,101 @@ export class CatalogSyncService {
     syncType: SyncType,
     ctx: NonNullable<Awaited<ReturnType<CatalogSyncService['context']>>>,
   ): Promise<{ updated: number; errored: number }> {
-    const catalog = await this.products.listAll(merchantId);
+    const shallowCatalog = await this.products.listAll(merchantId);
 
-    // One outcome per product (status + issue), derived from BOTH the transform
-    // and the actual save result — so the run's synced/errored totals match the
-    // per-item statuses written to wizzy_catalog_items (no more "items show ERROR
-    // but sync history shows errored 0").
-    type Outcome = {
-      product: (typeof catalog)[number];
-      status: 'SYNCED' | 'ERROR' | 'DELETED';
-      issue: string | null;
-    };
-    const outcomes: Outcome[] = [];
-    const syncable: { product: (typeof catalog)[number]; payload: WizzyProductPayload }[] = [];
+    // Mark every product PENDING up-front — we already have all ids from listAll,
+    // so the catalog UI shows in-progress status while the (slower) by-id
+    // enrichment + Wizzy save run. Each product is flipped to its terminal status
+    // (SYNCED/ERROR/DELETED) chunk-by-chunk, so the PENDING count ticks down live.
+    await this.markAllPending(merchantId, shallowCatalog);
 
-    // Transform once. Failures are terminal outcomes (missing image → ERROR,
-    // any other filter reason → DELETED/excluded). The rest are saveable.
-    for (const product of catalog) {
-      const result = transformProduct(product, ctx.transformConfig);
-      if (result.ok) {
-        syncable.push({ product, payload: result.payload });
-      } else {
-        outcomes.push({
-          product,
-          status: result.issue === 'missing image' ? 'ERROR' : 'DELETED',
-          issue: result.issue,
-        });
-      }
-    }
+    // Concurrency for by-id enrichment: env-configurable, default 10.
+    const CONCURRENCY = Number(process.env.WIZZY_SYNC_CONCURRENCY) || 10;
 
-    // Save in batches of 100; a batch failure marks ITS products ERROR (they did
-    // not reach Wizzy), not SYNCED.
-    const BATCH_SIZE = 100;
-    for (let i = 0; i < syncable.length; i += BATCH_SIZE) {
-      const batch = syncable.slice(i, i + BATCH_SIZE);
-      try {
-        await this.wizzy.saveProducts(
-          ctx.storeId,
-          ctx.storeSecret,
-          ctx.apiKey,
-          batch.map((b) => b.payload),
-        );
-        for (const b of batch) outcomes.push({ product: b.product, status: 'SYNCED', issue: null });
-      } catch (err) {
-        this.logger.error({ msg: 'wizzy batch save failed', merchantId, err: `${err}` });
-        const issue = err instanceof WizzyApiError ? err.message : `${err}`;
-        for (const b of batch) outcomes.push({ product: b.product, status: 'ERROR', issue });
-      }
-    }
-
-    // Persist each product's status and tally the run from the SAME outcomes.
     let synced = 0;
     let errored = 0;
-    for (const o of outcomes) {
-      if (o.status === 'SYNCED') synced += 1;
-      else if (o.status === 'ERROR') errored += 1;
-      await this.writeCatalogItem(
-        merchantId,
-        o.product.id,
-        o.product.id,
-        o.product.title,
-        o.status,
-        o.issue,
+
+    // Process shallowCatalog in chunks of CONCURRENCY. Each chunk is fully
+    // enriched, transformed, saved, and written to DB before the next chunk
+    // starts — so PENDING count decreases visibly as products complete.
+    for (let i = 0; i < shallowCatalog.length; i += CONCURRENCY) {
+      const chunk = shallowCatalog.slice(i, i + CONCURRENCY);
+
+      // (a) Enrich in parallel; fall back to shallow item on getById failure.
+      const enriched: RatioProduct[] = await Promise.all(
+        chunk.map((p) =>
+          this.products.getById(merchantId, p.id).catch((err: unknown) => {
+            this.logger.warn({
+              msg: 'wizzy getById failed — shallow fallback',
+              merchantId,
+              productId: p.id,
+              err: `${err}`,
+            });
+            return p;
+          }),
+        ),
       );
+
+      // (b) Transform: partition into saveable and failures.
+      const saveable: { product: RatioProduct; payload: WizzyProductPayload }[] = [];
+      const failures: { product: RatioProduct; status: 'ERROR' | 'DELETED'; issue: string }[] = [];
+
+      for (const product of enriched) {
+        const result = transformProduct(product, ctx.transformConfig);
+        if (result.ok) {
+          saveable.push({ product, payload: result.payload });
+        } else {
+          failures.push({
+            product,
+            status: result.issue === 'missing image' ? 'ERROR' : 'DELETED',
+            issue: result.issue,
+          });
+        }
+      }
+
+      // (c) Save the chunk's saveable products; on error mark them ERROR (no re-throw).
+      let saveError: string | null = null;
+      if (saveable.length > 0) {
+        try {
+          await this.wizzy.saveProducts(
+            ctx.storeId,
+            ctx.storeSecret,
+            ctx.apiKey,
+            saveable.map((s) => s.payload),
+          );
+        } catch (err) {
+          this.logger.error({ msg: 'wizzy chunk save failed', merchantId, err: `${err}` });
+          saveError = err instanceof WizzyApiError ? err.message : `${err}`;
+        }
+      }
+
+      // (d) Write terminal status for THIS chunk — makes PENDING tick down live.
+      for (const f of failures) {
+        if (f.status === 'ERROR') errored += 1;
+        // DELETED counts as neither synced nor errored (matching prior logic).
+        await this.writeCatalogItem(
+          merchantId,
+          f.product.id,
+          f.product.id,
+          f.product.title,
+          f.status,
+          f.issue,
+        );
+      }
+      for (const s of saveable) {
+        const status = saveError === null ? 'SYNCED' : 'ERROR';
+        const issue = saveError;
+        if (status === 'SYNCED') synced += 1;
+        else errored += 1;
+        await this.writeCatalogItem(
+          merchantId,
+          s.product.id,
+          s.product.id,
+          s.product.title,
+          status,
+          issue,
+        );
+      }
     }
 
     // Update last_bulk_sync_at
@@ -258,12 +291,12 @@ export class CatalogSyncService {
       .where('merchantId', '=', merchantId)
       .execute();
 
-    await this.writeSyncLog(merchantId, syncType, catalog.length, synced, errored);
+    await this.writeSyncLog(merchantId, syncType, shallowCatalog.length, synced, errored);
     this.logger.log({
       msg: 'fullSync complete',
       merchantId,
       syncType,
-      products: catalog.length,
+      products: shallowCatalog.length,
       synced,
       errored,
     });
@@ -332,6 +365,37 @@ export class CatalogSyncService {
         storeDomain: config.storeUrl ?? null,
       },
     };
+  }
+
+  /**
+   * Bulk-mark all products PENDING in one upsert (called right after listAll, so
+   * the catalog UI reflects an in-progress sync). Existing rows flip to PENDING;
+   * the per-product terminal status is written later in the same run.
+   */
+  private async markAllPending(
+    merchantId: string,
+    products: { id: string; title?: string }[],
+  ): Promise<void> {
+    if (products.length === 0) return;
+    await this.handle.db
+      .insertInto('wizzy_catalog_items')
+      .values(
+        products.map((p) => ({
+          merchantId,
+          productId: p.id,
+          wizzyId: p.id,
+          title: (p.title ?? '').slice(0, 255) || null,
+          status: 'PENDING',
+          issue: null,
+          lastSyncedAt: null,
+        })) as never,
+      )
+      .onDuplicateKeyUpdate({
+        status: 'PENDING',
+        issue: null,
+        updatedAt: sql`CURRENT_TIMESTAMP(3)`,
+      } as never)
+      .execute();
   }
 
   private async writeCatalogItem(

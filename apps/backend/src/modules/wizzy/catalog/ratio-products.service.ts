@@ -7,6 +7,9 @@ import type { RatioProductsPort } from './catalog-sync.service';
 import { parseRestProduct } from './parse-ratio-product';
 import type { RatioProduct } from './wizzy-transform';
 
+// Schema for a single product object returned by the by-id endpoint.
+const singleProductSchema = z.unknown();
+
 type Rec = Record<string, unknown>;
 
 // Tolerant envelope: the list endpoint's wrapper varies by environment.
@@ -124,6 +127,36 @@ export class RatioProductsService implements RatioProductsPort {
     const out = [...byId.values()];
     this.logger.log({ msg: 'ratio products fetched', merchantId, products: out.length, total });
     return out;
+  }
+
+  /**
+   * Fetch a single product by id from `GET /api/v1/v1/products/:id?show_variants=true`.
+   *
+   * The by-id response includes rich data missing from the list endpoint:
+   * `collections[]`, more complete `product_type`, `tags`, etc.
+   * Parsed via the same `parseRestProduct` path as listAll.
+   * Throws when the product cannot be parsed (missing id/title).
+   */
+  async getById(merchantId: string, productId: string): Promise<RatioProduct> {
+    const accessToken = await this.tokens.getAccessToken(merchantId);
+    const raw = await this.ratio.request(
+      `/api/v1/v1/products/${productId}?show_variants=true`,
+      singleProductSchema,
+      { accessToken },
+    );
+    // The by-id response may be the product object directly, or wrapped in { data: … }.
+    let item: unknown = raw;
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      const o = raw as Rec;
+      if (o.data && typeof o.data === 'object' && !Array.isArray(o.data)) {
+        item = o.data;
+      }
+    }
+    const mapped = parseRestProduct(item as Rec);
+    if (!mapped) {
+      throw new Error(`ratio getById: could not parse product ${productId}`);
+    }
+    return mapped;
   }
 
   private request(query: string, accessToken: string): Promise<unknown> {
