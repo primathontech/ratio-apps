@@ -70,15 +70,6 @@ describe('StorefrontPage', () => {
     expect(block.textContent).toContain('merchant-123');
   });
 
-  it('pre-fills storefront selector/path/theme inputs from config', async () => {
-    routeApi(makeConfig());
-    renderWithProviders(<StorefrontPage />);
-    await waitFor(() => expect(screen.getByDisplayValue('#search')).toBeInTheDocument());
-    expect(screen.getByDisplayValue('#wizzy-results')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('/search')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('#0fb3a9')).toBeInTheDocument();
-  });
-
   it('renders an enable control bound to searchEnabled', async () => {
     routeApi(makeConfig({ searchEnabled: true }));
     renderWithProviders(<StorefrontPage />);
@@ -86,10 +77,11 @@ describe('StorefrontPage', () => {
     await waitFor(() => expect(checkbox.checked).toBe(true));
   });
 
-  it('saves the storefront fields via the PUT api', async () => {
-    routeApi(makeConfig());
+  it('saves the storefront search toggle via the PUT api', async () => {
+    routeApi(makeConfig({ searchEnabled: true }));
     renderWithProviders(<StorefrontPage />);
-    await screen.findByDisplayValue('#search');
+    const checkbox = (await screen.findByRole('checkbox')) as HTMLInputElement;
+    await waitFor(() => expect(checkbox.checked).toBe(true));
     fireEvent.click(screen.getByRole('button', { name: /Save/ }));
 
     await waitFor(() => {
@@ -98,11 +90,8 @@ describe('StorefrontPage', () => {
       );
       expect(putCall).toBeDefined();
       const body = putCall?.[2] as Record<string, unknown>;
-      expect(body.inputSelector).toBe('#search');
-      expect(body.resultsMountSelector).toBe('#wizzy-results');
-      expect(body.resultsPagePath).toBe('/search');
-      expect(body.themePrimary).toBe('#0fb3a9');
       expect('searchEnabled' in body).toBe(true);
+      expect(body.searchEnabled).toBe(true);
     });
   });
 });

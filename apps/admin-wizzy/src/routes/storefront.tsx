@@ -4,7 +4,6 @@ import {
   Button,
   Card,
   Checkbox,
-  Input,
   PrimaryButton,
   Space,
   Typography,
@@ -42,10 +41,10 @@ const resolver: typeof baseResolver = (values, context, options) => {
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
 
-// This storefront loads Wizzy via the `search-wizzy` integration module
-// (wired in `src/app/layout.tsx` as `<WizzySearchScript/>`), which reads these
-// public env vars and injects the loader. Match the storefront's convention:
-// configure by env, not a hand-pasted <script>.
+// The storefront powers its native search/autocomplete/filters from this Wizzy
+// store once these public env vars are set and "Enable storefront search" is on.
+// No script tag or page selectors — the storefront's existing search UI calls
+// Wizzy directly when enabled.
 function buildEnvBlock(merchantId: string): string {
   const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
   return [
@@ -131,12 +130,6 @@ export function StorefrontPage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const storeUrl = data?.storeUrl;
-  const resultsPath = form.watch('resultsPagePath') ?? '/search';
-  const previewHref = storeUrl
-    ? `${/^https?:\/\//.test(storeUrl) ? storeUrl : `https://${storeUrl}`}${resultsPath}`
-    : undefined;
-
   return (
     <FormProvider {...form}>
       <form onSubmit={onSubmit}>
@@ -144,12 +137,10 @@ export function StorefrontPage() {
           <Card title="Storefront Search">
             <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
               <Typography.Paragraph>
-                This storefront loads Wizzy through the <Typography.Text code>search-wizzy</Typography.Text>{' '}
-                integration module — already wired in{' '}
-                <Typography.Text code>src/app/layout.tsx</Typography.Text> as{' '}
-                <Typography.Text code>&lt;WizzySearchScript/&gt;</Typography.Text>. Configure it by
-                environment variables (matching the storefront's integration convention), then point
-                it at the page elements below.
+                Your storefront's existing search, autocomplete and filters are powered by this
+                Wizzy store — no script tag or page setup. Set the environment variables below and
+                turn on <Typography.Text strong>Enable storefront search</Typography.Text>; when it's
+                off, the storefront falls back to its native search.
               </Typography.Paragraph>
 
               <div>
@@ -157,8 +148,8 @@ export function StorefrontPage() {
                   Storefront environment variables
                 </Typography.Text>
                 <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
-                  Set these in your storefront (e.g. <Typography.Text code>.env.local</Typography.Text>),
-                  then restart the dev server / redeploy so the values take effect.
+                  Set these in your storefront's <Typography.Text code>.env</Typography.Text>, then
+                  redeploy so the values take effect.
                 </Typography.Paragraph>
                 <pre
                   style={{
@@ -195,89 +186,10 @@ export function StorefrontPage() {
                 )}
               />
 
-              <FieldRow
-                label="Search input selector"
-                error={form.formState.errors.inputSelector?.message}
-                hint="CSS selector of your storefront search input."
-              >
-                <Controller
-                  control={form.control}
-                  name="inputSelector"
-                  render={({ field, fieldState }) => (
-                    <Input
-                      {...field}
-                      value={field.value ?? ''}
-                      placeholder="#search"
-                      {...(fieldState.invalid ? { status: 'error' as const } : {})}
-                    />
-                  )}
-                />
-              </FieldRow>
-
-              <FieldRow
-                label="Results mount selector"
-                error={form.formState.errors.resultsMountSelector?.message}
-                hint="CSS selector of the element where results render."
-              >
-                <Controller
-                  control={form.control}
-                  name="resultsMountSelector"
-                  render={({ field, fieldState }) => (
-                    <Input
-                      {...field}
-                      value={field.value ?? ''}
-                      placeholder="#wizzy-results"
-                      {...(fieldState.invalid ? { status: 'error' as const } : {})}
-                    />
-                  )}
-                />
-              </FieldRow>
-
-              <FieldRow
-                label="Results page path"
-                error={form.formState.errors.resultsPagePath?.message}
-                hint="Path of the dedicated search-results page."
-              >
-                <Controller
-                  control={form.control}
-                  name="resultsPagePath"
-                  render={({ field, fieldState }) => (
-                    <Input
-                      {...field}
-                      value={field.value ?? ''}
-                      placeholder="/search"
-                      {...(fieldState.invalid ? { status: 'error' as const } : {})}
-                    />
-                  )}
-                />
-              </FieldRow>
-
-              <FieldRow
-                label="Theme color"
-                error={form.formState.errors.themePrimary?.message}
-                hint="Primary accent color for the search widget."
-              >
-                <Controller
-                  control={form.control}
-                  name="themePrimary"
-                  render={({ field, fieldState }) => (
-                    <Input
-                      {...field}
-                      value={field.value ?? ''}
-                      placeholder="#0fb3a9"
-                      {...(fieldState.invalid ? { status: 'error' as const } : {})}
-                    />
-                  )}
-                />
-              </FieldRow>
-
-              {previewHref && (
-                <Typography.Paragraph>
-                  <a href={previewHref} target="_blank" rel="noreferrer">
-                    Preview results page ↗
-                  </a>
-                </Typography.Paragraph>
-              )}
+              <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: 0 }}>
+                When enabled, search, autocomplete and faceted filters are served by this Wizzy
+                store. When disabled, the storefront uses its native search.
+              </Typography.Paragraph>
             </Space>
           </Card>
 
@@ -297,36 +209,5 @@ export function StorefrontPage() {
         </Space>
       </form>
     </FormProvider>
-  );
-}
-
-function FieldRow({
-  label,
-  hint,
-  error,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  error?: string | undefined;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <Typography.Text strong style={{ display: 'block', marginBottom: 4 }}>
-        {label}
-      </Typography.Text>
-      {children}
-      {error && (
-        <Typography.Text type="danger" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
-          {error}
-        </Typography.Text>
-      )}
-      {hint && !error && (
-        <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
-          {hint}
-        </Typography.Text>
-      )}
-    </div>
   );
 }
