@@ -1,8 +1,34 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { Controller, Get, NotFoundException, Param, Res } from '@nestjs/common';
+import { Body, Controller, Get, NotFoundException, Param, Post, Res } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
+import { WizzyApiClient } from '../catalog/wizzy-api.client';
 import { StorefrontConfigService } from './storefront-config.service';
+
+/** Whitelist the inbound event body — never forward an arbitrary client payload
+ * to Wizzy under the merchant's credentials. */
+function sanitizeEventBody(raw: unknown): Record<string, unknown> {
+  const p = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const items = Array.isArray(p.items)
+    ? p.items.slice(0, 200).map((it) => {
+        const i = (it && typeof it === 'object' ? it : {}) as Record<string, unknown>;
+        return {
+          itemId: String(i.itemId ?? ''),
+          position: Number(i.position) || 0,
+          qty: Number(i.qty) || 1,
+        };
+      })
+    : [];
+  const out: Record<string, unknown> = {
+    name: typeof p.name === 'string' ? p.name : '',
+    searchResponseId: typeof p.searchResponseId === 'string' ? p.searchResponseId : '',
+    items,
+  };
+  if (typeof p.source === 'string') out.source = p.source;
+  if (typeof p.id === 'string') out.id = p.id;
+  if (typeof p.value === 'number' && Number.isFinite(p.value)) out.value = p.value;
+  return out;
+}
 
 /** The three built SDK bundles served from `packages/wizzy-sdk/dist`. */
 type SdkBundle = 'wizzy-loader.js' | 'wizzy-widget.js' | 'wizzy-results.js';
@@ -24,7 +50,44 @@ export class StorefrontController {
   /** First-read cache of bundle contents, keyed by file name. */
   private readonly bundleCache = new Map<string, string>();
 
-  constructor(private readonly cfg: StorefrontConfigService) {}
+  constructor(
+    private readonly cfg: StorefrontConfigService,
+    private readonly wizzy: WizzyApiClient,
+  ) {}
+
+  /**
+   * Server-to-server analytics events. The storefront BFF forwards click /
+   * converted events here (it only holds public creds); this endpoint resolves
+   * the merchant's decrypted store secret and sends to Wizzy with the required
+   * 3-header auth. Always 200 + no-op when not configured / search disabled /
+   * bad kind, and fire-and-forget — analytics never breaks the caller.
+   */
+  @Post('events/:merchantId')
+  async events(
+    @Param('merchantId') merchantId: string,
+    @Body() body: { kind?: string; payload?: unknown },
+    @Res() reply: FastifyReply,
+  ): Promise<void> {
+    reply.header('access-control-allow-origin', '*').header('cache-control', 'no-store');
+    try {
+      const kind = body?.kind;
+      const creds = await this.cfg.resolveEventCreds(merchantId);
+      if (!creds || (kind !== 'click' && kind !== 'converted')) {
+        reply.send({ ok: false });
+        return;
+      }
+      void this.wizzy.sendEvent(
+        creds.storeId,
+        creds.storeSecret,
+        creds.apiKey,
+        kind,
+        sanitizeEventBody(body?.payload),
+      );
+      reply.send({ ok: true });
+    } catch {
+      reply.send({ ok: false });
+    }
+  }
 
   @Get('wizzy-loader.js')
   loader(@Res() reply: FastifyReply): void {

@@ -6,6 +6,10 @@ import type { WizzyConfigRow, WizzyDatabase } from '../../../../src/modules/wizz
 
 const MERCHANT_ID = 'merchant-1';
 
+/** Stub StorefrontConfigService — upsert calls `.invalidate()` to bust the cache. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const fakeStorefrontConfig: any = { invalidate: async () => {} };
+
 /** A row as it would come back from the DB after an upsert. */
 function makeRow(overrides: Partial<WizzyConfigRow> = {}): WizzyConfigRow {
   return {
@@ -85,7 +89,7 @@ describe('WizzyConfigService — storefront fields', () => {
 
   it('persists the storefront fields on upsert', async () => {
     const { handle, captured } = makeHandle(makeRow(), { merchantId: MERCHANT_ID });
-    const service = new WizzyConfigService(handle, crypto);
+    const service = new WizzyConfigService(handle, crypto, fakeStorefrontConfig);
 
     await service.upsert(MERCHANT_ID, {
       wizzyEnabled: true,
@@ -109,7 +113,7 @@ describe('WizzyConfigService — storefront fields', () => {
 
   it('returns the storefront fields from getByMerchantId / toOutput', async () => {
     const { handle } = makeHandle(makeRow(), { merchantId: MERCHANT_ID });
-    const service = new WizzyConfigService(handle, crypto);
+    const service = new WizzyConfigService(handle, crypto, fakeStorefrontConfig);
 
     const out = await service.getByMerchantId(MERCHANT_ID);
     expect(out.searchEnabled).toBe(true);
@@ -124,7 +128,7 @@ describe('WizzyConfigService — storefront fields', () => {
     const { handle } = makeHandle(makeRow({ searchEnabled: 0 as unknown as boolean }), {
       merchantId: MERCHANT_ID,
     });
-    const service = new WizzyConfigService(handle, crypto);
+    const service = new WizzyConfigService(handle, crypto, fakeStorefrontConfig);
 
     const out = await service.getByMerchantId(MERCHANT_ID);
     expect(out.searchEnabled).toBe(false);
@@ -132,7 +136,7 @@ describe('WizzyConfigService — storefront fields', () => {
 
   it('never returns the raw store secret or api key', async () => {
     const { handle } = makeHandle(makeRow(), { merchantId: MERCHANT_ID });
-    const service = new WizzyConfigService(handle, crypto);
+    const service = new WizzyConfigService(handle, crypto, fakeStorefrontConfig);
 
     const out = await service.getByMerchantId(MERCHANT_ID);
     expect(out).not.toHaveProperty('storeSecretEnc');

@@ -5,6 +5,7 @@ import type { CryptoService } from '../../../core/crypto/crypto.service';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
 import type { WizzyConfigRow, WizzyDatabase } from '../db/types';
 import { WIZZY_DB_TOKEN } from '../kysely.module';
+import { StorefrontConfigService } from '../storefront/storefront-config.service';
 import { WIZZY_CRYPTO } from '../tokens';
 
 /**
@@ -20,6 +21,7 @@ export class WizzyConfigService {
   constructor(
     @Inject(WIZZY_DB_TOKEN) private readonly handle: KyselyClient<WizzyDatabase>,
     @Inject(WIZZY_CRYPTO) private readonly crypto: CryptoService,
+    private readonly storefrontConfig: StorefrontConfigService,
   ) {}
 
   /** Read the merchant's config in the redacted output shape. */
@@ -107,6 +109,10 @@ export class WizzyConfigService {
         updatedAt: sql`CURRENT_TIMESTAMP(3)`,
       } as never)
       .execute();
+
+    // Bust the Redis-cached config row so cred/searchEnabled changes take
+    // effect immediately (the events path reads through this cache).
+    await this.storefrontConfig.invalidate(merchantId);
 
     return this.getByMerchantId(merchantId);
   }

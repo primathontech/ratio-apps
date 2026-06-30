@@ -56,6 +56,16 @@ function makeCrypto(): CryptoService {
   } as unknown as CryptoService;
 }
 
+/** Fake Redis cache: always a miss (falls through to DB), writes are no-ops. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function makeRedis(): any {
+  return {
+    getJson: async () => null,
+    setJson: async () => {},
+    del: async () => {},
+  };
+}
+
 describe('StorefrontConfigService', () => {
   let crypto: CryptoService;
 
@@ -64,7 +74,7 @@ describe('StorefrontConfigService', () => {
   });
 
   it('returns a redacted public config with the decrypted apiKey', async () => {
-    const service = new StorefrontConfigService(makeHandle(makeRow()), crypto);
+    const service = new StorefrontConfigService(makeHandle(makeRow()), crypto, makeRedis());
 
     const result = await service.publicConfig(MERCHANT_ID);
 
@@ -93,6 +103,7 @@ describe('StorefrontConfigService', () => {
     const service = new StorefrontConfigService(
       makeHandle(makeRow({ searchEnabled: 0 as unknown as boolean })),
       crypto,
+      makeRedis(),
     );
 
     const result = await service.publicConfig(MERCHANT_ID);
@@ -103,7 +114,7 @@ describe('StorefrontConfigService', () => {
   });
 
   it('returns a safe disabled config when the row is missing', async () => {
-    const service = new StorefrontConfigService(makeHandle(undefined), crypto);
+    const service = new StorefrontConfigService(makeHandle(undefined), crypto, makeRedis());
 
     const result = await service.publicConfig(MERCHANT_ID);
 
@@ -117,6 +128,7 @@ describe('StorefrontConfigService', () => {
     const service = new StorefrontConfigService(
       makeHandle(makeRow({ storeId: null, apiKeyEnc: null })),
       crypto,
+      makeRedis(),
     );
 
     const result = await service.publicConfig(MERCHANT_ID);

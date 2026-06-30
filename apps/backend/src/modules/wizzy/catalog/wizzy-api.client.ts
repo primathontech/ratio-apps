@@ -129,6 +129,27 @@ export class WizzyApiClient {
   }
 
   /**
+   * Send a storefront analytics event. POST {baseUrl}/events/{kind}.
+   * Wizzy's events API requires the SAME 3-header auth as catalog writes
+   * (storeId + storeSecret + apiKey) — public auth is rejected with 403.
+   * Fire-and-forget: failures are logged, never thrown, so analytics can never
+   * break the caller.
+   */
+  async sendEvent(
+    storeId: string,
+    storeSecret: string,
+    apiKey: string,
+    kind: 'click' | 'view' | 'converted',
+    body: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      await this.request(storeId, storeSecret, apiKey, 'POST', `/events/${kind}`, body);
+    } catch (err) {
+      this.logger.warn({ msg: 'wizzy event failed', kind, err: `${err}` });
+    }
+  }
+
+  /**
    * Test-connection: call save with an empty array to validate auth without
    * mutating data. Returns { ok: true } on 2xx, { ok: false, error } otherwise.
    */

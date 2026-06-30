@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import type { Env } from '../../config/env.schema';
+import { RedisService } from '../../core/cache/redis.service';
 import { createAppProviders } from '../../core/factories/app-module.factory';
 import { QueueService } from '../../core/queue/queue.service';
 import { CatalogController } from './catalog/catalog.controller';
@@ -70,6 +71,7 @@ export {
   providers: [
     WizzyConfigService,
     StorefrontConfigService,
+    RedisService,
     WizzyBootstrap,
     // OAuth / token
     RatioTokenProvider,
