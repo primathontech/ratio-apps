@@ -15,8 +15,10 @@ export class CatalogController {
   ) {}
 
   @Get('summary')
-  summary(@CurrentMerchant() merchant: Merchant) {
-    return this.query.summary(merchant.id);
+  async summary(@CurrentMerchant() merchant: Merchant) {
+    const summary = await this.query.summary(merchant.id);
+    // `syncing` lets the admin keep the Force Sync button disabled + poll until done.
+    return { ...summary, syncing: this.sync.isSyncing(merchant.id) };
   }
 
   @Get('items')
@@ -43,8 +45,14 @@ export class CatalogController {
 
   @Post('sync')
   @HttpCode(201)
-  async forceSync(@CurrentMerchant() merchant: Merchant): Promise<{ started: true }> {
-    // Fire-and-forget: a full catalog sync can take a while.
+  async forceSync(@CurrentMerchant() merchant: Merchant): Promise<{ started: boolean }> {
+    // Reject a duplicate trigger while a sync is already running for this merchant.
+    // (The service guard is the real lock; this gives the button immediate feedback.)
+    if (this.sync.isSyncing(merchant.id)) {
+      return { started: false };
+    }
+    // Fire-and-forget: a full catalog sync can take a while. The in-memory lock is
+    // claimed synchronously inside fullSync, so a rapid second click sees started:false.
     void this.sync.forceSync(merchant.id).catch(() => undefined);
     return { started: true };
   }

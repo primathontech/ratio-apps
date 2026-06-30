@@ -12,11 +12,14 @@ import {
 } from '@primathonos/orion';
 import type { WizzyCatalogStatus } from '@shared/schemas/wizzy-config';
 import { createFileRoute } from '@tanstack/react-router';
-import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useEffect, useRef, useState } from 'react';
+import { queryKeys } from '@/lib/queryKeys';
 import {
   type CatalogItem,
   useCatalogHistory,
   useCatalogItems,
+  useCatalogSummary,
   useForceSync,
 } from '@/hooks/useCatalog';
 
@@ -44,7 +47,27 @@ export function CatalogPage() {
   // queryKey includes limit — CORRECT: changing pageSize triggers a new fetch
   const items = useCatalogItems(status, page, pageSize);
   const history = useCatalogHistory();
+  const summary = useCatalogSummary();
   const forceSync = useForceSync();
+  const qc = useQueryClient();
+
+  // A sync is in flight if the POST is pending OR the backend reports `syncing`.
+  // The button stays disabled the whole time, so repeated clicks can't start a
+  // second run; it re-enables the moment the sync finishes OR errors (the
+  // backend clears the lock in either case).
+  const syncing = forceSync.isPending || !!summary.data?.syncing;
+
+  // When a running sync finishes (syncing: true → false), refresh the table +
+  // history so the new statuses/counts show without a manual reload.
+  const wasSyncing = useRef(false);
+  useEffect(() => {
+    const now = !!summary.data?.syncing;
+    if (wasSyncing.current && !now) {
+      qc.invalidateQueries({ queryKey: queryKeys.catalogItems(status, page, pageSize) });
+      qc.invalidateQueries({ queryKey: queryKeys.catalogHistory() });
+    }
+    wasSyncing.current = now;
+  }, [summary.data?.syncing, qc, status, page, pageSize]);
 
   const columns = [
     {
@@ -99,8 +122,12 @@ export function CatalogPage() {
             Per-product Wizzy sync status and history.
           </Typography.Text>
         </div>
-        <PrimaryButton loading={forceSync.isPending} onClick={() => forceSync.mutate()}>
-          Force Sync Now
+        <PrimaryButton
+          loading={syncing}
+          disabled={syncing}
+          onClick={() => forceSync.mutate()}
+        >
+          {syncing ? 'Syncing…' : 'Force Sync Now'}
         </PrimaryButton>
       </div>
 

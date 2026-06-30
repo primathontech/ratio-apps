@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { sql } from 'kysely';
+import { RedisService } from '../../../core/cache/redis.service';
 import type { CryptoService } from '../../../core/crypto/crypto.service';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
 import type { WizzyDatabase } from '../db/types';
@@ -16,6 +17,11 @@ export interface RatioProductsPort {
 }
 
 type SyncType = 'webhook' | 'auto' | 'reconcile' | 'initial' | 'manual';
+
+/** Cross-instance full-sync lock TTL — a safety net so a crashed sync can't
+ * hold the lock forever. Generous: a full catalog sync (by-id enrichment) is slow. */
+const SYNC_LOCK_TTL_S = 1800;
+const syncLockKey = (merchantId: string) => `wizzy:sync:lock:${merchantId}`;
 
 /**
  * Whether a Wizzy push failure is worth retrying.
@@ -49,11 +55,20 @@ function isTransientWizzyError(err: unknown): boolean {
 export class CatalogSyncService {
   private readonly logger = new Logger(CatalogSyncService.name);
 
+  /**
+   * Merchants with a full sync running on THIS instance — an in-memory guard so
+   * repeated Force Sync clicks can't kick off overlapping syncs. Claimed
+   * synchronously (no await between check + add) so it's race-free per instance.
+   * Redis ({@link SYNC_LOCK_TTL_S}) extends the guard across instances.
+   */
+  private readonly inProgress = new Set<string>();
+
   constructor(
     @Inject(WIZZY_DB_TOKEN) private readonly handle: KyselyClient<WizzyDatabase>,
     private readonly wizzy: WizzyApiClient,
     @Inject(WIZZY_RATIO_PRODUCTS) private readonly products: RatioProductsPort,
     @Inject(WIZZY_CRYPTO) private readonly crypto: CryptoService,
+    private readonly redis: RedisService,
   ) {}
 
   /** Transform + push one product; records per-item catalog status. */
@@ -162,20 +177,46 @@ export class CatalogSyncService {
     merchantId: string,
     syncType: SyncType,
   ): Promise<{ updated: number; errored: number }> {
-    const ctx = await this.context(merchantId);
-    if (!ctx) {
-      const detail = 'Wizzy not enabled or credentials missing';
-      this.logger.warn({ msg: 'fullSync skipped', merchantId, detail });
-      await this.writeSyncLog(merchantId, syncType, 0, 0, 0, detail);
+    // De-dupe overlapping full syncs (e.g. repeated Force Sync clicks): only one
+    // runs per merchant; further triggers no-op until it finishes. The in-memory
+    // claim is synchronous (race-free per instance); Redis extends it across
+    // instances (and auto-expires via TTL if a sync crashes mid-run).
+    if (this.inProgress.has(merchantId)) {
+      this.logger.warn({ msg: 'fullSync skipped — already in progress', merchantId, syncType });
       return { updated: 0, errored: 0 };
     }
+    this.inProgress.add(merchantId);
     try {
-      return await this.runFullSync(merchantId, syncType, ctx);
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : `${err}`;
-      this.logger.error({ msg: 'fullSync failed', merchantId, syncType, detail });
-      await this.writeSyncLog(merchantId, syncType, 0, 0, 0, `sync failed: ${detail}`);
-      throw err;
+      const gotLock = await this.redis.firstSeen(syncLockKey(merchantId), SYNC_LOCK_TTL_S);
+      if (!gotLock) {
+        this.logger.warn({
+          msg: 'fullSync skipped — already in progress (another instance)',
+          merchantId,
+          syncType,
+        });
+        return { updated: 0, errored: 0 };
+      }
+      try {
+        const ctx = await this.context(merchantId);
+        if (!ctx) {
+          const detail = 'Wizzy not enabled or credentials missing';
+          this.logger.warn({ msg: 'fullSync skipped', merchantId, detail });
+          await this.writeSyncLog(merchantId, syncType, 0, 0, 0, detail);
+          return { updated: 0, errored: 0 };
+        }
+        try {
+          return await this.runFullSync(merchantId, syncType, ctx);
+        } catch (err) {
+          const detail = err instanceof Error ? err.message : `${err}`;
+          this.logger.error({ msg: 'fullSync failed', merchantId, syncType, detail });
+          await this.writeSyncLog(merchantId, syncType, 0, 0, 0, `sync failed: ${detail}`);
+          throw err;
+        }
+      } finally {
+        await this.redis.del(syncLockKey(merchantId));
+      }
+    } finally {
+      this.inProgress.delete(merchantId);
     }
   }
 
@@ -309,6 +350,13 @@ export class CatalogSyncService {
 
   forceSync(merchantId: string): Promise<{ updated: number; errored: number }> {
     return this.fullSync(merchantId, 'manual');
+  }
+
+  /** True while a full sync is running for this merchant on THIS instance —
+   * lets the controller reject a duplicate Force Sync and the admin disable the
+   * button. (Cleared in `fullSync`'s finally, so a failed sync frees it.) */
+  isSyncing(merchantId: string): boolean {
+    return this.inProgress.has(merchantId);
   }
 
   /**

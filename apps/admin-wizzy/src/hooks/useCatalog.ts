@@ -11,6 +11,8 @@ export interface CatalogSummary {
   errors: number;
   deleted: number;
   lastSyncAt: string | null;
+  /** True while a full sync is running — drives the Force Sync button + polling. */
+  syncing: boolean;
 }
 
 export interface CatalogItem {
@@ -45,6 +47,9 @@ export function useCatalogSummary() {
     enabled: !!token,
     staleTime: 30 * 1000,
     refetchOnWindowFocus: false,
+    // While a sync is running, poll every 3s so the button re-enables + counts
+    // refresh the moment it finishes.
+    refetchInterval: (query) => (query.state.data?.syncing ? 3000 : false),
   });
 }
 
@@ -73,8 +78,9 @@ export function useCatalogHistory() {
 export function useForceSync() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => api<{ started: true }>('POST', '/api/catalog/sync'),
+    mutationFn: () => api<{ started: boolean }>('POST', '/api/catalog/sync'),
     onSuccess: () => {
+      // Refetch summary → picks up syncing:true → starts polling until done.
       qc.invalidateQueries({ queryKey: queryKeys.catalogSummary() });
       qc.invalidateQueries({ queryKey: queryKeys.catalogHistory() });
     },

@@ -65,7 +65,7 @@ export class StorefrontController {
   @Post('events/:merchantId')
   async events(
     @Param('merchantId') merchantId: string,
-    @Body() body: { kind?: string; payload?: unknown },
+    @Body() body: { kind?: string; payload?: unknown; userId?: unknown },
     @Res() reply: FastifyReply,
   ): Promise<void> {
     reply.header('access-control-allow-origin', '*').header('cache-control', 'no-store');
@@ -76,12 +76,15 @@ export class StorefrontController {
         reply.send({ ok: false });
         return;
       }
+      // Stable anonymous visitor id → x-wizzy-userId header (attribution).
+      const userId = typeof body?.userId === 'string' ? body.userId : undefined;
       void this.wizzy.sendEvent(
         creds.storeId,
         creds.storeSecret,
         creds.apiKey,
         kind,
         sanitizeEventBody(body?.payload),
+        userId,
       );
       reply.send({ ok: true });
     } catch {

@@ -17,6 +17,10 @@ import type { WizzyProductPayload } from './wizzy-transform';
 
 const DEFAULT_BASE_URL = 'https://api.wizsearch.in/v1';
 
+/** Catalog-write 429 backoff: retry count + base delay (1s → 2s → 4s). */
+const RATE_LIMIT_MAX_RETRIES = 3;
+const RATE_LIMIT_BASE_DELAY_MS = 1000;
+
 /** The envelope Wizzy returns on catalog calls. `responseId` is the trace id
  * shown in Wizzy's dashboard "API Logs". */
 interface WizzyResponse {
@@ -111,7 +115,14 @@ export class WizzyApiClient {
     apiKey: string,
     products: WizzyProductPayload[],
   ): Promise<void> {
-    await this.request(storeId, storeSecret, apiKey, 'POST', '/products/save', products);
+    await this.requestWithRateLimitRetry(
+      storeId,
+      storeSecret,
+      apiKey,
+      'POST',
+      '/products/save',
+      products,
+    );
   }
 
   /**
@@ -125,7 +136,52 @@ export class WizzyApiClient {
     apiKey: string,
     ids: string[],
   ): Promise<void> {
-    await this.request(storeId, storeSecret, apiKey, 'DELETE', '/products/delete', ids);
+    await this.requestWithRateLimitRetry(
+      storeId,
+      storeSecret,
+      apiKey,
+      'DELETE',
+      '/products/delete',
+      ids,
+    );
+  }
+
+  /**
+   * Wrap {@link request} with bounded exponential backoff on HTTP 429
+   * (Wizzy rate-limits catalog writes during a bulk sync). Retries up to
+   * {@link RATE_LIMIT_MAX_RETRIES} times (≈1s, 2s, 4s); any non-429 error, or a
+   * 429 past the budget, is rethrown so the caller records it as before.
+   */
+  private async requestWithRateLimitRetry(
+    storeId: string,
+    storeSecret: string,
+    apiKey: string,
+    method: string,
+    path: string,
+    body?: unknown,
+  ): Promise<unknown> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.request(storeId, storeSecret, apiKey, method, path, body);
+      } catch (err) {
+        if (
+          err instanceof WizzyApiError &&
+          err.isRateLimited &&
+          attempt < RATE_LIMIT_MAX_RETRIES
+        ) {
+          const delayMs = RATE_LIMIT_BASE_DELAY_MS * 2 ** attempt;
+          this.logger.warn({
+            msg: 'wizzy rate-limited (429) — backing off',
+            path,
+            attempt: attempt + 1,
+            delayMs,
+          });
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          continue;
+        }
+        throw err;
+      }
+    }
   }
 
   /**
@@ -141,9 +197,13 @@ export class WizzyApiClient {
     apiKey: string,
     kind: 'click' | 'view' | 'converted',
     body: Record<string, unknown>,
+    userId?: string,
   ): Promise<void> {
     try {
-      await this.request(storeId, storeSecret, apiKey, 'POST', `/events/${kind}`, body);
+      // x-wizzy-userId attributes the event to the visitor (personalization /
+      // user-journey). Sent only when a stable id is available.
+      const extraHeaders = userId ? { 'x-wizzy-userId': userId } : undefined;
+      await this.request(storeId, storeSecret, apiKey, 'POST', `/events/${kind}`, body, extraHeaders);
     } catch (err) {
       this.logger.warn({ msg: 'wizzy event failed', kind, err: `${err}` });
     }
@@ -183,6 +243,7 @@ export class WizzyApiClient {
     method: string,
     path: string,
     body?: unknown,
+    extraHeaders?: Record<string, string>,
   ): Promise<unknown> {
     const url = `${this.baseUrl}${path}`;
     let res: Response;
@@ -195,6 +256,7 @@ export class WizzyApiClient {
           'x-store-id': storeId,
           'x-store-secret': storeSecret,
           'x-api-key': apiKey,
+          ...extraHeaders,
         },
         ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
       });
