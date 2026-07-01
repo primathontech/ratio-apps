@@ -90,6 +90,21 @@ const baseEnv = z.object({
   // placeholder (sync still records SYNCED, but GMC flags a URL mismatch).
   GMC_STORE_URL: emptyAsUndefined(z.string()),
 
+  // ─── return-prime adapter: shared secret + RP server URL ─────────────────
+  // RP_INTERNAL_API_TOKEN: RP's INTERNAL_API_TOKEN value — shared secret used
+  // to validate inbound RP requests and to authenticate our register call.
+  // Optional in baseEnv so other modules can boot without it; validated at
+  // runtime by RpRequestGuard when rp module is enabled.
+  RP_INTERNAL_API_TOKEN: emptyAsUndefined(z.string().min(1)),
+  // RP_BASE_URL: Return Prime server base URL (no trailing slash).
+  RP_BASE_URL: emptyAsUndefined(z.string().url()),
+  // OS_ORDER_BASE_URL / OS_ITEM_BASE_URL: GoKwik OpenStore service base URLs.
+  // Used by the RP adapter for refund and product lookups that the Ratio
+  // ecosystem API does not yet expose. Optional so other modules aren't forced
+  // to declare them.
+  OS_ORDER_BASE_URL: emptyAsUndefined(z.string().url()),
+  OS_ITEM_BASE_URL: emptyAsUndefined(z.string().url()),
+
   // ─── meta app: Meta Graph API base for Conversions API dispatch ───────────
   // Defaults to the real Graph API; override with a local mock URL for testing.
   // Declared here so @nestjs/config keeps it on process.env (unknown keys are
