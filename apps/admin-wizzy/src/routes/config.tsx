@@ -57,10 +57,21 @@ export function ConfigPage() {
       autoSyncEnabled: true,
       includeOutOfStock: true,
       stripHtmlDescription: true,
+      // Storefront-search fields are managed on the Storefront page, but they
+      // MUST be carried in this form's state too: the PUT replaces the whole
+      // config, and any field omitted here would be reset to its schema default
+      // (e.g. searchEnabled → false), silently disabling storefront search.
+      searchEnabled: false,
+      inputSelector: '#search',
+      resultsMountSelector: '#wizzy-results',
+      resultsPagePath: '/search',
+      themePrimary: '#0fb3a9',
     },
   });
 
-  // Repopulate ALL saved fields on load — critical correctness fix.
+  // Repopulate ALL saved fields on load — critical correctness fix. This
+  // includes the storefront-search fields (not rendered here) so saving the
+  // connection/sync settings round-trips them unchanged instead of clobbering.
   useEffect(() => {
     if (!data) return;
     form.reset({
@@ -73,6 +84,11 @@ export function ConfigPage() {
       autoSyncEnabled: data.autoSyncEnabled,
       includeOutOfStock: data.includeOutOfStock,
       stripHtmlDescription: data.stripHtmlDescription,
+      searchEnabled: data.searchEnabled,
+      inputSelector: data.inputSelector,
+      resultsMountSelector: data.resultsMountSelector,
+      resultsPagePath: data.resultsPagePath,
+      themePrimary: data.themePrimary,
     });
   }, [data, form]);
 
