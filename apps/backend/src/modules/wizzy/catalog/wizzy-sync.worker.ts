@@ -92,22 +92,9 @@ export class WizzySyncWorker implements OnModuleInit, OnModuleDestroy {
     }
     // Fetch the authoritative product by id so we transform the same rich
     // REST-shaped payload as full sync (collections/metafields/availability),
-    // not the leaner webhook payload. `logRaw` confirms the live structure.
-    const product = await this.products.getById(msg.merchantId, msg.productId, { logRaw: true });
-    const result = await this.catalogSync.syncProduct(msg.merchantId, product, 'webhook');
-    // Plain-language confirmation so a sync can be verified end-to-end from logs:
-    // whether the product is sellable (→ searchable in Wizzy) and how it landed.
-    this.logger.log({
-      msg: 'wizzy webhook product synced',
-      merchantId: msg.merchantId,
-      productId: msg.productId,
-      title: product.title,
-      variants: product.variants.length,
-      availableForSale: product.variants.map((v) => v.availableForSale),
-      images: product.images?.length ?? 0,
-      updated: result.updated,
-      errored: result.errored,
-    });
+    // not the leaner webhook payload.
+    const product = await this.products.getById(msg.merchantId, msg.productId);
+    await this.catalogSync.syncProduct(msg.merchantId, product, 'webhook');
   }
 
   private sleep(ms: number): Promise<void> {

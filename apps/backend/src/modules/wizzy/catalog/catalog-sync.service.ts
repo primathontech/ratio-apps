@@ -13,11 +13,7 @@ import { transformProduct, type WizzyTransformConfig } from './wizzy-transform';
 /** Seam over "read this merchant's full Ratio product catalog". */
 export interface RatioProductsPort {
   listAll(merchantId: string): Promise<RatioProduct[]>;
-  getById(
-    merchantId: string,
-    productId: string,
-    opts?: { logRaw?: boolean },
-  ): Promise<RatioProduct>;
+  getById(merchantId: string, productId: string): Promise<RatioProduct>;
 }
 
 type SyncType = 'webhook' | 'auto' | 'reconcile' | 'initial' | 'manual';
@@ -168,7 +164,11 @@ export class CatalogSyncService {
     // Auto-sync gate: a delete is a product-change event. When "Auto-sync on
     // product changes" is OFF, skip it — a later manual/force sync reconciles.
     if (!ctx.autoSyncEnabled) {
-      this.logger.log({ msg: 'auto-sync disabled — skipping product delete', merchantId, productId });
+      this.logger.log({
+        msg: 'auto-sync disabled — skipping product delete',
+        merchantId,
+        productId,
+      });
       return;
     }
 

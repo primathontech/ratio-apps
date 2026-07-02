@@ -34,14 +34,14 @@ function makeWorker(msgs: WizzySyncMessage[]) {
 }
 
 describe('WizzySyncWorker — fetch-by-id on upsert', () => {
-  it('fetches the authoritative product by id, then syncs it (with logRaw)', async () => {
+  it('fetches the authoritative product by id, then syncs it', async () => {
     const { worker, syncProduct, getById, ack } = makeWorker([
       { op: 'upsert', merchantId: 'm1', productId: 'p1' },
     ]);
 
     await worker.drainOnce();
 
-    expect(getById).toHaveBeenCalledWith('m1', 'p1', { logRaw: true });
+    expect(getById).toHaveBeenCalledWith('m1', 'p1');
     expect(syncProduct).toHaveBeenCalledWith(
       'm1',
       expect.objectContaining({ id: 'p1' }),

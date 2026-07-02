@@ -136,16 +136,8 @@ export class RatioProductsService implements RatioProductsPort {
    * `collections[]`, more complete `product_type`, `tags`, etc.
    * Parsed via the same `parseRestProduct` path as listAll.
    * Throws when the product cannot be parsed (missing id/title).
-   *
-   * `opts.logRaw` logs the raw API payload (truncated) — enabled only by the
-   * webhook worker so we can confirm the real by-id structure without spamming
-   * a log line per product during a full catalog sync.
    */
-  async getById(
-    merchantId: string,
-    productId: string,
-    opts?: { logRaw?: boolean },
-  ): Promise<RatioProduct> {
+  async getById(merchantId: string, productId: string): Promise<RatioProduct> {
     const accessToken = await this.tokens.getAccessToken(merchantId);
     const raw = await this.ratio.request(
       `/api/v1/v1/products/${productId}?show_variants=true`,
@@ -162,25 +154,6 @@ export class RatioProductsService implements RatioProductsPort {
       if (inner && typeof inner === 'object' && !Array.isArray(inner)) {
         item = inner;
       }
-    }
-    if (opts?.logRaw) {
-      // Full payload so the live by-id structure can be confirmed end-to-end
-      // (variants, availableForSale, product_availability, images, metafields).
-      // Only the webhook worker sets logRaw, so this is one line per webhook —
-      // not per product during a full sync.
-      const payload = JSON.stringify(item);
-      const keys =
-        item && typeof item === 'object' && !Array.isArray(item)
-          ? Object.keys(item as Rec).join(',')
-          : `(${Array.isArray(item) ? 'array' : typeof item})`;
-      this.logger.log({
-        msg: 'ratio product by-id raw payload',
-        merchantId,
-        productId,
-        keys,
-        bytes: payload?.length ?? 0,
-        payload,
-      });
     }
     const mapped = parseRestProduct(item as Rec);
     if (!mapped) {
