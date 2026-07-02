@@ -158,7 +158,6 @@ export interface WizzyChildDataPayload {
 export interface WizzyProductPayload {
   /** Ratio product id used as the stable Wizzy product id. */
   id: string;
-  /** Groups all variants under the same product (= product id). */
   groupId?: string;
   /** Product title / name. */
   name: string;
@@ -767,7 +766,6 @@ export function transformProduct(
 
   const payload: WizzyProductPayload = {
     id: product.id,
-    groupId: product.id,
     name: product.title,
     // imageSrcs.length > 0 is guaranteed by the early return above.
     // biome-ignore lint/style/noNonNullAssertion: length checked above

@@ -738,12 +738,6 @@ describe('transformProduct — rich by-id collections → categories', () => {
     }
   });
 
-  it('sets groupId equal to product id', () => {
-    const result = transformProduct(osmoFixture(), baseConfig);
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.payload.groupId).toBe('P1');
-  });
 
   it('existing fields unchanged: sellingPrice=58800, price=69900, brand=Osmo, inStock=true', () => {
     const result = transformProduct(osmoFixture(), baseConfig);
@@ -765,12 +759,12 @@ describe('transformProduct — rich by-id collections → categories', () => {
   });
 });
 
-describe('transformProduct — groupId is always set to product id', () => {
-  it('sets groupId on a plain product (no collections)', () => {
+describe('transformProduct — groupId is omitted on the product-level record', () => {
+  it('does not set groupId on a plain product (grouping is variant-only)', () => {
     const result = transformProduct(baseProduct({ id: 'prod-42' }), baseConfig);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.payload.groupId).toBe('prod-42');
+    expect(result.payload.groupId).toBeUndefined();
   });
 });
 
