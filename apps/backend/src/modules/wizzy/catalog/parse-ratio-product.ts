@@ -40,6 +40,29 @@ const paiseToMajor = (v: unknown): number | null => {
   return n === null ? null : n / 100;
 };
 
+/**
+ * Product-level purchasability, used as the availability signal when a variant
+ * carries no explicit `availableForSale`. Many products on this platform don't
+ * expand variants (`variants: []`) and never send `availableForSale` /
+ * `inventory_quantity`, so deciding stock from quantity alone wrongly marks them
+ * out of stock — which makes Wizzy hide them from search + the dashboard count.
+ *
+ * Precedence:
+ *   - `product_availability: false`        → not available (respect an explicit no)
+ *   - `product_availability: true`         → available
+ *   - `continue_selling_out_of_stock:true` → available (oversell past zero stock)
+ *   - `track_inventory: false`             → available (untracked = always sellable)
+ *   - otherwise                            → null (caller falls back to quantity)
+ */
+const productAvailability = (item: Record<string, unknown>): boolean | null => {
+  const available = bool(item.product_availability);
+  if (available === false) return false;
+  if (available === true) return true;
+  if (bool(item.continue_selling_out_of_stock) === true) return true;
+  if (bool(item.track_inventory) === false) return true;
+  return null;
+};
+
 const slugify = (s: string): string =>
   s
     .toLowerCase()
@@ -121,6 +144,10 @@ export function parseWebhookProduct(product: Record<string, unknown>): RatioProd
     ? (product.variants as Record<string, unknown>[])
     : [];
 
+  // Product-level availability — the fallback when a variant sends no
+  // `availableForSale`, and the sole stock signal for the synthetic variant.
+  const productAvail = productAvailability(product);
+
   const variants: RatioVariant[] =
     rawVariants.length > 0
       ? rawVariants.map((v) => {
@@ -144,7 +171,7 @@ export function parseWebhookProduct(product: Record<string, unknown>): RatioProd
             sku: str(v.sku_id),
             barcode: str(v.barcode),
             inventoryQuantity,
-            availableForSale: bool(v.availableForSale),
+            availableForSale: bool(v.availableForSale) ?? productAvail,
             ...(Object.keys(options).length > 0 ? { options } : {}),
           };
         })
@@ -156,6 +183,7 @@ export function parseWebhookProduct(product: Record<string, unknown>): RatioProd
             sku: str(product.sku),
             barcode: str(product.barcode),
             inventoryQuantity: null,
+            availableForSale: productAvail,
           },
         ];
 
@@ -210,6 +238,11 @@ export function parseRestProduct(item: Record<string, unknown>): RatioProduct | 
     ? (item.variants as Record<string, unknown>[])
     : [];
 
+  // Product-level availability — the fallback when a variant sends no
+  // `availableForSale`, and the sole stock signal for the synthetic variant
+  // built when `variants` is empty (common for single-variant products).
+  const productAvail = productAvailability(item);
+
   const variants: RatioVariant[] =
     rawVariants.length > 0
       ? rawVariants.map((v) => {
@@ -229,7 +262,7 @@ export function parseRestProduct(item: Record<string, unknown>): RatioProduct | 
             sku: str(v.sku),
             barcode: str(v.barcode),
             inventoryQuantity: num(v.inventory_quantity),
-            availableForSale: bool(v.availableForSale),
+            availableForSale: bool(v.availableForSale) ?? productAvail,
             ...(Object.keys(options).length > 0 ? { options } : {}),
           };
         })
@@ -241,7 +274,7 @@ export function parseRestProduct(item: Record<string, unknown>): RatioProduct | 
             sku: str(item.sku),
             barcode: str(item.barcode),
             inventoryQuantity: num(item.inventory_quantity),
-            availableForSale: bool(item.availableForSale),
+            availableForSale: bool(item.availableForSale) ?? productAvail,
           },
         ];
 

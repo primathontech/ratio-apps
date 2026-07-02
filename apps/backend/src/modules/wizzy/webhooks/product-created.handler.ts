@@ -9,10 +9,11 @@ import { isSellable, WIZZY_QUEUE_NAMES, type WizzySyncMessage } from '../catalog
 import { WIZZY_WEBHOOK_TOPICS } from './topics';
 
 /**
- * `products/create` → enqueue a Wizzy upsert on the durable SQS queue.
+ * `products/create` → enqueue a Wizzy upsert (by id) on the durable SQS queue.
  *
- * Parses + enqueues; a separate worker drains the queue. Non-sellable creates
- * are dropped (a brand-new draft isn't in Wizzy yet so no delete needed).
+ * Enqueues the product id only; the worker fetches the authoritative product by
+ * id so it transforms the same rich REST structure as full sync. Non-sellable
+ * creates are dropped (a brand-new draft isn't in Wizzy yet so no delete needed).
  */
 @Injectable()
 export class WizzyProductCreatedHandler implements WebhookHandler {
@@ -33,7 +34,7 @@ export class WizzyProductCreatedHandler implements WebhookHandler {
       return;
     }
     if (!isSellable(data)) return;
-    const msg: WizzySyncMessage = { op: 'upsert', merchantId, product };
+    const msg: WizzySyncMessage = { op: 'upsert', merchantId, productId: product.id };
     await this.queue.sendBatch(WIZZY_QUEUE_NAMES.sync, [msg]);
   }
 }
