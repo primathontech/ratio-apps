@@ -411,6 +411,36 @@ function collectSwatch(
   }
 }
 
+/**
+ * Collapse an attribute's values so all labels sharing the same `variationId`
+ * become ONE entry with a multi-value `value` array (Wizzy models `value` as
+ * `string[]`). Upstream builders emit one single-label entry per value; this
+ * merges the ones that belong to the same variation. Preserves first-seen order
+ * of variations and of labels within a variation, dedupes labels, and ORs
+ * `inStock`.
+ */
+function mergeValuesByVariation(
+  values: WizzyAttributeValuePayload[],
+): WizzyAttributeValuePayload[] {
+  const byVariation = new Map<string, WizzyAttributeValuePayload>();
+  for (const entry of values) {
+    const existing = byVariation.get(entry.variationId);
+    if (existing) {
+      for (const label of entry.value) {
+        if (!existing.value.includes(label)) existing.value.push(label);
+      }
+      existing.inStock = existing.inStock || entry.inStock;
+    } else {
+      byVariation.set(entry.variationId, {
+        value: [...entry.value],
+        variationId: entry.variationId,
+        inStock: entry.inStock,
+      });
+    }
+  }
+  return [...byVariation.values()];
+}
+
 /** Build the colors / sizes / attributes facets from all variant options. */
 function buildVariantFacets(variants: RatioVariant[]): {
   colors: WizzySwatchPayload[];
@@ -451,7 +481,7 @@ function buildVariantFacets(variants: RatioVariant[]): {
     id: slug(name),
     name,
     type: 'string' as const,
-    values: [...valueMap.values()],
+    values: mergeValuesByVariation([...valueMap.values()]),
     isSearchable: true,
     isFilterable: true,
     addInAutocomplete: false,
@@ -489,7 +519,7 @@ function buildTagsAttribute(
     id: 'tags',
     name: 'Tags',
     type: 'string',
-    values,
+    values: mergeValuesByVariation(values),
     isSearchable: true,
     isFilterable: true,
     addInAutocomplete: false,
@@ -652,13 +682,17 @@ function buildMetafieldFacets(
     id: slug(name),
     name,
     type: 'string' as const,
-    values: [...valueMap.values()],
+    values: mergeValuesByVariation([...valueMap.values()]),
     isSearchable: true,
     isFilterable: true,
     addInAutocomplete: false,
   }));
 
-  return { attributes, ...(avgRatings !== undefined ? { avgRatings } : {}), ...(totalReviews !== undefined ? { totalReviews } : {}) };
+  return {
+    attributes,
+    ...(avgRatings !== undefined ? { avgRatings } : {}),
+    ...(totalReviews !== undefined ? { totalReviews } : {}),
+  };
 }
 
 /**
@@ -729,11 +763,7 @@ export function transformProduct(
   const tagsAttr = buildTagsAttribute(product.tags, rep.id, inStock);
   // Opportunistic metafield enrichment — only populated from the by-id endpoint.
   const mf = buildMetafieldFacets(product.metafields, rep.id, inStock);
-  const allAttributes = [
-    ...attributes,
-    ...(tagsAttr ? [tagsAttr] : []),
-    ...mf.attributes,
-  ];
+  const allAttributes = [...attributes, ...(tagsAttr ? [tagsAttr] : []), ...mf.attributes];
 
   const payload: WizzyProductPayload = {
     id: product.id,

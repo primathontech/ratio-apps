@@ -323,7 +323,8 @@ describe('transformProduct — tags attribute', () => {
     expect(tags?.isSearchable).toBe(true);
     expect(tags?.isFilterable).toBe(true);
     expect(tags?.addInAutocomplete).toBe(false);
-    expect(tags?.values.map((v) => v.value[0])).toEqual(['Bestseller', 'Combo', 'New Arrival']);
+    expect(tags?.values).toHaveLength(1);
+    expect(tags?.values[0]?.value).toEqual(['Bestseller', 'Combo', 'New Arrival']);
   });
 
   it('dedupes tags case/space-insensitively, keeping the first-seen label', () => {
@@ -334,7 +335,7 @@ describe('transformProduct — tags attribute', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const tags = (result.payload.attributes ?? []).find((a) => a.id === 'tags');
-    expect(tags?.values.map((v) => v.value[0])).toEqual(['Bestseller', 'electrolyte']);
+    expect(tags?.values[0]?.value).toEqual(['Bestseller', 'electrolyte']);
   });
 
   it('coexists with variant attributes (both present)', () => {
