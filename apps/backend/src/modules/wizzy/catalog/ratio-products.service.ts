@@ -152,12 +152,15 @@ export class RatioProductsService implements RatioProductsPort {
       singleProductSchema,
       { accessToken },
     );
-    // The by-id response may be the product object directly, or wrapped in { data: … }.
+    // The by-id response may be the product object directly, or wrapped in an
+    // envelope: `{ data: … }` OR `{ product: … }` (the live shape — verified
+    // against a real by-id log). Unwrap whichever single-object wrapper is present.
     let item: unknown = raw;
     if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
       const o = raw as Rec;
-      if (o.data && typeof o.data === 'object' && !Array.isArray(o.data)) {
-        item = o.data;
+      const inner = o.data ?? o.product;
+      if (inner && typeof inner === 'object' && !Array.isArray(inner)) {
+        item = inner;
       }
     }
     if (opts?.logRaw) {
