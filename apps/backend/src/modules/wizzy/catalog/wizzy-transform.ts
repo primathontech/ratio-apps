@@ -490,11 +490,12 @@ function buildVariantFacets(variants: RatioVariant[]): {
 }
 
 /**
- * Build a single "Tags" attribute from the product's tags — searchable +
- * filterable so shoppers can facet on them. Dedupes case/space-insensitively,
- * keeping the first-seen label (so "Bestseller" wins over a later "Best Seller").
- * Returns null when there are no usable tags. Most products in this store are
- * single-variant (no color/size options), so tags are the only attribute facet.
+ * Build a single "Tags" attribute from the product's tags. Tags stay
+ * SEARCHABLE (they help query relevance) but are NOT filterable — store.
+ * wellversed.in exposes no "Tags" filter, so `isFilterable: false` keeps Wizzy
+ * from creating that facet. Dedupes case/space-insensitively, keeping the
+ * first-seen label (so "Bestseller" wins over a later "Best Seller"). Returns
+ * null when there are no usable tags.
  */
 function buildTagsAttribute(
   tags: string[] | undefined,
@@ -520,7 +521,7 @@ function buildTagsAttribute(
     type: 'string',
     values: mergeValuesByVariation(values),
     isSearchable: true,
-    isFilterable: true,
+    isFilterable: false,
     addInAutocomplete: false,
   };
 }
@@ -530,20 +531,12 @@ function buildTagsAttribute(
  * Only these keys surface as Wizzy search facets; everything else is ignored.
  */
 const METAFIELD_FACETS: Record<string, string> = {
-  'custom/form_factor': 'Form Factor',
+  // Only the attribute facets store.wellversed.in exposes: Flavor, Veg/Non Veg
+  // (Dietary Type), and Serving Size.
   'custom/flavour_name': 'Flavour',
   'shopify/flavor': 'Flavour',
   'custom/product_weight': 'Serving Size',
-  'custom/net_weight': 'Net Weight',
   'custom/prodcut_type_veg_nonveg': 'Dietary Type',
-  'shopify/dietary-preferences': 'Dietary Preferences',
-  'shopify/dietary-use': 'Dietary Use',
-  'shopify/creatine-type': 'Creatine Type',
-  'shopify/supplement-health-focus': 'Health Focus',
-  'shopify/ingredient-category': 'Ingredient Category',
-  'shopify/food-supplement-form': 'Supplement Form',
-  'shopify/target-gender': 'Gender',
-  'shopify/age-group': 'Age Group',
 };
 
 /**
@@ -758,7 +751,7 @@ export function transformProduct(
     : undefined;
 
   const { colors, sizes, attributes } = buildVariantFacets(product.variants);
-  // Surface product tags as a filterable "Tags" attribute alongside variant attributes.
+  // Tags stay searchable (relevance) but non-filterable (no "Tags" facet).
   const tagsAttr = buildTagsAttribute(product.tags, rep.id, inStock);
   // Opportunistic metafield enrichment — only populated from the by-id endpoint.
   const mf = buildMetafieldFacets(product.metafields, rep.id, inStock);
