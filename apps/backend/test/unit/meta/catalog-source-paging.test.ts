@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CatalogSourceService } from '../../../src/modules/meta/catalog/catalog-source.service';
+import { RatioClient } from '../../../src/core/ratio-client/ratio.client';
+import type { MetaRatioTokenProvider } from '../../../src/modules/meta/oauth/ratio-token.provider';
 
 /**
  * os-item ignores our requested `limit` and caps page size at ~10. The pager
@@ -25,7 +27,8 @@ describe('CatalogSourceService.eachPage pagination', () => {
       .mockResolvedValueOnce(jsonPage(5, { hasNext: false, totalPages: 3, page: 3 }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const svc = new CatalogSourceService();
+    const tokenProvider = { getAccessToken: vi.fn().mockResolvedValue('tok') } as unknown as MetaRatioTokenProvider;
+    const svc = new CatalogSourceService(tokenProvider, new RatioClient('http://test'));
     const pages: number[] = [];
     const total = await svc.eachPage('m1', async (batch) => {
       pages.push(batch.length);
@@ -43,7 +46,8 @@ describe('CatalogSourceService.eachPage pagination', () => {
       .mockResolvedValueOnce(jsonPage(0, {}));
     vi.stubGlobal('fetch', fetchMock);
 
-    const svc = new CatalogSourceService();
+    const tokenProvider = { getAccessToken: vi.fn().mockResolvedValue('tok') } as unknown as MetaRatioTokenProvider;
+    const svc = new CatalogSourceService(tokenProvider, new RatioClient('http://test'));
     let count = 0;
     const total = await svc.eachPage('m1', async (b) => {
       count += b.length;

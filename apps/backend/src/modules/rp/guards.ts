@@ -8,7 +8,9 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { FastifyRequest } from 'fastify';
+import type { Observable } from 'rxjs';
 import type { Env } from '../../config/env.schema';
+import { createWebhookSignatureGuard } from '../../core/webhooks/webhook-signature.guard';
 import { RpMerchantsService } from './merchants/merchants.service';
 import type { RpMerchantRow } from './db/types';
 
@@ -17,7 +19,30 @@ export interface RpRequest extends FastifyRequest {
 }
 
 /**
- * Validates inbound Return Prime requests.
+ * Per-module guard classes.
+ *
+ * NestJS's `@UseGuards(...)` only accepts a class reference, so we wrap
+ * factory-produced guards in an `@Injectable()` class that builds the
+ * underlying guard once in the constructor — matching the Meta module pattern.
+ */
+
+@Injectable()
+export class RpWebhookSignatureGuard implements CanActivate {
+  private readonly inner: CanActivate;
+
+  constructor(config: ConfigService<Env, true>) {
+    const secret = config.get('RATIO_RP_CLIENT_SECRET' as never, { infer: true }) as string;
+    const GuardClass = createWebhookSignatureGuard(secret);
+    this.inner = new GuardClass();
+  }
+
+  canActivate(ctx: ExecutionContext): boolean | Promise<boolean> | Observable<boolean> {
+    return this.inner.canActivate(ctx);
+  }
+}
+
+/**
+ * Validates inbound RP requests.
  *
  * Two-layer check:
  *   1. X-Shopify-Access-Token == RP_INTERNAL_API_TOKEN  (proves caller is RP)

@@ -5,13 +5,31 @@ type Rec = Record<string, unknown>;
 @Injectable()
 export class RpTransformerService {
   /**
-   * Deterministic UUID → numeric-string ID.
-   * Takes the first 15 hex chars of the UUID (stripped of dashes) and parses as
-   * a base-16 number. Stable across calls for the same UUID input.
+   * Map any OS id (Shopify-style numeric, OS-native 18-digit, or UUID) to a stable
+   * JS-SAFE integer string. Shopify-style ids (already ≤ MAX_SAFE_INTEGER) pass through
+   * unchanged so they stay consistent with order line items. Larger numeric ids and
+   * UUIDs are reduced modulo MAX_SAFE_INTEGER — deterministic and within the safe range
+   * RP's numeric id fields + Joi `number` validation require.
    */
-  numericId(uuid: string): string {
-    const hex = uuid.replace(/-/g, '').slice(0, 15);
-    return parseInt(hex, 16).toString();
+  numericId(value: string): string {
+    if (!value) return '0';
+    const direct = Number(value);
+    if (!isNaN(direct) && Number.isInteger(direct) && direct > 0 && direct <= Number.MAX_SAFE_INTEGER) {
+      return String(direct);
+    }
+    const MAX = BigInt(Number.MAX_SAFE_INTEGER);
+    try {
+      if (/^\d+$/.test(value)) {
+        const n = BigInt(value) % MAX;
+        return (n === 0n ? 1n : n).toString();
+      }
+      const hex = value.replace(/-/g, '').replace(/[^0-9a-f]/gi, '');
+      if (!hex) return '0';
+      const n = BigInt('0x' + hex) % MAX;
+      return (n === 0n ? 1n : n).toString();
+    } catch {
+      return '0';
+    }
   }
 
   /** 89900 (paise) → "899.00" (rupees string) */
@@ -171,12 +189,40 @@ export class RpTransformerService {
           compare_at_price: v.compare_at_price
             ? this.paiseToRupees(v.compare_at_price as number)
             : null,
-          inventory_quantity: v.inventory_quantity ?? v.inventoryQuantity ?? 0,
-          option1: v.option1 ?? null,
+          // SANDBOX TESTING ACCOMMODATION: the OS item catalog does not expose per-variant
+          // inventory, so it arrives as 0/undefined and RP's exchange picker filters every
+          // variant out ("no products for exchange"). Force a minimum of 1 so exchange
+          // candidates are selectable during testing; a real positive value is preserved.
+          // Remove/gate this once OS surfaces real inventory.
+          inventory_quantity: Number(v.inventory_quantity ?? v.inventoryQuantity ?? 0) || 1,
+          // option1 must match the product `options` values (below) so RP's variant matcher
+          // resolves a selection; OS variants have no named options, so fall back to the title.
+          option1: v.option1 ?? v.title ?? 'Default Title',
           option2: v.option2 ?? null,
           option3: v.option3 ?? null,
         }))
       : [];
+
+    // RP's exchange product search requires published_at != null and status active.
+    // Carry through OS publish/status info (fall back to created_at, else now) so
+    // synced products are actually searchable in the exchange picker.
+    const publishedAt =
+      this.isoDate((ratioProduct.published_at ?? ratioProduct.publishedAt) as string) ??
+      this.isoDate((ratioProduct.created_at ?? ratioProduct.createdAt) as string) ??
+      new Date().toISOString();
+
+    // Shopify products always carry an `options` array, and RP's portal reads
+    // `options[0].name` (SelectVariant) — an empty array crashes it. OS has no named
+    // product options, so emit Shopify's single-variant default: one "Title" option whose
+    // values are the variant titles (variant.option1 is set from these too).
+    const optionValues = [
+      ...new Set(
+        variants.map(
+          (v) => (v.option1 as string) || (v.title as string) || 'Default Title',
+        ),
+      ),
+    ];
+    const options = [{ name: 'Title', position: 1, values: optionValues.length ? optionValues : ['Default Title'] }];
 
     return {
       id,
@@ -184,7 +230,13 @@ export class RpTransformerService {
       handle: ratioProduct.handle,
       vendor: ratioProduct.vendor,
       product_type: ratioProduct.product_type ?? ratioProduct.productType,
-      status: ratioProduct.status,
+      status: (ratioProduct.status as string) || 'active',
+      options,
+      published_at: publishedAt,
+      published_scope: (ratioProduct.published_scope as string) ?? 'web',
+      created_at: this.isoDate((ratioProduct.created_at ?? ratioProduct.createdAt) as string),
+      updated_at: this.isoDate((ratioProduct.updated_at ?? ratioProduct.updatedAt) as string),
+      tags: ratioProduct.tags ?? '',
       images: Array.isArray(ratioProduct.images) ? ratioProduct.images : [],
       variants,
     };
@@ -217,6 +269,41 @@ export class RpTransformerService {
           currency: 'INR',
           kind: 'refund',
           status: 'success',
+        },
+      ],
+    };
+  }
+
+  /**
+   * Map the OS refund-calculate response into the Shopify calculate shape RP's refund flow
+   * expects (actualSource.helper reads `transactions[].maximum_refundable`, `refund_line_items`,
+   * `currency`). OS returns paise integers; convert to rupee decimal strings like everywhere else.
+   */
+  shopifyRefundCalculate(ratioCalc: Rec, orderId: string): Rec {
+    const calc = ((ratioCalc?.data as Rec) ?? ratioCalc ?? {}) as Rec;
+    const oId = this.numericId(orderId);
+    const lineItems = Array.isArray(calc.lineItems) ? (calc.lineItems as Rec[]) : [];
+    const refundLineItems = lineItems.map((li) => ({
+      line_item_id: this.numericId(String(li.lineItemId ?? li.line_item_id ?? '')),
+      quantity: Number(li.quantity ?? 0),
+      subtotal: this.paiseToRupees(li.totalAmount as number),
+      total_tax: this.paiseToRupees(li.taxAmount as number),
+      restock_type: 'return',
+    }));
+    return {
+      currency: (calc.currency as string) ?? 'INR',
+      shipping: {
+        amount: this.paiseToRupees(calc.shippingAmount as number),
+        maximum_refundable: this.paiseToRupees(calc.shippingAmount as number),
+      },
+      refund_line_items: refundLineItems,
+      transactions: [
+        {
+          order_id: oId,
+          kind: 'suggested_refund',
+          gateway: 'ReturnPrime',
+          amount: this.paiseToRupees(calc.totalAmount as number),
+          maximum_refundable: this.paiseToRupees(calc.totalRefundable as number),
         },
       ],
     };
@@ -262,6 +349,65 @@ export class RpTransformerService {
       notify_customer: true,
       reason: typeof refund.note === 'string' ? refund.note : 'Customer requested return',
     };
+  }
+
+  /**
+   * Map a Shopify REST Order create body (what RP's createExchangeOrder builds and
+   * ShopifyAxios.createOrder would POST as `{order}`) into the OS CreateOrderDto.
+   * OS accepts rupee decimal strings for amounts (verified against the live API),
+   * so no paise conversion is applied here.
+   */
+  mapCreateOrder(shopifyOrder: Rec): Rec {
+    const o = (shopifyOrder?.order ?? shopifyOrder) as Rec;
+
+    const lineItems = Array.isArray(o.line_items)
+      ? (o.line_items as Rec[]).map((li) => ({
+          variant_id: li.variant_id != null ? String(li.variant_id) : undefined,
+          product_id: li.product_id != null ? String(li.product_id) : undefined,
+          title: (li.title ?? li.name) as string | undefined,
+          variant_title: li.variant_title as string | undefined,
+          quantity: Number(li.quantity ?? 1),
+          price: String(li.price ?? '0'),
+          sku: li.sku as string | undefined,
+          tax_lines: li.tax_lines,
+          discount_allocations: li.discount_allocations,
+        }))
+      : [];
+
+    // OS expects `tags` as a comma-separated STRING (matching Shopify), not an array.
+    const tags =
+      typeof o.tags === 'string'
+        ? (o.tags as string)
+        : Array.isArray(o.tags)
+          ? (o.tags as unknown[]).join(',')
+          : '';
+
+    // Drop undefined keys so OS validation doesn't trip on nulls it doesn't expect.
+    const dto: Rec = {
+      email: o.email,
+      phone: o.phone,
+      note: o.note,
+      tags,
+      source_name: 'ReturnPrime',
+      payment_gateway_names: o.payment_gateway_names,
+      financial_status: o.financial_status,
+      fulfillment_status: o.fulfillment_status ?? null,
+      status: 'open',
+      currency: o.currency ?? 'INR',
+      customer: o.customer ?? undefined,
+      shipping_address: o.shipping_address ?? undefined,
+      billing_address: o.billing_address ?? undefined,
+      line_items: lineItems,
+      shipping_lines: o.shipping_lines,
+      discount_codes: o.discount_codes,
+      tax_lines: o.tax_lines,
+      total_tax: o.total_tax != null ? String(o.total_tax) : undefined,
+      total_price: o.price != null ? String(o.price) : o.total_price != null ? String(o.total_price) : undefined,
+      note_attributes: o.note_attributes,
+      name: o.name,
+    };
+    for (const k of Object.keys(dto)) if (dto[k] === undefined) delete dto[k];
+    return dto;
   }
 
   /** Parse RP's customer search query param. "email:foo@bar.com" → "foo@bar.com" */

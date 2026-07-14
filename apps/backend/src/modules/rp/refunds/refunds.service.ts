@@ -11,7 +11,11 @@ export class RpRefundsService {
 
   async calculateRefund(merchantId: string, orderId: string, body: unknown): Promise<unknown> {
     const mapped = this.transformer.mapRefundRequest(body as Record<string, unknown>);
-    return this.ratioClient.calculateRefund(merchantId, orderId, mapped);
+    const raw = (await this.ratioClient.calculateRefund(merchantId, orderId, mapped)) as Record<string, unknown>;
+    // OS returns its own calculate shape (lineItems/totalRefundable, paise). RP's refund flow
+    // reads the Shopify shape (transactions[].maximum_refundable, refund_line_items, currency),
+    // so transform it here — otherwise RP does `.transactions.map()` on undefined and 500s.
+    return this.transformer.shopifyRefundCalculate(raw, orderId);
   }
 
   async createRefund(merchantId: string, orderId: string, body: unknown): Promise<unknown> {

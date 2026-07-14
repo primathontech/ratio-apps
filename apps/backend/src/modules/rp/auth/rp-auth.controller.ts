@@ -9,7 +9,6 @@ import type { CryptoService } from '../../../core/crypto/crypto.service';
 import { extractMerchantIdFromJwt } from '../../../core/oauth/oauth.service';
 import type { RatioClient } from '../../../core/ratio-client/ratio.client';
 import { RpMerchantsService } from '../merchants/merchants.service';
-import { RpClientService } from '../rp-client/rp-client.service';
 import { RP_CRYPTO, RP_RATIO_CLIENT } from '../tokens';
 
 function extractDomainFromJwt(token: string): string | undefined {
@@ -31,7 +30,6 @@ export class RpAuthController {
 
   constructor(
     private readonly merchants: RpMerchantsService,
-    private readonly rpClient: RpClientService,
     @Inject(RP_CRYPTO) private readonly crypto: CryptoService,
     @Inject(RP_RATIO_CLIENT) private readonly ratio: RatioClient,
     private readonly config: ConfigService<Env, true>,
@@ -86,11 +84,6 @@ export class RpAuthController {
       accessTokenEnc: this.crypto.encrypt(tokenRes.access_token),
       refreshTokenEnc: this.crypto.encrypt(tokenRes.refresh_token),
       expiresAt,
-    });
-
-    // Fire-and-forget — install succeeds even if RP is temporarily down.
-    this.rpClient.registerMerchant(domain).catch((err) => {
-      this.logger.error({ merchantId, err }, 'RP register failed after install');
     });
 
     const adminBase = this.config.get('RATIO_RP_ADMIN_BASE_URL' as never, { infer: true }) as string;
