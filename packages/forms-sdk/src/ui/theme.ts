@@ -1,4 +1,4 @@
-// TEMPLATE: shared visual theme tokens for the SDK components. Customize the default design tokens to match this vendor.
+// Shared visual theme tokens for the forms SDK components.
 import { css } from 'lit';
 
 /**

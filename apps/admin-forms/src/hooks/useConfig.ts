@@ -28,8 +28,7 @@ export function useConfig() {
 export function useUpdateConfig() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: FormsConfigInput) =>
-      api<FormsConfig>('PUT', '/api/forms-config', input),
+    mutationFn: (input: FormsConfigInput) => api<FormsConfig>('PUT', '/api/forms-config', input),
     onSuccess: (data) => {
       qc.setQueryData(queryKeys.config(), data);
     },

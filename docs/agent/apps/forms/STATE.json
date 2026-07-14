@@ -2,7 +2,7 @@
   "slug": "forms",
   "displayName": "Form Builder",
   "hasStorefrontSdk": true,
-  "phase": "backend-builder",
+  "phase": "code-reviewer",
   "gates": {
     "prd": "approved",
     "trd": "approved",
@@ -16,8 +16,13 @@
     "tdd": "docs/agent/apps/forms/TDD.md"
   },
   "scopes": [],
-  "webhooks": ["app/uninstalled"],
-  "paths": { "module": "apps/backend/src/modules/forms", "admin": "apps/admin-forms" },
+  "webhooks": [
+    "app/uninstalled"
+  ],
+  "paths": {
+    "module": "apps/backend/src/modules/forms",
+    "admin": "apps/admin-forms"
+  },
   "filesCreated": [
     "docs/agent/apps/forms/PRD.md",
     "docs/agent/apps/forms/STATE.json",
@@ -28,22 +33,61 @@
     "packages/forms-sdk/",
     "packages/shared/src/schemas/forms-config.ts",
     "packages/shared/src/schemas/forms-config.test.ts",
-    "packages/shared/src/schemas/forms-search.ts",
-    "packages/shared/src/schemas/forms-search.test.ts",
     "packages/shared/src/constants/forms-events.ts",
     "packages/shared/src/index.ts",
     "apps/backend/src/config/apps.ts",
     "apps/backend/src/module-registry.ts",
     "docker/mysql/init/01-database.sql",
-    ".env.example"
+    ".env.example",
+    "apps/admin-forms/src/lib/builder-state.ts",
+    "apps/admin-forms/src/lib/builder-state.test.ts",
+    "apps/admin-forms/src/hooks/useForms.ts",
+    "apps/admin-forms/src/hooks/useSubmissions.ts",
+    "apps/admin-forms/src/hooks/useWebhookTest.ts",
+    "apps/admin-forms/src/components/FormPreview.tsx",
+    "apps/admin-forms/src/routes/builder.$formId.tsx",
+    "apps/admin-forms/src/routes/submissions.$formId.tsx",
+    "apps/admin-forms/src/routes/builder.test.tsx",
+    "apps/admin-forms/src/routes/forms-list.test.tsx",
+    "apps/admin-forms/src/routes/submissions.test.tsx",
+    "apps/admin-forms/src/routes/config.test.tsx",
+    "apps/admin-forms/src/test-utils.tsx",
+    "packages/forms-sdk/src/ui/form-renderer.ts",
+    "packages/forms-sdk/src/ui/form-renderer.test.ts",
+    "packages/forms-sdk/src/client.test.ts",
+    "packages/forms-sdk/src/loader.test.ts"
   ],
   "deployTarget": null,
   "prUrl": null,
   "history": [
-    { "phase": "prd-architect", "ts": "2026-07-14T00:00:00.000Z" },
-    { "phase": "trd-architect", "ts": "2026-07-14T00:00:00.000Z" },
-    { "phase": "tdd-author", "ts": "2026-07-14T00:00:00.000Z" },
-    { "phase": "vendor-scaffolder", "ts": "2026-07-14T00:00:00.000Z" },
-    { "phase": "backend-builder", "ts": "2026-07-14T00:00:00.000Z" }
+    {
+      "phase": "prd-architect",
+      "ts": "2026-07-14T00:00:00.000Z"
+    },
+    {
+      "phase": "trd-architect",
+      "ts": "2026-07-14T00:00:00.000Z"
+    },
+    {
+      "phase": "tdd-author",
+      "ts": "2026-07-14T00:00:00.000Z"
+    },
+    {
+      "phase": "vendor-scaffolder",
+      "ts": "2026-07-14T00:00:00.000Z"
+    },
+    {
+      "phase": "backend-builder",
+      "ts": "2026-07-14T00:00:00.000Z"
+    },
+    {
+      "phase": "frontend-builder",
+      "ts": "2026-07-14T00:00:00.000Z"
+    },
+    {
+      "phase": "frontend-builder",
+      "ts": "2026-07-14T00:00:00.000Z",
+      "note": "admin-forms screens + forms-sdk renderer complete; all gates green (admin 38, sdk 35, shared 90, backend 694 tests)"
+    }
   ]
 }

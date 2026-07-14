@@ -1,16 +1,16 @@
 import { Card, PrimaryButton, Typography } from '@primathonos/orion';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { ScriptTagPanel } from '@/components/ScriptTagPanel';
-import { useConfig } from '@/hooks/useConfig';
+import { useForms } from '@/hooks/useForms';
 import { useMerchant } from '@/hooks/useMerchant';
 
 export const Route = createFileRoute('/install')({ component: InstallPage });
 
-function InstallPage() {
+export function InstallPage() {
   const merchant = useMerchant();
-  const config = useConfig();
+  const forms = useForms(1);
 
-  if (merchant.isLoading || config.isLoading) return <Typography.Text>Loading…</Typography.Text>;
+  if (merchant.isLoading || forms.isLoading) return <Typography.Text>Loading…</Typography.Text>;
   if (!merchant.data) {
     return (
       <Typography.Text>
@@ -19,22 +19,22 @@ function InstallPage() {
     );
   }
 
-  if (!config.data?.apiKey) {
+  if ((forms.data?.forms.length ?? 0) === 0) {
     return (
       <Card
-        title="Configure Forms first"
+        title="Create a form first"
         extra={
           <Typography.Text type="secondary">
-            You need Forms credentials before we can generate the install tag.
+            You need at least one form before embedding.
           </Typography.Text>
         }
       >
-        <Link to="/config">
-          <PrimaryButton>Go to config</PrimaryButton>
+        <Link to="/">
+          <PrimaryButton>Go to forms</PrimaryButton>
         </Link>
       </Card>
     );
   }
 
-  return <ScriptTagPanel merchantId={merchant.data.id} />;
+  return <ScriptTagPanel merchantId={merchant.data.id} forms={forms.data?.forms ?? []} />;
 }

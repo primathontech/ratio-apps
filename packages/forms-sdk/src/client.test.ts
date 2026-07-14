@@ -1,91 +1,155 @@
 import { describe, expect, it, vi } from 'vitest';
-import { FormsClient } from './client';
+import { FormsClient, FormsClientError } from './client';
 
-function mockFetch(json: unknown) {
-  return vi.fn(
-    async () =>
-      new Response(JSON.stringify(json), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
-  );
+function jsonResponse(status: number, body: unknown): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    text: () => Promise.resolve(JSON.stringify(body)),
+  } as unknown as Response;
 }
 
-const cfg = { baseUrl: 'https://api.wizsearch.in/v1', storeId: 's1', apiKey: 'pub', userId: 'u1' };
+function makeClient(responses: Array<{ status: number; body: unknown }>) {
+  const fetchImpl = vi.fn();
+  for (const { status, body } of responses) {
+    fetchImpl.mockResolvedValueOnce(jsonResponse(status, body));
+  }
+  return { client: new FormsClient({ apiBase: '/forms' }, fetchImpl), fetchImpl };
+}
 
-describe('FormsClient', () => {
-  it('sends public auth headers and form body to /autocomplete', async () => {
-    const fetchImpl = mockFetch({
-      payload: { categories: [], brands: [], others: [], products: [] },
+const SCHEMA = {
+  id: 'form_1',
+  name: 'Contact',
+  schema: [{ key: 'email', type: 'email', label: 'Email', required: true }],
+  submitLabel: 'Send',
+  successMessage: 'Thanks!',
+  spamProtection: 'honeypot',
+};
+
+describe('FormsClient.getFormSchema', () => {
+  it('GETs the public schema endpoint and unwraps the { data } envelope', async () => {
+    const { client, fetchImpl } = makeClient([{ status: 200, body: { data: SCHEMA } }]);
+    const schema = await client.getFormSchema('form_1');
+    expect(schema.id).toBe('form_1');
+    expect(fetchImpl).toHaveBeenCalledWith(
+      '/forms/public/v1/forms/form_1',
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
+  it('maps 403 form_inactive to a "form closed" error', async () => {
+    const { client } = makeClient([
+      { status: 403, body: { message: 'not accepting', error_code: 'form_inactive' } },
+    ]);
+    const err = (await client.getFormSchema('form_1').catch((e) => e)) as FormsClientError;
+    expect(err).toBeInstanceOf(FormsClientError);
+    expect(err.isFormClosed).toBe(true);
+    expect(err.isFormUnavailable).toBe(false);
+  });
+
+  it('maps 403 form_unavailable (kill switch) and 404 to "unavailable"', async () => {
+    const { client } = makeClient([
+      { status: 403, body: { error_code: 'form_unavailable' } },
+      { status: 404, body: { error_code: 'form_not_available' } },
+    ]);
+    const killSwitched = (await client.getFormSchema('f').catch((e) => e)) as FormsClientError;
+    expect(killSwitched.isFormUnavailable).toBe(true);
+    const deleted = (await client.getFormSchema('f').catch((e) => e)) as FormsClientError;
+    expect(deleted.isFormUnavailable).toBe(true);
+  });
+});
+
+describe('FormsClient.submit', () => {
+  it('POSTs the submission body and returns the submissionId', async () => {
+    const { client, fetchImpl } = makeClient([
+      { status: 200, body: { data: { submissionId: 'sub_1' } } },
+    ]);
+    const result = await client.submit('form_1', {
+      fields: { email: 'a@b.co' },
+      sessionId: 'wz_x',
+      _hp: '',
     });
-    const c = new FormsClient(cfg, fetchImpl as unknown as typeof fetch);
-    await c.autocomplete('crea', { productsCount: 6 });
-    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe('https://api.wizsearch.in/v1/autocomplete');
-    const headers = init.headers as Record<string, string>;
-    expect(headers['x-store-id']).toBe('s1');
-    expect(headers['x-api-key']).toBe('pub');
-    expect(headers['x-forms-userId']).toBe('u1');
-    expect(headers).not.toHaveProperty('x-store-secret');
-    expect(String(init.body)).toContain('q=crea');
-    expect(String(init.body)).toContain('productsCount=6');
+    expect(result.submissionId).toBe('sub_1');
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/forms/public/v1/forms/form_1/submissions');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(String(init.body))).toEqual({
+      fields: { email: 'a@b.co' },
+      sessionId: 'wz_x',
+      _hp: '',
+    });
   });
 
-  it('aborts the previous autocomplete when a new one starts', async () => {
-    const fetchImpl = vi.fn(
-      (_u: string, init: RequestInit) =>
-        new Promise((_res, rej) =>
-          (init.signal as AbortSignal).addEventListener('abort', () =>
-            rej(new DOMException('aborted', 'AbortError')),
-          ),
-        ),
-    );
-    const c = new FormsClient(cfg, fetchImpl as unknown as typeof fetch);
-    const p1 = c.autocomplete('a').catch((e) => e);
-    c.autocomplete('ab').catch(() => {});
-    const err = await p1;
-    expect(err.name).toBe('AbortError');
+  it('maps 409 to isDuplicate', async () => {
+    const { client } = makeClient([
+      { status: 409, body: { message: 'dup', error_code: 'duplicate_submission' } },
+    ]);
+    const err = (await client.submit('f', { fields: {} }).catch((e) => e)) as FormsClientError;
+    expect(err.isDuplicate).toBe(true);
   });
 
-  it('search posts to /products/search', async () => {
-    const fetchImpl = mockFetch({ payload: { result: [], total: 0, pages: 0, facets: [] } });
-    const c = new FormsClient(cfg, fetchImpl as unknown as typeof fetch);
-    const r = await c.search('creatine', { productsCount: 24 });
-    expect((fetchImpl.mock.calls[0] as unknown as [string])[0]).toBe(
-      'https://api.wizsearch.in/v1/products/search',
-    );
-    expect(r.payload.total).toBe(0);
+  it('maps 422 to isValidationError with per-field errors', async () => {
+    const { client } = makeClient([
+      {
+        status: 422,
+        body: {
+          message: 'submission validation failed',
+          error_code: 'SUBMISSION_INVALID',
+          details: { fields: { email: 'must be a valid email address' } },
+        },
+      },
+    ]);
+    const err = (await client.submit('f', { fields: {} }).catch((e) => e)) as FormsClientError;
+    expect(err.isValidationError).toBe(true);
+    expect(err.fieldErrors).toEqual({ email: 'must be a valid email address' });
   });
 
-  it('filter sends the filter model as a JSON string param', async () => {
-    const fetchImpl = mockFetch({ payload: { result: [], total: 0, pages: 0, facets: [] } });
-    const c = new FormsClient(cfg, fetchImpl as unknown as typeof fetch);
-    await c.filter(
-      { brands: ['Wellcore'], sellingPrice: [{ gte: 100, lte: 900 }] },
-      { q: 'creatine' },
-    );
-    const init = (fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1];
-    const body = String(init.body);
-    expect(body).toContain('filters=');
-    expect(decodeURIComponent(body)).toContain('"brands":["Wellcore"]');
+  it('maps 429 to isRateLimited', async () => {
+    const { client } = makeClient([
+      { status: 429, body: { message: 'slow down', error_code: 'RATE_LIMITED' } },
+    ]);
+    const err = (await client.submit('f', { fields: {} }).catch((e) => e)) as FormsClientError;
+    expect(err.isRateLimited).toBe(true);
+  });
+});
+
+describe('FormsClient uploads', () => {
+  it('requestUpload POSTs the field/type/size and returns the presign target', async () => {
+    const { client, fetchImpl } = makeClient([
+      {
+        status: 200,
+        body: { data: { uploadUrl: 'https://s3/put?sig=1', objectKey: 'm1/form_1/d1/resume' } },
+      },
+    ]);
+    const target = await client.requestUpload('form_1', {
+      fieldKey: 'resume',
+      contentType: 'application/pdf',
+      size: 1234,
+    });
+    expect(target.objectKey).toBe('m1/form_1/d1/resume');
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/forms/public/v1/forms/form_1/uploads');
+    expect(JSON.parse(String(init.body))).toEqual({
+      fieldKey: 'resume',
+      contentType: 'application/pdf',
+      size: 1234,
+    });
   });
 
-  it('trending GETs /trendingSearches', async () => {
-    const fetchImpl = mockFetch({ payload: { queries: ['creatine', 'pre-workout'] } });
-    const c = new FormsClient(cfg, fetchImpl as unknown as typeof fetch);
-    const r = await c.trending(6);
-    expect((fetchImpl.mock.calls[0] as unknown as [string])[0]).toContain(
-      '/trendingSearches?size=6',
+  it('uploadFile PUTs the bytes to the presigned URL and throws on non-2xx', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: 200 })
+      .mockResolvedValueOnce({ ok: false, status: 403 });
+    const client = new FormsClient({ apiBase: '/forms' }, fetchImpl);
+    const blob = new Blob(['x'], { type: 'application/pdf' });
+    await client.uploadFile({ uploadUrl: 'https://s3/put', objectKey: 'k' }, blob);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://s3/put',
+      expect.objectContaining({ method: 'PUT', body: blob }),
     );
-    expect(r.payload.queries).toContain('creatine');
-  });
-
-  it('event posts to /events/<kind> and never throws on failure', async () => {
-    const fetchImpl = vi.fn(async () => new Response('nope', { status: 500 }));
-    const c = new FormsClient(cfg, fetchImpl as unknown as typeof fetch);
-    await expect(c.event('click', { productId: '1' })).resolves.toBeUndefined();
-    expect((fetchImpl.mock.calls[0] as unknown as [string])[0]).toBe(
-      'https://api.wizsearch.in/v1/events/click',
-    );
+    await expect(
+      client.uploadFile({ uploadUrl: 'https://s3/put', objectKey: 'k' }, blob),
+    ).rejects.toBeInstanceOf(FormsClientError);
   });
 });

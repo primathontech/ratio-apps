@@ -1,7 +1,6 @@
 import {
-  BarChartOutlined,
   Button,
-  CheckSquareOutlined,
+  CodeOutlined,
   Drawer,
   HomeOutlined,
   Layout,
@@ -13,11 +12,11 @@ import {
 import { Link, useRouterState } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 
+// Builder + submissions are reached from the forms list rows, not the navbar.
 const items = [
   { key: '/', icon: <HomeOutlined />, label: <Link to="/">Overview</Link> },
   { key: '/config', icon: <SettingOutlined />, label: <Link to="/config">Config</Link> },
-  { key: '/events', icon: <CheckSquareOutlined />, label: <Link to="/events">Events</Link> },
-  { key: '/install', icon: <BarChartOutlined />, label: <Link to="/install">Install</Link> },
+  { key: '/install', icon: <CodeOutlined />, label: <Link to="/install">Install</Link> },
 ];
 
 const MOBILE_BREAKPOINT = 720;

@@ -5,7 +5,7 @@ import { defineConfig, devices } from '@playwright/test';
  *
  * A tiny `node:http` static server (`e2e/server.mjs`) serves the package root on
  * http://localhost:5180 so both `/dist/*.js` and `/e2e/*.html` are reachable on
- * one origin. The spec intercepts `/forms/sdk/**` + `api.wizsearch.in/**` via
+ * one origin. Specs intercept `/forms/public/v1/**` via
  * `page.route` so no real backend is required.
  *
  * Kept OUT of the default `test` script (which runs Vitest); run with

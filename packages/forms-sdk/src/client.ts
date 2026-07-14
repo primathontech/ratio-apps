@@ -1,160 +1,169 @@
-// TEMPLATE: this file is the VENDOR-SPECIFIC API contract — the part each new
-// storefront SDK MUST rewrite. Replace the auth headers, endpoint paths, request
-// params, and response types below with THIS vendor's public search API. The
-// result types (`Forms*Result`) come from `@ratio-app/shared` — define them
-// there per vendor. Document the contract in `docs/README.md`.
-import type {
-  FormsAutocompleteResult,
-  FormsSearchResult,
-  FormsTrendingResult,
-} from '@ratio-app/shared';
+// The forms PUBLIC API contract (TRD §2 /forms/public/v1/*): schema fetch,
+// presigned upload, and submission intake. Types come from `@ratio-app/shared`
+// TYPE-ONLY so Zod never reaches the browser bundle.
+import type { FormField } from '@ratio-app/shared';
 
-/**
- * Public storefront config the {@link FormsClient} is constructed with.
- *
- * Only the **public** Forms credentials live here — `storeId` + `apiKey`. A
- * private `storeSecret` must NEVER reach the browser, so this interface has no
- * field for one.
- */
+/** Runtime config injected by the backend SDK prelude (sdk.service.ts). */
 export interface FormsClientConfig {
-  baseUrl: string;
-  storeId: string;
-  apiKey: string;
-  userId?: string;
+  /** e.g. `/forms` (same-origin) or `https://api.example.com/forms`. */
+  apiBase: string;
 }
 
-/** Thrown when a Forms endpoint responds with a non-2xx status. */
+/** The redacted render schema `GET /public/v1/forms/:formId` serves. */
+export interface PublicFormSchema {
+  id: string;
+  name: string;
+  schema: FormField[];
+  submitLabel: string;
+  successMessage: string;
+  spamProtection: 'recaptcha' | 'honeypot';
+  recaptchaSiteKey?: string;
+}
+
+export interface UploadRequest {
+  fieldKey: string;
+  contentType: string;
+  size: number;
+}
+
+export interface UploadTarget {
+  uploadUrl: string;
+  objectKey: string;
+}
+
+export interface SubmissionInput {
+  fields: Record<string, unknown>;
+  files?: Record<string, string>;
+  sessionId?: string;
+  recaptchaToken?: string;
+  /** Honeypot value — forwarded verbatim (must be empty for humans). */
+  _hp?: string;
+}
+
+export interface SubmissionResult {
+  submissionId: string;
+}
+
+/**
+ * Thrown for every non-2xx response. `errorCode` carries the backend's
+ * `error_code` (e.g. `form_inactive`, `form_unavailable`,
+ * `duplicate_submission`, `RATE_LIMITED`, `SUBMISSION_INVALID`), and
+ * `fieldErrors` the per-field messages of a 422.
+ */
 export class FormsClientError extends Error {
   constructor(
     public readonly status: number,
     message: string,
+    public readonly errorCode?: string,
+    public readonly fieldErrors?: Record<string, string>,
   ) {
     super(message);
     this.name = 'FormsClientError';
   }
+
+  /** 403 `form_inactive` — the form exists but is unpublished ("form closed"). */
+  get isFormClosed(): boolean {
+    return this.errorCode === 'form_inactive';
+  }
+
+  /** 403 kill switch / 404 deleted — "no longer available". */
+  get isFormUnavailable(): boolean {
+    return this.status === 404 || this.errorCode === 'form_unavailable';
+  }
+
+  get isDuplicate(): boolean {
+    return this.status === 409;
+  }
+
+  get isRateLimited(): boolean {
+    return this.status === 429;
+  }
+
+  get isValidationError(): boolean {
+    return this.status === 422;
+  }
+}
+
+interface ErrorEnvelope {
+  message?: string;
+  error_code?: string;
+  details?: { fields?: Record<string, string> };
 }
 
 /**
- * The Forms CommonFilter model (`/products/filter`). Permissive on purpose —
- * Forms/the backend own validation; the client just serializes it to JSON.
- */
-export type CommonFilter = Record<string, unknown>;
-
-type FormParams = Record<string, string | number | boolean | undefined>;
-
-/**
- * Typed REST wrapper over the Forms **public** storefront search API using
- * native `fetch` + `AbortController`. Browser-safe: sends only public auth
- * headers, never a secret.
+ * Typed `fetch` wrapper over the forms public storefront API. Browser-safe:
+ * no credentials of any kind — these endpoints are deliberately public.
  */
 export class FormsClient {
-  #autocompleteAbort?: AbortController;
-
   constructor(
     private readonly cfg: FormsClientConfig,
     private readonly fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis),
   ) {}
 
-  private headers(): Record<string, string> {
-    // TEMPLATE: replace with the auth headers THIS vendor's search API expects
-    // (header names, public key/store id, anon user id header).
-    return {
-      'x-store-id': this.cfg.storeId,
-      'x-api-key': this.cfg.apiKey,
-      ...(this.cfg.userId ? { 'x-forms-userId': this.cfg.userId } : {}),
-    };
+  /** Render schema for a published form. 403/404 map to FormsClientError. */
+  getFormSchema(formId: string): Promise<PublicFormSchema> {
+    return this.request<PublicFormSchema>('GET', `/public/v1/forms/${encodeURIComponent(formId)}`);
   }
 
-  private async postForm<T>(path: string, params: FormParams, signal?: AbortSignal): Promise<T> {
-    const usp = new URLSearchParams();
-    for (const [key, value] of Object.entries(params)) {
-      if (value !== undefined) usp.append(key, String(value));
-    }
-    const res = await this.fetchImpl(`${this.cfg.baseUrl}${path}`, {
-      method: 'POST',
-      headers: {
-        ...this.headers(),
-        'content-type': 'application/x-www-form-urlencoded',
-      },
-      body: usp.toString(),
-      ...(signal ? { signal } : {}),
-    });
-    if (!res.ok) throw new FormsClientError(res.status, await res.text());
-    return (await res.json()) as T;
-  }
-
-  /** Autocomplete overlay. Aborts any in-flight autocomplete first. */
-  async autocomplete(
-    q: string,
-    opts: { suggestionsCount?: number; productsCount?: number; currency?: string } = {},
-  ): Promise<FormsAutocompleteResult> {
-    this.#autocompleteAbort?.abort();
-    const controller = new AbortController();
-    this.#autocompleteAbort = controller;
-    // TEMPLATE: replace the endpoint path + params with this vendor's autocomplete endpoint.
-    return this.postForm<FormsAutocompleteResult>(
-      '/autocomplete',
-      {
-        q,
-        suggestionsCount: opts.suggestionsCount,
-        productsCount: opts.productsCount ?? 6,
-        currency: opts.currency,
-      },
-      controller.signal,
+  /** Presigned PUT for a file field — call before `submit`, PUT the bytes, then attach `objectKey`. */
+  requestUpload(formId: string, body: UploadRequest): Promise<UploadTarget> {
+    return this.request<UploadTarget>(
+      'POST',
+      `/public/v1/forms/${encodeURIComponent(formId)}/uploads`,
+      body,
     );
   }
 
-  /** Full search results page. */
-  async search(
-    q: string,
-    opts: { productsCount?: number; currency?: string } = {},
-  ): Promise<FormsSearchResult> {
-    // TEMPLATE: replace the endpoint path + params with this vendor's search endpoint.
-    return this.postForm<FormsSearchResult>('/products/search', {
-      q,
-      productsCount: opts.productsCount,
-      currency: opts.currency,
+  /** Upload the file bytes to the presigned URL. */
+  async uploadFile(target: UploadTarget, file: Blob): Promise<void> {
+    const res = await this.fetchImpl(target.uploadUrl, {
+      method: 'PUT',
+      headers: { 'content-type': file.type },
+      body: file,
     });
-  }
-
-  /** Faceted/filtered listing — serializes the CommonFilter model as JSON. */
-  async filter(
-    filters: CommonFilter,
-    opts: { q?: string; productsCount?: number } = {},
-  ): Promise<FormsSearchResult> {
-    // TEMPLATE: replace the endpoint path + params with this vendor's faceted/filter endpoint.
-    return this.postForm<FormsSearchResult>('/products/filter', {
-      filters: JSON.stringify(filters),
-      q: opts.q,
-      productsCount: opts.productsCount,
-    });
-  }
-
-  /** Trending searches. */
-  async trending(size = 6): Promise<FormsTrendingResult> {
-    // TEMPLATE: replace the endpoint path + params with this vendor's trending-searches endpoint.
-    const res = await this.fetchImpl(`${this.cfg.baseUrl}/trendingSearches?size=${size}`, {
-      method: 'GET',
-      headers: this.headers(),
-    });
-    if (!res.ok) throw new FormsClientError(res.status, await res.text());
-    return (await res.json()) as FormsTrendingResult;
-  }
-
-  /** Fire-and-forget analytics event — never throws, never rejects. */
-  async event(kind: 'click' | 'view' | 'converted', body: Record<string, unknown>): Promise<void> {
-    try {
-      // TEMPLATE: replace the endpoint path + body with this vendor's analytics-event endpoint.
-      await this.fetchImpl(`${this.cfg.baseUrl}/events/${kind}`, {
-        method: 'POST',
-        headers: {
-          ...this.headers(),
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify(body),
-      });
-    } catch {
-      // fire-and-forget: swallow all errors and non-ok statuses
+    if (!res.ok) {
+      throw new FormsClientError(res.status, 'file upload failed');
     }
+  }
+
+  /** THE public intake. 200 → submissionId; 403/409/422/429 → FormsClientError. */
+  submit(formId: string, input: SubmissionInput): Promise<SubmissionResult> {
+    return this.request<SubmissionResult>(
+      'POST',
+      `/public/v1/forms/${encodeURIComponent(formId)}/submissions`,
+      input,
+    );
+  }
+
+  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const res = await this.fetchImpl(`${this.cfg.apiBase}${path}`, {
+      method,
+      headers: {
+        accept: 'application/json',
+        ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
+      },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
+    const text = await res.text();
+    let json: unknown = {};
+    if (text) {
+      try {
+        json = JSON.parse(text);
+      } catch {
+        json = {};
+      }
+    }
+    if (!res.ok) {
+      const envelope = json as ErrorEnvelope;
+      throw new FormsClientError(
+        res.status,
+        envelope.message ?? `request failed (${res.status})`,
+        envelope.error_code,
+        envelope.details?.fields,
+      );
+    }
+    // The backend's global ResponseInterceptor wraps payloads as `{ data }`.
+    const wrapped = json as { data?: T };
+    return (wrapped.data ?? json) as T;
   }
 }

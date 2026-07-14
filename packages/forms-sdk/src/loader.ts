@@ -1,89 +1,63 @@
-// TEMPLATE: tiny IIFE bootstrap injected via a <script> tag on the storefront.
-// Customize the served path base (`/forms/sdk/`), the injected bundle
-// filenames, and the `__FORMS__` runtime-config global to match this vendor.
-import type { FormsStorefrontConfig } from '@ratio-app/shared';
+/**
+ * Mount scanner for the forms SDK.
+ *
+ * The backend serves `/forms/sdk/:merchantId.js` as a config prelude
+ * (`window.__FORMS_SDK_CONFIG__ = { merchantId, apiBase }` — see
+ * `sdk.service.ts`) followed by the widget bundle, which registers
+ * `<ratio-form>` and calls {@link bootForms}. This module is also built
+ * standalone as the tiny `forms-loader.js` IIFE for setups that serve the
+ * widget separately.
+ *
+ * `bootForms` upgrades every `<div data-ratio-form="FORM_ID">` on the page
+ * into a `<ratio-form form-id="FORM_ID">` renderer. Idempotent: mounts are
+ * marked so a second call (or a second script include) never double-renders.
+ */
+
+export interface FormsSdkConfig {
+  merchantId: string;
+  /** Public API base the renderer talks to (e.g. `/forms`). */
+  apiBase: string;
+}
 
 declare global {
   interface Window {
-    __FORMS__?: FormsStorefrontConfig;
+    __FORMS_SDK_CONFIG__?: FormsSdkConfig;
   }
 }
 
-let injected = false;
+const MOUNT_SELECTOR = '[data-ratio-form]';
+const UPGRADED_ATTR = 'data-ratio-form-mounted';
 
-/** Locate the loader's own <script> tag (currentScript first, then a src match). */
-function findScript(): HTMLScriptElement | null {
-  return (
-    (document.currentScript as HTMLScriptElement | null) ??
-    document.querySelector<HTMLScriptElement>('script[src*="forms-loader.js"]')
-  );
+/** Upgrade all un-upgraded mounts. Returns the number upgraded. */
+export function upgradeMounts(root: ParentNode = document): number {
+  const cfg = window.__FORMS_SDK_CONFIG__;
+  if (!cfg?.apiBase) return 0;
+  let upgraded = 0;
+  for (const mount of Array.from(root.querySelectorAll<HTMLElement>(MOUNT_SELECTOR))) {
+    if (mount.hasAttribute(UPGRADED_ATTR)) continue;
+    const formId = mount.getAttribute('data-ratio-form');
+    if (!formId) continue;
+    mount.setAttribute(UPGRADED_ATTR, '');
+    const el = document.createElement('ratio-form');
+    el.setAttribute('form-id', formId);
+    mount.appendChild(el);
+    upgraded += 1;
+  }
+  return upgraded;
 }
 
-/** Derive the backend origin and `?store=` merchant id from the loader src. */
-function parseSrc(src: string): { origin: string; store: string | null } {
-  const url = new URL(src);
-  return { origin: url.origin, store: url.searchParams.get('store') };
+/** Boot once the DOM is ready (the script tag is `defer`, but be safe). */
+export function bootForms(): void {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => void upgradeMounts(), { once: true });
+    return;
+  }
+  upgradeMounts();
 }
 
-/**
- * Boot the Forms storefront SDK: read config from the script origin, stash it
- * on `window.__FORMS__`, and (when search is enabled) lazily inject the widget
- * module on first input focus, with an idle/timeout fallback.
- */
-export async function bootForms(): Promise<void> {
-  const script = findScript();
-  if (!script) return;
-
-  const { origin, store } = parseSrc(script.src);
-  if (!store) return;
-
-  const res = await fetch(`${origin}/forms/sdk/config/${store}`);
-  if (!res.ok) return;
-  const cfg = (await res.json()) as FormsStorefrontConfig;
-
-  window.__FORMS__ = cfg;
-  if (!cfg.searchEnabled) return;
-
-  /** Idempotently inject a `<script type="module">`, tagged with `marker`. */
-  function injectScript(src: string, marker: string): void {
-    if (document.querySelector(`script[${marker}]`)) return;
-    const tag = document.createElement('script');
-    tag.type = 'module';
-    tag.setAttribute(marker, '');
-    tag.src = src;
-    document.head.appendChild(tag);
-  }
-
-  function injectWidget(): void {
-    if (injected) return;
-    injected = true;
-    injectScript(`${origin}/forms/sdk/forms-widget.js?v=${cfg.version}`, 'data-forms-widget');
-  }
-
-  // On the results route, eagerly inject the (separate) results-page bundle.
-  const onResultsPage =
-    window.location.pathname === cfg.resultsPagePath ||
-    window.location.pathname.startsWith(`${cfg.resultsPagePath}/`);
-  if (onResultsPage) {
-    injectScript(`${origin}/forms/sdk/forms-results.js?v=${cfg.version}`, 'data-forms-results');
-  }
-
-  const input = document.querySelector(cfg.inputSelector);
-  if (input) {
-    input.addEventListener('focusin', injectWidget, { once: true });
-  }
-
-  // Idle fallback so results-only / never-focused pages still load the widget.
-  // Both paths are async, so tests observing "no widget yet" still hold.
-  if (typeof window.requestIdleCallback === 'function') {
-    window.requestIdleCallback(() => injectWidget());
-  } else {
-    setTimeout(injectWidget, 4000);
-  }
-}
-
-// Auto-boot when pasted into a real page. `document.currentScript` is null at
-// module-import time under Vitest, so this never fires during tests.
+// Auto-boot when included as the standalone loader bundle on a real page.
+// `document.currentScript` is null at module-import time under Vitest, so
+// this never fires during tests.
 if (typeof document !== 'undefined' && document.currentScript) {
-  void bootForms();
+  bootForms();
 }

@@ -24,9 +24,7 @@ export class ApiException extends Error {
 // http://localhost:3000), so we prepend `/forms` here so every call from
 // this SPA lands on the correct vendor namespace.
 const RAW_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
-const BASE = RAW_BASE.endsWith('/')
-  ? `${RAW_BASE.slice(0, -1)}/forms`
-  : `${RAW_BASE}/forms`;
+const BASE = RAW_BASE.endsWith('/') ? `${RAW_BASE.slice(0, -1)}/forms` : `${RAW_BASE}/forms`;
 
 export async function api<T>(
   method: string,

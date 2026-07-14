@@ -1,5 +1,4 @@
 [
   { "path": "dist/forms-loader.js", "limit": "3 KB" },
-  { "path": "dist/forms-widget.js", "limit": "10 KB" },
-  { "path": "dist/forms-results.js", "limit": "16 KB" }
+  { "path": "dist/forms-widget.js", "limit": "16 KB" }
 ]

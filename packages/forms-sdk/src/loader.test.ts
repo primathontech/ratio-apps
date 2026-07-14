@@ -1,78 +1,40 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { bootForms } from './loader';
+import { afterEach, describe, expect, it } from 'vitest';
+import { upgradeMounts } from './loader';
 
-const CONFIG = {
-  storeId: 's1',
-  apiKey: 'pub',
-  version: '0.1.0',
-  inputSelector: '#search',
-  resultsMountSelector: '#results',
-  resultsPagePath: '/search',
-  searchEnabled: true,
-  theme: { primary: '#0fb3a9' },
-};
+afterEach(() => {
+  document.body.innerHTML = '';
+  delete window.__FORMS_SDK_CONFIG__;
+});
 
-describe('loader', () => {
-  beforeEach(() => {
-    document.head.innerHTML = '';
-    document.body.innerHTML = '';
-    // @ts-expect-error reset test global
-    window.__FORMS__ = undefined;
-    // The loader injects a real <script type="module"> — happy-dom would
-    // otherwise try to load it over the network (ENOTFOUND on cdn.example.com,
-    // raised as an unhandled error that crashes the worker). Disabling script
-    // file loading keeps injection observable in the DOM with no network call.
-    // @ts-expect-error happyDOM is injected by the vitest happy-dom environment
-    window.happyDOM.settings.disableJavaScriptFileLoading = true;
-  });
-  afterEach(() => vi.restoreAllMocks());
-
-  function setup() {
-    document.head.innerHTML =
-      '<script id="forms-sdk" src="https://cdn.example.com/forms/sdk/forms-loader.js?store=m1"></script>';
-    document.body.innerHTML = '<input id="search" type="search" /><div id="results"></div>';
-    const fetchMock = vi.fn(
-      async () =>
-        new Response(JSON.stringify(CONFIG), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        }),
-    );
-    vi.stubGlobal('fetch', fetchMock);
-    return fetchMock;
-  }
-
-  it('fetches the config from the script origin and stashes it on window', async () => {
-    const fetchMock = setup();
-    await bootForms();
-    expect(fetchMock).toHaveBeenCalledWith('https://cdn.example.com/forms/sdk/config/m1');
-    // @ts-expect-error test global
-    expect(window.__FORMS__.storeId).toBe('s1');
+describe('upgradeMounts', () => {
+  it('does nothing without the SDK config prelude', () => {
+    document.body.innerHTML = '<div data-ratio-form="form_1"></div>';
+    expect(upgradeMounts()).toBe(0);
+    expect(document.querySelector('ratio-form')).toBeNull();
   });
 
-  it('injects the widget module script on first focus of the input', async () => {
-    setup();
-    await bootForms();
-    expect(document.querySelector('script[type="module"]')).toBeNull();
-    document.querySelector('#search')!.dispatchEvent(new Event('focusin', { bubbles: true }));
-    const widget = document.querySelector('script[type="module"]') as HTMLScriptElement | null;
-    expect(widget).not.toBeNull();
-    expect(widget!.src).toBe('https://cdn.example.com/forms/sdk/forms-widget.js?v=0.1.0');
+  it('upgrades every [data-ratio-form] mount to a <ratio-form> renderer', () => {
+    window.__FORMS_SDK_CONFIG__ = { merchantId: 'm1', apiBase: '/forms' };
+    document.body.innerHTML =
+      '<div data-ratio-form="form_1"></div><div data-ratio-form="form_2"></div>';
+    expect(upgradeMounts()).toBe(2);
+    const els = document.querySelectorAll('ratio-form');
+    expect(els).toHaveLength(2);
+    expect(els[0]?.getAttribute('form-id')).toBe('form_1');
+    expect(els[1]?.getAttribute('form-id')).toBe('form_2');
   });
 
-  it('does nothing when searchEnabled is false', async () => {
-    document.head.innerHTML =
-      '<script src="https://cdn.example.com/forms/sdk/forms-loader.js?store=m1"></script>';
-    document.body.innerHTML = '<input id="search" type="search" />';
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
-        async () =>
-          new Response(JSON.stringify({ ...CONFIG, searchEnabled: false }), { status: 200 }),
-      ),
-    );
-    await bootForms();
-    document.querySelector('#search')!.dispatchEvent(new Event('focusin', { bubbles: true }));
-    expect(document.querySelector('script[type="module"]')).toBeNull();
+  it('is idempotent — a second scan never double-renders a mount', () => {
+    window.__FORMS_SDK_CONFIG__ = { merchantId: 'm1', apiBase: '/forms' };
+    document.body.innerHTML = '<div data-ratio-form="form_1"></div>';
+    expect(upgradeMounts()).toBe(1);
+    expect(upgradeMounts()).toBe(0);
+    expect(document.querySelectorAll('ratio-form')).toHaveLength(1);
+  });
+
+  it('skips mounts with an empty form id', () => {
+    window.__FORMS_SDK_CONFIG__ = { merchantId: 'm1', apiBase: '/forms' };
+    document.body.innerHTML = '<div data-ratio-form=""></div>';
+    expect(upgradeMounts()).toBe(0);
   });
 });
