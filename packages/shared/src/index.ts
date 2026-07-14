@@ -3,8 +3,6 @@
 // _template vendor example (genericized starting point — a scaffolded vendor
 // gets its own `<slug>-events` / `<slug>-config` modules alongside these).
 export * from './constants/_template-events';
-// delhivery vendor (scaffolded).
-export * from './constants/delhivery-events';
 // forms vendor (Form Builder — first-party app).
 export * from './constants/forms-events';
 // google vendor (scaffolded) — vendor-specific config/events alongside the template example.
@@ -17,7 +15,6 @@ export * from './constants/openstore-events';
 export * from './constants/posthog-events';
 export * from './schemas/_template-config';
 export * from './schemas/capi-ingest';
-export * from './schemas/delhivery-config';
 // Schemas
 export * from './schemas/event-map';
 export * from './schemas/form-schema';
