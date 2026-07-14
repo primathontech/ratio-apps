@@ -22,3 +22,9 @@ export * from './schemas/event-map';
 export * from './schemas/merchant';
 // wizzy vendor (AI search & discovery) — search/autocomplete API + storefront config schemas.
 export * from './schemas/wizzy-search';
+// forms vendor (Form Builder — first-party app).
+export * from './constants/forms-events';
+export * from './schemas/form-schema';
+export * from './schemas/forms-config';
+// forms storefront SDK contracts (scaffold; reworked to the form-renderer contract by frontend-builder).
+export * from './schemas/forms-search';

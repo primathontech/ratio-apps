@@ -1,0 +1,49 @@
+{
+  "slug": "forms",
+  "displayName": "Form Builder",
+  "hasStorefrontSdk": true,
+  "phase": "backend-builder",
+  "gates": {
+    "prd": "approved",
+    "trd": "approved",
+    "tdd": "approved",
+    "pr": "pending",
+    "deploy": "pending"
+  },
+  "docs": {
+    "prd": "docs/agent/apps/forms/PRD.md",
+    "trd": "docs/agent/apps/forms/TRD.md",
+    "tdd": "docs/agent/apps/forms/TDD.md"
+  },
+  "scopes": [],
+  "webhooks": ["app/uninstalled"],
+  "paths": { "module": "apps/backend/src/modules/forms", "admin": "apps/admin-forms" },
+  "filesCreated": [
+    "docs/agent/apps/forms/PRD.md",
+    "docs/agent/apps/forms/STATE.json",
+    "docs/agent/apps/forms/TRD.md",
+    "docs/agent/apps/forms/TDD.md",
+    "apps/backend/src/modules/forms/",
+    "apps/admin-forms/",
+    "packages/forms-sdk/",
+    "packages/shared/src/schemas/forms-config.ts",
+    "packages/shared/src/schemas/forms-config.test.ts",
+    "packages/shared/src/schemas/forms-search.ts",
+    "packages/shared/src/schemas/forms-search.test.ts",
+    "packages/shared/src/constants/forms-events.ts",
+    "packages/shared/src/index.ts",
+    "apps/backend/src/config/apps.ts",
+    "apps/backend/src/module-registry.ts",
+    "docker/mysql/init/01-database.sql",
+    ".env.example"
+  ],
+  "deployTarget": null,
+  "prUrl": null,
+  "history": [
+    { "phase": "prd-architect", "ts": "2026-07-14T00:00:00.000Z" },
+    { "phase": "trd-architect", "ts": "2026-07-14T00:00:00.000Z" },
+    { "phase": "tdd-author", "ts": "2026-07-14T00:00:00.000Z" },
+    { "phase": "vendor-scaffolder", "ts": "2026-07-14T00:00:00.000Z" },
+    { "phase": "backend-builder", "ts": "2026-07-14T00:00:00.000Z" }
+  ]
+}
