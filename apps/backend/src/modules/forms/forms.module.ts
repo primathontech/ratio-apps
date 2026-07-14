@@ -1,8 +1,15 @@
 import { Module } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
 import { createAppProviders } from '../../core/factories/app-module.factory';
+import { QueueService } from '../../core/queue/queue.service';
 import { FormsConfigController } from './config/config.controller';
 import { FormsConfigService } from './config/config.service';
 import type { FormsDatabase } from './db/types';
+import { DeliverySweeperService } from './delivery/delivery-sweeper.service';
+import { FormsEmailService } from './delivery/email.service';
+import { FormsEmailWorker } from './delivery/email.worker';
+import { WebhookDeliveryService } from './delivery/webhook-delivery.service';
+import { WebhookDeliveryWorker } from './delivery/webhook-delivery.worker';
 import { FormsController } from './forms/forms.controller';
 import { FormsService } from './forms/forms.service';
 import { FormsBootstrap } from './forms.bootstrap';
@@ -12,7 +19,17 @@ import { FormsMerchantsController } from './merchants/merchants.controller';
 import { FormsOAuthController } from './oauth/oauth.controller';
 import { FormsSdkController } from './sdk/sdk.controller';
 import { FormsSdkService } from './sdk/sdk.service';
+import { FormsRecaptchaService } from './spam/recaptcha.service';
+import { SubmitRateLimitService } from './spam/submit-rate-limit.service';
+import { CsvExportService } from './submissions/csv-export.service';
+import { IdempotencyService } from './submissions/idempotency.service';
+import { PublicSubmissionsController } from './submissions/public-submissions.controller';
+import { SchemaValidatorService } from './submissions/schema-validator.service';
+import { SubmissionsController } from './submissions/submissions.controller';
+import { SubmissionsService } from './submissions/submissions.service';
 import { FORMS_CRYPTO, FORMS_MERCHANTS, FORMS_OAUTH, FORMS_RATIO, FORMS_WEBHOOKS } from './tokens';
+import { FormsS3Service } from './uploads/s3.service';
+import { UploadsController } from './uploads/uploads.controller';
 import { FormsAppUninstalledHandler } from './webhooks/app-uninstalled.handler';
 import { FormsWebhooksController } from './webhooks/webhooks.controller';
 
@@ -41,11 +58,16 @@ export {
  * those pieces are app-specific.
  */
 @Module({
-  imports: [FormsKyselyModule],
+  // ScheduleModule.forRoot() powers the minute delivery-sweeper cron
+  // (google reconcile precedent — forRoot() is idempotent across modules).
+  imports: [FormsKyselyModule, ScheduleModule.forRoot()],
   controllers: [
     FormsConfigController,
     FormsController,
     FormsSdkController,
+    PublicSubmissionsController,
+    SubmissionsController,
+    UploadsController,
     FormsOAuthController,
     FormsWebhooksController,
     FormsMerchantsController,
@@ -56,6 +78,23 @@ export {
     FormsSdkService,
     FormsBootstrap,
     FormsAppUninstalledHandler,
+    // Public intake chain (TRD §2): rate limit → form state → spam →
+    // schema validation → idempotency → persist + delivery rows.
+    SubmitRateLimitService,
+    FormsRecaptchaService,
+    SchemaValidatorService,
+    IdempotencyService,
+    SubmissionsService,
+    CsvExportService,
+    FormsS3Service,
+    // Delivery engine: minute sweeper (DB is the scheduler) → SQS →
+    // self-gated workers → executors.
+    QueueService,
+    WebhookDeliveryService,
+    FormsEmailService,
+    WebhookDeliveryWorker,
+    FormsEmailWorker,
+    DeliverySweeperService,
     // Guards are concrete @Injectable classes that defer to the per-module
     // factories internally (see ./guards.ts). They are class-shaped so
     // controllers can reference them in @UseGuards(GuardClass).

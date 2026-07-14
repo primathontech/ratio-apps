@@ -1,0 +1,15 @@
+{
+  "event": "form.submitted",
+  "merchant_id": "m_1",
+  "form_id": "form_contact",
+  "form_name": "Contact us",
+  "submitted_at": "2026-02-01T10:00:00.000Z",
+  "submission_id": "sub_1",
+  "schema_version": "1.0",
+  "fields": {
+    "name": "Asha",
+    "email": "asha@example.com",
+    "message": "Hi",
+    "resume": "https://fake-s3/m_1/form_contact/draft_abc/resume?sig=get"
+  }
+}

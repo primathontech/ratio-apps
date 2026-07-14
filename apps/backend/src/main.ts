@@ -15,8 +15,8 @@ import type { FastifyRequest } from 'fastify';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { configureApp } from './config/configure-app';
-import { loadEnv } from './config/env.schema';
 import { resolveEnabledModules } from './config/enabled-modules';
+import { loadEnv } from './config/env.schema';
 import { HealthRegistry } from './core/health/health-registry.service';
 
 type CorsOriginType = string | boolean | RegExp;
@@ -119,6 +119,12 @@ async function bootstrap(): Promise<void> {
   //   /<app>/sdk/<id>.js                — 600/min per (IP, merchantId)
   //   /<app>/api/v1/oauth/webhook        — 200/min per IP
   //   /<app>/api/v1/oauth/callback       — 10/min per IP
+  //   /<app>/public/v1/ writes (POST/...) — 10/min per IP (public storefront
+  //                                         form submissions + presigned
+  //                                         uploads — the coarse DoS floor
+  //                                         above the app-level 5-per-10-min
+  //                                         business limiter; GET schema
+  //                                         reads stay in the default bucket)
   //   /<app>/api/  writes (PUT/POST/...)  — 20/min per IP (was per IP+merchantId;
   //                                         the merchantId came from the
   //                                         Authorization header, which an
@@ -139,6 +145,7 @@ async function bootstrap(): Promise<void> {
   const SDK_RE = new RegExp(`^/(${slugAlt})/sdk/([A-Za-z0-9_-]{1,128})\\.js(?:\\?|$)`);
   const OAUTH_CALLBACK_RE = new RegExp(`^/(${slugAlt})/api/v1/oauth/callback(?:\\?|$)`);
   const OAUTH_WEBHOOK_RE = new RegExp(`^/(${slugAlt})/api/v1/oauth/webhook(?:\\?|$)`);
+  const PUBLIC_SUBMIT_RE = new RegExp(`^/(${slugAlt})/public/v1/`);
   const API_WRITE_RE = new RegExp(`^/(${slugAlt})/api/`);
 
   function classify(url: string, method: string): { max: number; kind: 'ip' | 'sdk' } {
@@ -150,6 +157,16 @@ async function bootstrap(): Promise<void> {
     if (SDK_RE.test(url)) return { max: 600, kind: 'sdk' };
     if (OAUTH_WEBHOOK_RE.test(url)) return { max: 200, kind: 'ip' };
     if (OAUTH_CALLBACK_RE.test(url)) return { max: 10, kind: 'ip' };
+    if (
+      PUBLIC_SUBMIT_RE.test(url) &&
+      method !== 'GET' &&
+      method !== 'HEAD' &&
+      method !== 'OPTIONS'
+    ) {
+      // Public storefront writes (form submissions, presigned uploads): the
+      // edge DoS floor. Schema GETs fall through to the default bucket.
+      return { max: 10, kind: 'ip' };
+    }
     if (API_WRITE_RE.test(url) && method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
       return { max: 20, kind: 'ip' };
     }
