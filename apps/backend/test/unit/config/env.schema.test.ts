@@ -53,6 +53,13 @@ const validEnv = {
   RATIO_RP_CLIENT_SECRET: 'rp_secret',
   RATIO_RP_CALLBACK_URL: 'http://localhost:3000/rp/api/v1/oauth/callback',
   RATIO_RP_ADMIN_BASE_URL: 'http://localhost:5174',
+  // `unicommerce` app keys (derived from the APPS tuple — required by the schema).
+  RATIO_UNICOMMERCE_DATABASE_URL: 'mysql://app:app@localhost:3306/unicommerce_app',
+  RATIO_UNICOMMERCE_DATA_ENCRYPTION_KEY: Buffer.alloc(32).toString('base64'),
+  RATIO_UNICOMMERCE_CLIENT_ID: 'uc_id',
+  RATIO_UNICOMMERCE_CLIENT_SECRET: 'uc_secret',
+  RATIO_UNICOMMERCE_CALLBACK_URL: 'http://localhost:3000/unicommerce/api/v1/oauth/callback',
+  RATIO_UNICOMMERCE_ADMIN_BASE_URL: 'http://localhost:5174',
 };
 
 describe('envSchema', () => {
