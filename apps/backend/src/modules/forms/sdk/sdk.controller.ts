@@ -1,5 +1,5 @@
-import { Controller, Get, Header, Param, Res } from '@nestjs/common';
-import type { FastifyReply } from 'fastify';
+import { Controller, Get, Header, Param, Req, Res } from '@nestjs/common';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import { MerchantIdPipe } from '../../../core/common/pipes/merchant-id.pipe';
 import { FormsSdkService } from './sdk.service';
 
@@ -28,9 +28,15 @@ export class FormsSdkController {
   @Header('Access-Control-Allow-Origin', '*')
   async serve(
     @Param('merchantId', MerchantIdPipe) merchantId: string,
+    @Req() req: FastifyRequest,
     @Res() reply: FastifyReply,
   ): Promise<void> {
-    const js = await this.sdk.render(merchantId, reply);
+    // The script runs on the merchant's origin, so the SDK needs an absolute
+    // API base — reconstruct the origin this script was fetched from.
+    // `req.protocol` honors X-Forwarded-Proto only for trusted proxies
+    // (trustProxy CIDRs in main.ts), so it cannot be spoofed into the prelude.
+    const origin = `${req.protocol}://${req.headers.host ?? 'localhost'}`;
+    const js = await this.sdk.render(merchantId, reply, origin);
     reply.header('content-type', 'application/javascript; charset=utf-8').send(js);
   }
 }

@@ -48,11 +48,11 @@ describe('FormsSdkService — /forms/sdk/:merchantId.js (wizzy storefront patter
       const service = makeService({ id: 'mer_1', isActive: true });
       const { reply, headers } = makeReply();
 
-      const js = await service.render('mer_1', reply as never);
+      const js = await service.render('mer_1', reply as never, 'http://localhost:3000');
 
       expect(js.startsWith('window.__FORMS_SDK_CONFIG__ = {')).toBe(true);
       expect(js).toContain('"merchantId":"mer_1"');
-      expect(js).toContain('"apiBase":"/forms"');
+      expect(js).toContain('"apiBase":"http://localhost:3000/forms"');
       expect(js).toContain(WIDGET_JS);
       expect(headers['cache-control']).toBe('public, max-age=300');
     });
@@ -61,7 +61,7 @@ describe('FormsSdkService — /forms/sdk/:merchantId.js (wizzy storefront patter
       for (const merchant of [null, { id: 'mer_1', isActive: false }]) {
         const service = makeService(merchant);
         const { reply, headers } = makeReply();
-        await expect(service.render('mer_1', reply as never)).rejects.toThrow(NotFoundException);
+        await expect(service.render('mer_1', reply as never, 'http://localhost:3000')).rejects.toThrow(NotFoundException);
         expect(headers['cache-control']).toBeUndefined();
       }
     });
@@ -77,7 +77,7 @@ describe('FormsSdkService — /forms/sdk/:merchantId.js (wizzy storefront patter
       const service = makeService({ id: 'mer_1', isActive: true });
       const { reply, headers } = makeReply();
 
-      const js = await service.render('mer_1', reply as never);
+      const js = await service.render('mer_1', reply as never, 'http://localhost:3000');
 
       expect(js).toContain('window.__FORMS_SDK_CONFIG__');
       expect(js).toContain('console.warn');

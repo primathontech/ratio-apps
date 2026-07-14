@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
@@ -42,7 +42,7 @@ export class FormsSdkService {
    * header at the route would cause Fastify to attach it to 404 error
    * responses too, poisoning CDNs during installation races.
    */
-  async render(merchantId: string, reply: FastifyReply): Promise<string> {
+  async render(merchantId: string, reply: FastifyReply, origin: string): Promise<string> {
     const merchant = await this.merchants.findById(merchantId);
     if (!merchant?.isActive) {
       throw new NotFoundException({
@@ -55,38 +55,47 @@ export class FormsSdkService {
     reply.header('Cache-Control', 'public, max-age=300');
     const bundle = this.readBundle();
     if (bundle === null) {
-      return `${this.buildPrelude(merchantId)}\nconsole.warn('[ratio-forms] SDK bundle not built — build @ratio-app/forms-sdk to render forms.');`;
+      return `${this.buildPrelude(merchantId, origin)}\nconsole.warn('[ratio-forms] SDK bundle not built — build @ratio-app/forms-sdk to render forms.');`;
     }
-    return `${this.buildPrelude(merchantId)}\n${bundle}`;
+    return `${this.buildPrelude(merchantId, origin)}\n${bundle}`;
   }
 
-  private buildPrelude(merchantId: string): string {
+  private buildPrelude(merchantId: string, origin: string): string {
     const payload = {
       merchantId,
       // Public API base the SDK talks to (schema GET + submission POST live
-      // under /forms/public/v1 — see TRD §2); same-origin as this script.
-      apiBase: '/forms',
+      // under /forms/public/v1 — see TRD §2). MUST be absolute: the script
+      // executes on the MERCHANT'S origin (their storefront), so a relative
+      // path would resolve against their domain, not ours. Derived from the
+      // origin this script was fetched from.
+      apiBase: `${origin}/forms`,
     };
     return `window.__FORMS_SDK_CONFIG__ = ${safeInlineJson(payload)};`;
   }
 
   /**
-   * Resolve + memoize the built bundle. Mirrors wizzy's storefront
-   * controller: `cwd` is the repo root in dev, PM2, and Docker, so the build
-   * lives at `<root>/packages/forms-sdk/dist`; `FORMS_SDK_DIST` overrides
-   * for non-standard layouts. Missing file → null (warn stub is served).
+   * Resolve + memoize the built bundle. `cwd` is the repo root under PM2 and
+   * Docker but `apps/backend` under `pnpm dev`, so both candidates are
+   * probed; `FORMS_SDK_DIST` overrides for non-standard layouts. Missing
+   * file → null (warn stub is served).
    */
   private readBundle(): string | null {
     if (this.bundleCache !== undefined) return this.bundleCache;
-    const distDir = process.env.FORMS_SDK_DIST ?? resolve(process.cwd(), 'packages/forms-sdk/dist');
-    try {
-      this.bundleCache = readFileSync(resolve(distDir, WIDGET_BUNDLE), 'utf8');
-    } catch {
+    const candidates = process.env.FORMS_SDK_DIST
+      ? [process.env.FORMS_SDK_DIST]
+      : [
+          resolve(process.cwd(), 'packages/forms-sdk/dist'),
+          resolve(process.cwd(), '../../packages/forms-sdk/dist'),
+        ];
+    const distDir = candidates.find((dir) => existsSync(resolve(dir, WIDGET_BUNDLE)));
+    if (!distDir) {
       this.logger.warn(
-        `forms-sdk bundle not found at ${distDir}/${WIDGET_BUNDLE} — serving prelude + warn stub`,
+        `forms-sdk bundle not found in ${candidates.join(' or ')} — serving prelude + warn stub`,
       );
       this.bundleCache = null;
+      return this.bundleCache;
     }
+    this.bundleCache = readFileSync(resolve(distDir, WIDGET_BUNDLE), 'utf8');
     return this.bundleCache;
   }
 }

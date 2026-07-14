@@ -214,6 +214,35 @@ async function bootstrap(): Promise<void> {
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
 
+  // Shopper-facing `/<app>/public/v1/*` endpoints are called from MERCHANT
+  // storefronts — arbitrary origins that can never be enumerated in
+  // ALLOWED_ORIGINS. They are unauthenticated by design (reCAPTCHA/honeypot +
+  // rate limits guard them; no cookies/credentials involved), so they get
+  // wildcard CORS: answer the preflight here (Nest routes have no OPTIONS
+  // handler → 404 otherwise) and stamp ACAO on actual responses via onSend
+  // (which runs after the CORS plugin, so the wildcard wins for these paths).
+  const fastify = app.getHttpAdapter().getInstance();
+  fastify.addHook('onRequest', (req, reply, done) => {
+    if (req.method === 'OPTIONS' && PUBLIC_SUBMIT_RE.test(req.url)) {
+      reply
+        .header('Access-Control-Allow-Origin', '*')
+        .header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        .header('Access-Control-Allow-Headers', 'content-type')
+        .header('Access-Control-Max-Age', '86400')
+        .code(204)
+        .send();
+      return;
+    }
+    done();
+  });
+  fastify.addHook('onSend', (req, reply, _payload, done) => {
+    if (PUBLIC_SUBMIT_RE.test(req.url)) {
+      reply.header('Access-Control-Allow-Origin', '*');
+      reply.removeHeader('access-control-allow-credentials');
+    }
+    done();
+  });
+
   app.enableShutdownHooks();
 
   // Flip /ready from `503 booting` to live probe aggregation BEFORE listen()
