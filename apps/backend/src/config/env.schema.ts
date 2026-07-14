@@ -91,6 +91,10 @@ const baseEnv = z.object({
   GMC_STORE_URL: emptyAsUndefined(z.string()),
 
   // ─── return-prime adapter: shared secret + RP server URL ─────────────────
+  // RP_MONGO_URL: MongoDB connection string for RP's database.
+  // Used by RpOrderSyncService to upsert orders received from GoKwik OS webhooks.
+  // Optional — if unset, order sync is disabled (RP fetches on demand instead).
+  RP_MONGO_URL: emptyAsUndefined(z.string().min(1)),
   // RP_INTERNAL_API_TOKEN: RP's INTERNAL_API_TOKEN value — shared secret used
   // to validate inbound RP requests and to authenticate our register call.
   // Optional in baseEnv so other modules can boot without it; validated at
@@ -104,6 +108,11 @@ const baseEnv = z.object({
   // to declare them.
   OS_ORDER_BASE_URL: emptyAsUndefined(z.string().url()),
   OS_ITEM_BASE_URL: emptyAsUndefined(z.string().url()),
+  // RP_OS_ADMIN_*: credentials used when calling RP BE /os-install from the
+  // admin-rp SPA registration flow. Optional — defaults to derived values.
+  RP_OS_ADMIN_EMAIL: emptyAsUndefined(z.string().email()),
+  RP_OS_ADMIN_PASSWORD: emptyAsUndefined(z.string().min(1)),
+  RP_OS_ADMIN_NAME: emptyAsUndefined(z.string().min(1)),
 
   // ─── meta app: Meta Graph API base for Conversions API dispatch ───────────
   // Defaults to the real Graph API; override with a local mock URL for testing.

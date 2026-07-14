@@ -45,6 +45,8 @@ export async function configureApp(app: NestFastifyApplication): Promise<void> {
     // above that the iframe embed already requires.
     crossOriginOpenerPolicy: false,
     referrerPolicy: { policy: 'strict-origin' },
+    // Allow GoKwik merchant dashboard to embed this app in an iframe.
+    frameguard: false,
   });
 
   // Single-artifact deploy: serve the built admin SPA from disk so one

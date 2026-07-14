@@ -1,0 +1,431 @@
+<title>RP Adapter — Full E2E Flow</title>
+<style>
+:root {
+  --bg: #0C0F1A;
+  --surface: #111827;
+  --border: #1E2D45;
+  --text: #C9D8F0;
+  --muted: #4A607D;
+  --phase: #1C2A42;
+  --phase-border: #2A3F5E;
+  --c-actor-merchant: #FBBF24;
+  --c-actor-customer: #34D399;
+  --c-adapter: #60A5FA;
+  --c-rp: #A78BFA;
+  --c-os: #FB923C;
+  --c-infra: #94A3B8;
+  --c-arrow: #4A607D;
+}
+@media(prefers-color-scheme:light){:root{
+  --bg:#EEF3FC;--surface:#FFF;--border:#C5D2E8;--text:#1A2540;--muted:#7A8FA8;
+  --phase:#E6EEF8;--phase-border:#B8CADF;
+  --c-actor-merchant:#A16207;--c-actor-customer:#047857;
+  --c-adapter:#1D4ED8;--c-rp:#6D28D9;--c-os:#C2410C;--c-infra:#475569;--c-arrow:#94A3B8;
+}}
+:root[data-theme=light]{--bg:#EEF3FC;--surface:#FFF;--border:#C5D2E8;--text:#1A2540;--muted:#7A8FA8;--phase:#E6EEF8;--phase-border:#B8CADF;--c-actor-merchant:#A16207;--c-actor-customer:#047857;--c-adapter:#1D4ED8;--c-rp:#6D28D9;--c-os:#C2410C;--c-infra:#475569;--c-arrow:#94A3B8;}
+:root[data-theme=dark]{--bg:#0C0F1A;--surface:#111827;--border:#1E2D45;--text:#C9D8F0;--muted:#4A607D;--phase:#1C2A42;--phase-border:#2A3F5E;--c-actor-merchant:#FBBF24;--c-actor-customer:#34D399;--c-adapter:#60A5FA;--c-rp:#A78BFA;--c-os:#FB923C;--c-infra:#94A3B8;--c-arrow:#4A607D;}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;font-size:14px;line-height:1.6;padding:36px 20px 60px;min-height:100vh}
+.page-header{max-width:780px;margin:0 auto 36px}
+.page-header h1{font-size:20px;font-weight:700;letter-spacing:-.02em}
+.page-header p{color:var(--muted);font-size:12.5px;margin-top:5px}
+.legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border)}
+.li{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)}
+.ld{width:8px;height:8px;border-radius:2px}
+.diagram{max-width:780px;margin:0 auto}
+.phase-header{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:6px 14px;background:var(--phase);border:1px solid var(--phase-border);border-radius:6px 6px 0 0;margin-bottom:0}
+.phase-merchant{color:var(--c-actor-merchant)}
+.phase-customer{color:var(--c-actor-customer)}
+.phase-adapter{color:var(--c-adapter)}
+.phase-rp{color:var(--c-rp)}
+.phase-os{color:var(--c-os)}
+pre{font-family:"SFMono-Regular","JetBrains Mono","Fira Code","Consolas","Liberation Mono",monospace;font-size:12px;line-height:1.55;background:var(--surface);border:1px solid var(--border);overflow-x:auto;padding:16px 18px;white-space:pre;tab-size:2;color:var(--text)}
+pre + pre{border-top:none}
+.gap{height:8px}
+.arrow-gap{height:0;display:flex;justify-content:center;align-items:center;background:var(--bg);position:relative;z-index:1}
+.kw{color:var(--c-adapter)}
+.fn{color:#F9A825}
+.hd{color:#80CBC4}
+.ep{color:var(--c-os)}
+.cm{color:var(--muted)}
+.ok{color:var(--c-actor-customer)}
+.er{color:#EF5350}
+.ac-m{color:var(--c-actor-merchant)}
+.ac-c{color:var(--c-actor-customer)}
+.ac-a{color:var(--c-adapter)}
+.ac-r{color:var(--c-rp)}
+.ac-o{color:var(--c-os)}
+.ac-i{color:var(--c-infra)}
+.net{font-size:11.5px;color:var(--muted);border-top:1px solid var(--phase-border);padding:10px 14px;background:var(--phase);border-radius:0 0 6px 6px;font-style:italic}
+</style>
+
+<div class="page-header">
+  <h1>RP Adapter — Full End-to-End Flow</h1>
+  <p>Every API call, function, env var, and DB write — in sequence. Top-to-bottom vertical flow. Matches actual implementation at <code>modules/rp/</code>.</p>
+  <div class="legend">
+    <div class="li"><span class="ld" style="background:var(--c-actor-merchant)"></span>Merchant</div>
+    <div class="li"><span class="ld" style="background:var(--c-actor-customer)"></span>Customer</div>
+    <div class="li"><span class="ld" style="background:var(--c-adapter)"></span>RP Adapter :3100</div>
+    <div class="li"><span class="ld" style="background:var(--c-rp)"></span>RP Backend :4000</div>
+    <div class="li"><span class="ld" style="background:var(--c-os)"></span>OS services</div>
+    <div class="li"><span class="ld" style="background:var(--c-infra)"></span>Infrastructure</div>
+  </div>
+</div>
+
+<div class="diagram">
+
+<!-- ─────────────────────────── PHASE 1 ─────────────────────────── -->
+<div class="phase-header phase-merchant">① Merchant installs Return Prime app via Ratio App Store</div>
+<pre>
+<span class="ac-m">[ MERCHANT ]</span>  Ratio App Store → OAuth install
+┌─────────────────────────────────────────────────────────────────────┐
+│  Merchant finds "Return Prime" app → clicks Install                 │
+│  Ratio App Store redirects to OAuth consent screen                  │
+│  Merchant approves scopes (orders r/w, customers r/w,               │
+│    products r, refunds w, discounts w)                              │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │  GET <span class="kw">RATIO_RP_CALLBACK_URL</span>?code=&lt;oauth_code&gt;
+                               │  → https://…/rp/auth/callback
+                               ▼
+<span class="ac-a">[ ADAPTER ]</span>   GET <span class="ep">/rp/auth/callback</span>
+┌─────────────────────────────────────────────────────────────────────┐
+│  <span class="fn">RpAuthController.callback()</span>                                        │
+│                                                                     │
+│  POST <span class="kw">RATIO_API_BASE_URL</span>/api/v1/oauth/token                         │
+│    body: { grant_type: "authorization_code", code,                  │
+│            clientId: <span class="kw">RATIO_RP_CLIENT_ID</span>,                             │
+│            clientSecret: <span class="kw">RATIO_RP_CLIENT_SECRET</span>,                       │
+│            redirectUri: <span class="kw">RATIO_RP_CALLBACK_URL</span> }                        │
+│                                                                     │
+│  ← { access_token, refresh_token, expires_in, merchant_id, domain } │
+│  <span class="fn">extractMerchantIdFromJwt</span>(access_token)  <span class="cm">← fallback if no merch_id</span>  │
+│  <span class="fn">extractDomainFromJwt</span>(access_token)     <span class="cm">← fallback if no domain</span>     │
+│                                                                     │
+│  <span class="fn">merchants.upsert</span>({ merchantId, domain, accessTokenEnc,              │
+│                   refreshTokenEnc, expiresAt })                      │
+│  → MySQL  INSERT INTO return_prime_merchants …                       │
+│                                                                     │
+│  <span class="cm">// NOTE: RP register call moved to admin registration form</span>       │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │  302 redirect → <span class="kw">RATIO_RP_ADMIN_BASE_URL</span>
+                               ▼
+<span class="ac-m">[ MERCHANT ]</span>  Admin SPA opens in browser (not yet built)
+┌─────────────────────────────────────────────────────────────────────┐
+│  GET <span class="ep">/rp/api/admin/merchants/me</span>                                      │
+│    <span class="hd">Authorization</span>: Bearer &lt;merchantId&gt;  <span class="cm">← merchant ID used as token</span>  │
+│  ← { id, domain, active, registered: <span class="er">false</span> }                          │
+│                                                                     │
+│  SPA renders Registration Form:                                     │
+│    store_domain  (e.g. sandbox-bblunt-v2.dev.gokwik.io)            │
+│    admin_email   admin_password   admin_name                        │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │  merchant submits form
+                               ▼
+<span class="ac-a">[ ADAPTER ]</span>   POST <span class="ep">/rp/api/admin/register</span>
+┌─────────────────────────────────────────────────────────────────────┐
+│  <span class="fn">RpAdminController.register()</span>                                       │
+│  body: { store_domain, admin_email, admin_password, admin_name }    │
+│                                                                     │
+│  <span class="fn">merchants.updateDomain</span>(merchantId, storeDomain) → MySQL UPDATE      │
+│                                                                     │
+│  POST <span class="kw">RP_BASE_URL</span>/shopify-webhook/v1/os-install                      │
+│    <span class="hd">X-OS-Internal-Token</span>: <span class="kw">RP_INTERNAL_API_TOKEN</span>                         │
+│    <span class="hd">X-OS-Store</span>: sandbox-bblunt-v2.dev.gokwik.io                       │
+│    body: { merchant_id: &lt;domain&gt;, gokwik_merchant_id: &lt;id&gt;,            │
+│            access_token, admin_email, admin_password,                 │
+│            admin_name, platform: "os" }                              │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               ▼
+<span class="ac-r">[ RP BACKEND ]</span>  POST <span class="ep">/shopify-webhook/v1/os-install</span>
+┌─────────────────────────────────────────────────────────────────────┐
+│  Guard: <span class="fn">validateOsInstallToken</span> — timingSafeEqual against            │
+│         <span class="kw">INTERNAL_API_TOKEN</span>                                            │
+│  Creates StoreDetail (platform: 'os'), User (admin), Setting         │
+│  ← <span class="ok">{ status: true, message: "store registered" }</span>                  │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               ▼
+<span class="ac-m">[ MERCHANT ]</span>  Admin SPA shows success screen
+┌─────────────────────────────────────────────────────────────────────┐
+│  Button → "Open Return Prime Dashboard"                             │
+│    → http://localhost:3000  (RP dashboard, OS platform mode)         │
+│    → Merchant configures return policy, reasons, locations          │
+└─────────────────────────────────────────────────────────────────────┘</pre>
+
+<div class="gap"></div>
+
+<!-- ─────────────────────────── PHASE 2 ─────────────────────────── -->
+<div class="phase-header phase-os">② Order placed on BBLunt storefront → synced to RP MongoDB via webhook</div>
+<pre>
+<span class="ac-c">[ CUSTOMER ]</span>  sandbox-bblunt-v2.dev.gokwik.io — storefront checkout
+┌─────────────────────────────────────────────────────────────────────┐
+│  Customer completes purchase                                        │
+│  OS Order Service creates order: id = "ordr_17834274629567154"     │
+│  line_items: [{ sku: "8904417307375", price: 48900 <span class="cm">← paise</span> }]     │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │  OS fires order webhook (registered URL)
+                               ▼
+<span class="ac-o">[ OS ORDER ]</span>  POST <span class="ep">https://…devtunnels.ms/rp/webhooks/orders</span>
+              <span class="hd">x-merchant-id</span>: &lt;merchantId&gt;
+              <span class="hd">x-webhook-topic</span>: orders/create
+              body: { event_type: "orders/create",
+                      merchant_id: &lt;id&gt;,
+                      order: { id: "ordr_…", line_items: […] } }
+                               │
+                               ▼
+<span class="ac-a">[ ADAPTER ]</span>   POST <span class="ep">/rp/webhooks/orders</span>
+┌─────────────────────────────────────────────────────────────────────┐
+│  <span class="fn">RpWebhooksController.orderEvent()</span>                                  │
+│  Guard: <span class="fn">RpWebhookSignatureGuard</span> — uses <span class="kw">RATIO_RP_CLIENT_SECRET</span>       │
+│    as HMAC secret (same pattern as other webhook modules)          │
+│                                                                     │
+│  merchantId  ← <span class="hd">x-merchant-id</span> header (primary)                       │
+│             ← <span class="hd">x-gk-merchant-id</span> (fallback)                             │
+│             ← body.merchant_id (final fallback)                     │
+│  orderPayload ← body.order ?? body.data ?? body                    │
+│                                                                     │
+│  <span class="fn">RpWebhooksService.handleOrderEvent</span>(merchantId, orderPayload, topic) │
+│    <span class="fn">merchants.findByMerchantId</span>(merchantId) → MySQL lookup             │
+│    domain = merchant.domain                                         │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │  merchant not found?
+                  ┌────────────┴────────────┐
+                  │ found                   │ not found
+                  ▼                         ▼
+┌──────────────────────────┐    ┌───────────────────────────┐
+│ <span class="fn">orderSync.upsertOrder</span>()  │    │ logger.warn → drop event  │
+│ (continue below)         │    │ 200 { ok: true } returned │
+└────────────┬─────────────┘    └───────────────────────────┘
+             │
+             ▼
+<span class="ac-a">[ ADAPTER ]</span>   <span class="fn">RpOrderSyncService.upsertOrder</span>(rawOrder, domain)
+┌─────────────────────────────────────────────────────────────────────┐
+│  <span class="fn">normalizeOrder</span>({ ...rawOrder, store: domain })                    │
+│    <span class="fn">numericIdFromString</span>("ordr_17834274629567154")                   │
+│      → strip prefix → BigInt hex → 1114642164347947                 │
+│    paiseToRupee(48900) → 489.00  <span class="cm">← all price fields ÷ 100</span>         │
+│    build Shopify price_set / discount_allocations / tax_lines       │
+│    Synthesize fulfillments when fulfillment_status is               │
+│      'fulfilled'/'partial' but fulfillments[] is empty              │
+│    Derive line_item fulfillment_status from order level            │
+│                                                                     │
+│  MongoDB <span class="ep">return_prime_local.shopifyorders</span>.updateOne(               │
+│    { id: 1114642164347947, store: "sandbox-bblunt-v2…" },          │
+│    { $set: { id, name, store, financial_status, line_items,         │
+│              price_set, fulfillments, updated_at } },              │
+│    { upsert: true }                                                 │
+│  )                                                                  │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │  200 { ok: true }
+                               ▼
+<span class="ac-i">[ MONGODB ]</span>   doc upserted
+┌─────────────────────────────────────────────────────────────────────┐
+│  { id: 1114642164347947,                                            │
+│    name: "#1001",  store: "sandbox-bblunt-v2.dev.gokwik.io",       │
+│    financial_status: "paid",  fulfillment_status: "fulfilled",     │
+│    line_items: [{ id: …, price: "489.00", price_set: {…} }],       │
+│    fulfillments: [{ id: …, status: "success",                       │
+│      line_items: [{id: …, quantity: 1}] }] }                         │
+│                                                                     │
+│  Verify:  <span class="cm">db.shopifyorders.findOne({}, {id:1, name:1, store:1})</span>   │
+└─────────────────────────────────────────────────────────────────────┘</pre>
+
+<div class="gap"></div>
+
+<!-- ─────────────────────────── PHASE 3 ─────────────────────────── -->
+<div class="phase-header phase-customer">③ Customer opens return portal and submits return</div>
+<pre>
+<span class="ac-c">[ CUSTOMER ]</span>  /apps/return_prime  (BBLunt storefront page)
+┌─────────────────────────────────────────────────────────────────────┐
+│  Storefront loads <span class="fn">rp-portal.js</span> from:                               │
+│    GET <span class="ep">https://…/rp/sdk/rp-portal.js</span>                              │
+│    → served by <span class="fn">RpSdkController.portalJs()</span> (Lit WC bundle)            │
+│                                                                     │
+│  — OR — merchant redirects customer via:                           │
+│    GET <span class="ep">/rp/customer/portal?shop=bblunt.gokwik.co</span>                    │
+│    → <span class="fn">RpPortalController.portal()</span> 302 →                          │
+│      <span class="kw">RP_BASE_URL</span>/os/v1/customer-portal?shop=…                        │
+│                                                                     │
+│  Customer enters: order name "#1001" + email                        │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               ▼
+<span class="ac-r">[ RP BACKEND ]</span>  Search order — calls <span class="fn">OsAxios.findOrder()</span>
+<span class="cm">(RP's OsAxios — drop-in replacement for ShopifyAxios for OS stores)</span>
+┌─────────────────────────────────────────────────────────────────────┐
+│  GET <span class="ep">/rp/shopify/orders?name=#1001&status=any</span>                        │
+│  Headers: X-Shopify-Access-Token, X-Store                             │
+│                                                                     │
+│  <span class="cm">→ Adapter RpRequestGuard validates token + domain</span>                │
+│  <span class="cm">→ RpOrdersService.getOrders → ratioClient.getOrders</span>               │
+│  <span class="cm">  → OS Order Service with search=#1001</span>                          │
+│                                                                     │
+│  RP BE receives normalized order (numeric ids, rupee prices)        │
+│                                                                     │
+│  <span class="cm">If order in RP's local MongoDB (synced via webhook):</span>            │
+│    RP uses MongoDB data directly (no adapter call needed)           │
+│                                                                     │
+│  Customer picks items → selects return reason                       │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │
+                               ▼
+<span class="ac-r">[ RP BACKEND ]</span>  POST <span class="ep">/customer/v1/return-exchange/submit</span>
+┌─────────────────────────────────────────────────────────────────────┐
+│  Checks return eligibility                                          │
+│  Creates returnexchangerequests doc: status "pending"               │
+│  ← <span class="ok">{ success: true, request_id: "RP1" }</span>                          │
+└─────────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+<span class="ac-c">[ CUSTOMER ]</span>  Sees "Return Submitted! RP1"</pre>
+
+<div class="gap"></div>
+
+<!-- ─────────────────────────── PHASE 4 ─────────────────────────── -->
+<div class="phase-header phase-adapter">④ Adapter provides Shopify-compatible API for RP BE (on-demand)</div>
+<pre>
+<span class="ac-r">[ RP BACKEND ]</span>  RP calls adapter via <span class="fn">OsAxios</span> for data
+<span class="cm">// OsAxios is a drop-in for ShopifyAxios — same method signatures</span>
+<span class="cm">// used throughout RP's services (customer, product, refund, discount)</span>
+┌─────────────────────────────────────────────────────────────────────┐
+│  <span class="fn">OsAxios.shopifyOrderById</span>(orderId) →                                 │
+│    GET <span class="ep">/rp/shopify/orders/&lt;id&gt;</span>                                     │
+│                                                                     │
+│  <span class="fn">OsAxios.findOrder</span>(orderNumber) →                                   │
+│    GET <span class="ep">/rp/shopify/orders?name=#1001&status=any</span>                         │
+│                                                                     │
+│  <span class="fn">OsAxios.calculateRefund</span>({ order, body }) →                          │
+│    POST <span class="ep">/rp/shopify/orders/&lt;id&gt;/refunds/calculate</span>                    │
+│                                                                     │
+│  <span class="fn">OsAxios.refundViaShopify</span>({ order, body }) →                          │
+│    POST <span class="ep">/rp/shopify/orders/&lt;id&gt;/refunds</span>                                │
+│                                                                     │
+│  <span class="fn">OsAxios.getProducts</span>(id) →                                           │
+│    GET <span class="ep">/rp/shopify/products/&lt;id&gt;</span>                                      │
+│                                                                     │
+│  <span class="fn">OsAxios.createDiscountCode</span>({ body }) →                              │
+│    POST <span class="ep">/rp/shopify/discount_codes</span>                                     │
+│                                                                     │
+│  <span class="fn">OsAxios.updateOrder</span>({ orderId, body }) →                              │
+│    PATCH <span class="ep">/rp/shopify/orders/&lt;id&gt;</span>                                      │
+└─────────────────────────────────────────────────────────────────────┘
+                               │  <span class="cm">All guarded by RpRequestGuard:</span>
+                               │  1. X-Shopify-Access-Token == <span class="kw">RP_INTERNAL_API_TOKEN</span>
+                               │  2. X-Store → lookup return_prime_merchants
+                               ▼
+<span class="ac-a">[ ADAPTER ]</span>   Request flows through service layers
+┌─────────────────────────────────────────────────────────────────────┐
+│  <span class="fn">orders.service</span> → calls OS Order Service (via gk-merchant-id)        │
+│    or Ratio App Ecosystem API (via Bearer token from merchants DB)  │
+│                                                                     │
+│  <span class="fn">products.service</span> → calls OS Item Service                        │
+│    GET /api/v1/admin/products/&lt;id&gt;?storeId=&lt;domain&gt;&show_variants=true│
+│                                                                     │
+│  <span class="fn">refunds.service</span> → calls OS Order Service                       │
+│    POST /api/v1/admin/refunds  POST /api/v1/admin/refunds/calculate │
+│                                                                     │
+│  <span class="fn">customers.service</span> → calls Ratio App Ecosystem API            │
+│    GET /api/v1/customers?email=  POST /api/v1/customers             │
+│                                                                     │
+│  <span class="fn">discounts.service</span> → calls Ratio App Ecosystem API            │
+│    POST /api/v1/discounts (Bearer token)                            │
+└──────────────┬──────────────────────────────────────────────────────┘
+               │  <span class="fn">transformer.service</span> normalizes every response:
+               │  UUID→numeric IDs, paise→rupees, camelCase→snake_case
+               ▼
+<span class="ac-r">[ RP BACKEND ]</span>  Receives Shopify-shaped response — no OS awareness</pre>
+
+<div class="gap"></div>
+
+<!-- ─────────────────────────── PHASE 5 ─────────────────────────── -->
+<div class="phase-header phase-merchant">⑤ Merchant reviews return and approves → refund issued</div>
+<pre>
+<span class="ac-m">[ MERCHANT ]</span>  RP Dashboard  (http://localhost:3000)
+┌─────────────────────────────────────────────────────────────────────┐
+│  GET <span class="ep">/return-exchange/v1/list</span>  → RP Backend                        │
+│  Return #RP1 visible: status "pending"                               │
+│  Merchant clicks "Approve"                                          │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               ▼
+<span class="ac-r">[ RP BACKEND ]</span>  POST <span class="ep">/return-exchange/v1/approve/:id</span>
+┌─────────────────────────────────────────────────────────────────────┐
+│  Updates return request → status "approved" in MongoDB              │
+│  Triggers refund via <span class="fn">OsAxios.refundViaShopify</span>({ order, body })     │
+│    ↓                                                                 │
+│  POST <span class="ep">/rp/shopify/orders/:id/refunds</span>                              │
+│    <span class="hd">X-Shopify-Access-Token</span>: <span class="kw">RP_INTERNAL_API_TOKEN</span>                     │
+│    <span class="hd">X-Store</span>: sandbox-bblunt-v2.dev.gokwik.io                          │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │
+                               ▼
+<span class="ac-a">[ ADAPTER ]</span>   POST <span class="ep">/rp/shopify/orders/:id/refunds</span>
+┌─────────────────────────────────────────────────────────────────────┐
+│  Guard: <span class="fn">RpRequestGuard</span> — validates token + store header             │
+│  <span class="fn">RpRefundsService.createRefund</span>(merchantId, orderId, body)              │
+│    <span class="fn">transformer.mapRefundRequest</span>(body)                              │
+│      maps RP body { refund: { refund_line_items, shipping, note } }  │
+│      → OS format { line_items, include_shipping,                     │
+│          restock_type: "CANCEL", notify_customer, reason }           │
+│    <span class="fn">ratioClient.createRefund</span>(merchantId, orderId, mapped)               │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │
+                               ▼
+<span class="ac-o">[ OS ORDER ]</span>  POST <span class="ep">OS_ORDER_BASE_URL/api/v1/admin/refunds</span>
+              <span class="hd">gk-merchant-id</span>: &lt;merchantId&gt;
+              body: { order_id, line_items, include_shipping, restock_type }
+┌─────────────────────────────────────────────────────────────────────┐
+│  ← { refund: { id, amount, lineItems, createdAt } }                │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │
+                               ▼
+<span class="ac-a">[ ADAPTER ]</span>   transforms response
+┌─────────────────────────────────────────────────────────────────────┐
+│  <span class="fn">transformer.shopifyRefund</span>(raw, orderId)                               │
+│  ← { id: numericId, order_id, refund_line_items,                      │
+│       transactions: [{ amount, kind: "refund", status: "success" }] }│
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │
+                               ▼
+<span class="ac-m">[ MERCHANT ]</span>  RP Dashboard shows return as "Approved · Refund issued"</pre>
+
+<div class="gap"></div>
+
+<!-- ─────────────────────────── PHASE 6 ─────────────────────────── -->
+<div class="phase-header phase-adapter">⑥ Product webhooks (RP backend → Adapter → RP shopify-webhook)</div>
+<pre>
+<span class="ac-r">[ RP BACKEND ]</span>  OS Product Service creates/updates product
+┌─────────────────────────────────────────────────────────────────────┐
+│  RP calls adapter when product data changes:                        │
+│  POST <span class="ep">/rp/webhooks/product-create</span>  or  /product-update             │
+│    <span class="hd">X-GK-Merchant-Id</span>: &lt;merchantId&gt;                                  │
+│    body: { product: { id, title, variants, … } }                   │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │
+                               ▼
+<span class="ac-a">[ ADAPTER ]</span>   <span class="fn">RpWebhooksService.handleProductCreate/Update()</span>
+┌─────────────────────────────────────────────────────────────────────┐
+│  Guard: <span class="fn">RpWebhookSignatureGuard</span>                                     │
+│                                                                     │
+│  <span class="fn">merchants.findByMerchantId</span>() → MySQL lookup merchant by ID    │
+│  <span class="fn">transformer.shopifyProduct</span>(body)  ← map OS → Shopify product shape │
+│  fetch POST <span class="kw">RP_BASE_URL</span>/shopify-webhook/v1/{topic}               │
+│    <span class="hd">X-OS-Internal-Token</span>: <span class="kw">RP_INTERNAL_API_TOKEN</span>                     │
+│    <span class="hd">X-OS-Store</span>: &lt;domain&gt;                                            │
+│    body: Shopify-format product                                     │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │
+                               ▼
+<span class="ac-r">[ RP BACKEND ]</span>  Processes Shopify-format product webhook normally
+┌─────────────────────────────────────────────────────────────────────┐
+│  Same handler as Shopify product webhooks — no OS awareness        │
+│  ← <span class="ok">{ status: true }</span>                                                │
+└─────────────────────────────────────────────────────────────────────┘</pre>
+
+<div class="gap"></div>
+
+<div class="net">
+  <strong>Net effect:</strong> Merchant installs via Ratio App Store OAuth → Adapter stores merchant in MySQL → Merchant registers via admin form →
+  Adapter calls RP's <code>/shopify-webhook/v1/os-install</code> → RP creates StoreDetail. OS fires order webhooks → Adapter normalizes (paise→rupee, string→numeric ID) →
+  upserts directly into RP's MongoDB shopifyorders collection. Customer submits return via RP portal (or SDK) → RP BE reads from local MongoDB or adapter →
+  Merchant approves → Adapter calls OS Order Service refund APIs. RP BE uses <code>OsAxios</code> as a drop-in ShopifyAxios replacement for ALL data access.
+</div>
+
+</div><!-- /diagram -->

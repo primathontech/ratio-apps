@@ -53,6 +53,23 @@ export class RpMerchantsService {
       .execute();
   }
 
+  /** Toggle the storefront Return/Exchange visibility flag (RP enable/disable → adapter). */
+  async setReturnExchangeEnabled(merchantId: string, enabled: boolean): Promise<void> {
+    await this.handle.db
+      .updateTable('return_prime_merchants')
+      .set({ returnExchangeEnabled: enabled, updatedAt: sql`CURRENT_TIMESTAMP(3)` })
+      .where('merchantId', '=', merchantId)
+      .execute();
+  }
+
+  async updateDomain(merchantId: string, domain: string): Promise<void> {
+    await this.handle.db
+      .updateTable('return_prime_merchants')
+      .set({ domain, updatedAt: sql`CURRENT_TIMESTAMP(3)` })
+      .where('merchantId', '=', merchantId)
+      .execute();
+  }
+
   async updateTokens(
     merchantId: string,
     data: { accessTokenEnc: string; refreshTokenEnc: string; expiresAt: Date },

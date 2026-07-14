@@ -8,6 +8,7 @@ export interface ReturnPrimeMerchantsTable {
   refreshTokenEnc: string;
   expiresAt: Date;
   active: Generated<boolean>;
+  returnExchangeEnabled: Generated<boolean>;
   installedAt: Generated<Date>;
   createdAt: Generated<Date>;
   updatedAt: Generated<Date>;
