@@ -46,11 +46,34 @@ export class RpOrdersService {
     return { order: raw.order ?? raw };
   }
 
+  /**
+   * OS has no Shopify-style Transactions API — its orders never populate a real
+   * `transactions` array. Synthesize a single Shopify-shaped transaction from the
+   * order's own financial_status/payment_details instead, since that's what RP's
+   * COD-detection (checkOrderIsCode) actually keys off of. financial_status 'pending'
+   * means uncaptured/COD, matching Shopify's "no transaction yet" semantics.
+   */
   async getTransactions(merchantId: string, orderId: string): Promise<unknown> {
     const raw = await this.ratioClient.getOrder(merchantId, orderId) as Record<string, unknown>;
     const envelope = raw as Record<string, Record<string, unknown>>;
     const order = (envelope.data?.order ?? (raw as Record<string, unknown>).order ?? raw) as Record<string, unknown>;
-    const transactions = Array.isArray(order.transactions) ? order.transactions : [];
-    return { transactions };
+
+    if (Array.isArray(order.transactions) && order.transactions.length > 0) {
+      return { transactions: order.transactions };
+    }
+    if (!order || order.financial_status === 'pending') {
+      return { transactions: [] };
+    }
+    const paymentDetails = (order.payment_details ?? {}) as Record<string, unknown>;
+    const paymentGatewayNames = Array.isArray(order.payment_gateway_names) ? order.payment_gateway_names : [];
+    return {
+      transactions: [{
+        kind: 'sale',
+        status: 'success',
+        authorization: paymentDetails.paymentId ?? paymentDetails.pgPaymentTrnxId ?? 'os-payment',
+        receipt: {},
+        gateway: paymentDetails.paymentInstrument ?? paymentGatewayNames[0] ?? 'gokwik',
+      }],
+    };
   }
 }
