@@ -227,7 +227,7 @@ async function bootstrap(): Promise<void> {
       reply
         .header('Access-Control-Allow-Origin', '*')
         .header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        .header('Access-Control-Allow-Headers', 'content-type')
+        .header('Access-Control-Allow-Headers', 'content-type, ngrok-skip-browser-warning')
         .header('Access-Control-Max-Age', '86400')
         .code(204)
         .send();

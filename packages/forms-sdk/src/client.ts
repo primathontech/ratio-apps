@@ -141,6 +141,14 @@ export class FormsClient {
       headers: {
         accept: 'application/json',
         ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
+        // Dev-tunnel quirk only: ngrok's free tier intercepts every
+        // browser-UA request with an HTML warning page unless this header is
+        // present. Sent only to *.ngrok-free.* API bases so production
+        // requests stay clean (the backend's public-CORS allowlist includes
+        // it for the same reason).
+        ...(/\.ngrok-free\.(dev|app)(:|\/|$)/.test(this.cfg.apiBase)
+          ? { 'ngrok-skip-browser-warning': '1' }
+          : {}),
       },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
