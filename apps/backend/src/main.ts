@@ -252,6 +252,21 @@ async function bootstrap(): Promise<void> {
   // listen-resolved and markBooted-called where /ready would have lied.
   app.get(HealthRegistry).markBooted();
 
+  // Opt-in single-origin admin serving (dev-tunnel deployments): when
+  // SERVE_FORMS_ADMIN_DIST points at a built admin SPA, mount it under
+  // /admin-forms/ so one public URL covers both the API and the admin.
+  // The admin uses HASH routing, so only index.html at the prefix is needed —
+  // no SPA fallback rewrites. Default off; production keeps the admin on its
+  // own static hosting.
+  if (process.env.SERVE_FORMS_ADMIN_DIST) {
+    const { default: fastifyStatic } = await import('@fastify/static');
+    await app.register(fastifyStatic as never, {
+      root: process.env.SERVE_FORMS_ADMIN_DIST,
+      prefix: '/admin-forms/',
+      decorateReply: false,
+    } as never);
+  }
+
   await app.listen({ port: env.PORT, host: '0.0.0.0' });
 
   // Use Nest's Logger (routed through pino via `app.useLogger`) so the
