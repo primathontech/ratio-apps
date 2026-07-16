@@ -1,0 +1,28 @@
+{
+  "slug": "loyalty",
+  "displayName": "Loyalty",
+  "hasStorefrontSdk": false,
+  "phase": "prd-architect",
+  "gates": {
+    "prd": "approved",
+    "trd": "pending",
+    "tdd": "pending",
+    "pr": "pending",
+    "deploy": "pending"
+  },
+  "docs": { "prd": "docs/agent/apps/loyalty/PRD.md", "trd": null, "tdd": null },
+  "scopes": ["read_loyalty", "write_loyalty", "read_customers", "write_customers", "read_orders"],
+  "webhooks": [
+    "app/uninstalled",
+    "loyalty/points_earned",
+    "loyalty/points_redeemed",
+    "loyalty/points_expired",
+    "orders/create"
+  ],
+  "paths": { "module": "", "admin": "" },
+  "filesCreated": ["docs/agent/apps/loyalty/PRD.md", "docs/agent/apps/loyalty/STATE.json"],
+  "deployTarget": null,
+  "prUrl": null,
+  "notes": "1P merchant loyalty admin on top of Ratio Core Loyalty Service (in QA; Loyalty APIs draft — all Core calls behind one guarded client with pending_api degradation). Build scope: source-PRD Phase 1 + Phase 2 (bulk CSV credit/debit, CUSTOMER_LIST + SEGMENT earning rules, QR offline events with backend-hosted public landing page, filtered export, customer search + leaderboard, analytics dashboard). App owns rule definitions/evaluation and answers Core's points-earning hook. GATE-0 decisions: name 'Loyalty' (not Wellversed), QR landing backend-hosted (hasStorefrontSdk false), Phase 1+2 scope.",
+  "history": [{ "phase": "prd-architect", "ts": "2026-07-07T10:31:58.000Z" }]
+}
