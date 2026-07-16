@@ -78,12 +78,12 @@ export function ConfigPage() {
     () => {
       form.setError('root', {
         type: 'validation',
-        message: 'Some fields are invalid — check the highlighted inputs.',
+        message: 'Some fields are invalid. Check the highlighted inputs.',
       });
     },
   );
 
-  if (isLoading) return <Typography.Text>Loading…</Typography.Text>;
+  if (isLoading) return <Typography.Text>Loading...</Typography.Text>;
 
   return (
     /* noValidate: validation is Zod's job — native number/step constraint
@@ -96,7 +96,7 @@ export function ConfigPage() {
             Forms settings
           </Typography.Title>
           <Typography.Text type="secondary">
-            Store-wide defaults — individual forms can override the notification recipient.
+            Store-wide defaults. Individual forms can override the notification recipient.
           </Typography.Text>
         </div>
 
@@ -117,7 +117,7 @@ export function ConfigPage() {
                   <Input
                     {...field}
                     value={field.value ?? ''}
-                    placeholder="6L…"
+                    placeholder="6L..."
                     {...(fieldState.invalid ? { status: 'error' as const } : {})}
                   />
                 )}
@@ -129,7 +129,7 @@ export function ConfigPage() {
               error={form.formState.errors.recaptchaSecret?.message}
               hint={
                 data?.hasRecaptchaSecret
-                  ? 'A secret is saved. Enter a new value to replace it — leaving this blank keeps it.'
+                  ? 'A secret is saved. Leave blank to keep it, or enter a new value to replace it.'
                   : 'Write-only: the secret is stored encrypted and never shown again.'
               }
             >
@@ -185,7 +185,7 @@ export function ConfigPage() {
                 type="warning"
                 showIcon
                 message="Notification emails are bouncing"
-                description="The default notification address bounced recently — check the mailbox or set a different address."
+                description="The default notification address bounced recently. Check the mailbox or set a different address."
               />
             )}
             <FieldRow

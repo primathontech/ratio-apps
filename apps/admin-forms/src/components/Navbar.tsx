@@ -65,7 +65,7 @@ export function Navbar() {
           textOverflow: 'ellipsis',
         }}
       >
-        Forms · Ratio
+        Form Builder
       </Typography.Text>
 
       {isMobile ? (

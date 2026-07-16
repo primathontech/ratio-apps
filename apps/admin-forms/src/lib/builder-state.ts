@@ -7,11 +7,8 @@ import {
 } from '@shared/schemas/form-schema';
 
 /**
- * Pure reducer for the form-builder screen (TDD §4 `builder-state`).
- *
- * dnd-kit's drag callbacks and every settings-panel input dispatch into this
- * module, so the whole schema-state machine is unit-testable without
- * simulating pointer drags. No React, no IO — state in, state out.
+ * Pure reducer for the form-builder screen (TDD §4 `builder-state`). No React,
+ * no IO — unit-testable without simulating pointer drags.
  */
 
 /** Form-level metadata edited in the right panel when no field is selected. */

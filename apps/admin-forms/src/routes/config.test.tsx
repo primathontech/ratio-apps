@@ -51,7 +51,7 @@ describe('ConfigPage', () => {
     await waitFor(() => expect(screen.getByText('reCAPTCHA v3')).toBeInTheDocument());
     expect(screen.getByText('Notifications')).toBeInTheDocument();
     expect(screen.getByText('Kill switch')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('6L…')).toHaveValue('6LtestSiteKey');
+    expect(screen.getByPlaceholderText('6L...')).toHaveValue('6LtestSiteKey');
     expect(screen.getByPlaceholderText('leads@yourstore.in')).toHaveValue('leads@shop.in');
   });
 

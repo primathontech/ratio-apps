@@ -146,7 +146,7 @@ export function FormsListPage() {
             Forms
           </Typography.Title>
           <Typography.Text type="secondary">
-            Build forms, publish them to your storefront, and work the submissions.
+            Create forms for your storefront and view their submissions.
           </Typography.Text>
         </div>
         <PrimaryButton icon={<PlusOutlined />} loading={create.isPending} onClick={onNewForm}>
@@ -166,7 +166,7 @@ export function FormsListPage() {
 
       <Card>
         {!forms.isLoading && rows.length === 0 ? (
-          <Empty description="No forms yet — create your first form to start collecting submissions.">
+          <Empty description="No forms yet. Create your first form to get started.">
             <PrimaryButton loading={create.isPending} onClick={onNewForm}>
               Create your first form
             </PrimaryButton>

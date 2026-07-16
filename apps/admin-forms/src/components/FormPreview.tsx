@@ -88,7 +88,7 @@ function PreviewControl({ field }: { field: FormField }) {
     case 'dropdown':
       return (
         <select disabled style={inputStyle}>
-          <option>{field.placeholder ?? 'Select…'}</option>
+          <option>{field.placeholder ?? 'Select...'}</option>
           {field.options.map((opt) => (
             <option key={opt}>{opt}</option>
           ))}

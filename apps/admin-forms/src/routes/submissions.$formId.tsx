@@ -65,7 +65,7 @@ export function SubmissionsScreen({ formId }: { formId: string }) {
         </Link>
         <div style={{ flex: 1, minWidth: 160 }}>
           <Typography.Title level={4} style={{ margin: 0 }}>
-            {form.data ? `Submissions — ${form.data.name}` : 'Submissions'}
+            {form.data ? `Submissions: ${form.data.name}` : 'Submissions'}
           </Typography.Title>
         </div>
         <Button icon={<DownloadOutlined />} loading={exporting} onClick={() => void onExport()}>
@@ -96,12 +96,12 @@ function previewValues(data: Record<string, unknown>): string {
   return Object.entries(data)
     .slice(0, 3)
     .map(([key, value]) => `${key}: ${formatValue(value)}`)
-    .join(' · ');
+    .join(', ');
 }
 
 function formatValue(value: unknown): string {
   if (Array.isArray(value)) return value.join(', ');
-  if (value === null || value === undefined) return '—';
+  if (value === null || value === undefined) return '-';
   return String(value);
 }
 
@@ -127,7 +127,7 @@ function SubmissionsTable({ formId }: { formId: string }) {
         const row = record as SubmissionListItem;
         return (
           <Typography.Text type="secondary" style={{ fontSize: 13 }}>
-            {previewValues(row.data) || '—'}
+            {previewValues(row.data) || '-'}
           </Typography.Text>
         );
       },

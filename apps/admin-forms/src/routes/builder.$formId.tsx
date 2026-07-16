@@ -134,7 +134,6 @@ export function BuilderScreen({ formId }: { formId: string }) {
     };
     const parsed = formInputSchema.safeParse(payload);
     if (!parsed.success) {
-      // Per-field error surfacing: "schema.2.label: label is required".
       setSaveErrors(
         parsed.error.issues.map((issue) =>
           issue.path.length ? `${issue.path.join('.')}: ${issue.message}` : issue.message,
@@ -205,7 +204,7 @@ export function BuilderScreen({ formId }: { formId: string }) {
 
       {previewOpen ? (
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-          <Card title="Mobile · 375px" style={{ flex: '0 0 auto', maxWidth: '100%' }}>
+          <Card title="Mobile (375px)" style={{ flex: '0 0 auto', maxWidth: '100%' }}>
             <FormPreview
               name={state.meta.name}
               fields={state.fields}
@@ -257,8 +256,6 @@ export function BuilderScreen({ formId }: { formId: string }) {
   );
 }
 
-// ─── left pane: palette ──────────────────────────────────────────────────────
-
 function FieldPalette({ dispatch }: { dispatch: Dispatch<BuilderAction> }) {
   return (
     <Card title="Fields" style={{ flex: '0 0 180px' }} styles={{ body: { padding: 12 } }}>
@@ -304,8 +301,6 @@ function PaletteItem({
   );
 }
 
-// ─── center pane: canvas ─────────────────────────────────────────────────────
-
 function Canvas({ state, dispatch }: { state: BuilderState; dispatch: Dispatch<BuilderAction> }) {
   const { setNodeRef } = useDroppable({ id: 'builder-canvas' });
   return (
@@ -317,7 +312,7 @@ function Canvas({ state, dispatch }: { state: BuilderState; dispatch: Dispatch<B
         >
           {state.fields.length === 0 && (
             <Typography.Text type="secondary">
-              Add fields from the palette — click or drag them here.
+              Click or drag fields from the palette to add them here.
             </Typography.Text>
           )}
           {state.fields.map((field) => (
@@ -381,7 +376,7 @@ function CanvasField({
           {field.required && <span style={{ color: '#cf1322' }}> *</span>}
         </Typography.Text>
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          {FIELD_TYPE_LABELS[field.type]} · {field.key}
+          {FIELD_TYPE_LABELS[field.type]} ({field.key})
         </Typography.Text>
       </div>
       <Button
@@ -398,8 +393,6 @@ function CanvasField({
     </div>
   );
 }
-
-// ─── right pane: field settings ──────────────────────────────────────────────
 
 function SettingRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -491,8 +484,8 @@ function TypeSpecificSettings({
         <Alert
           type="info"
           showIcon
-          message="+91 · 10 digits"
-          description="Indian mobile numbers only in v1 — validated on the storefront and again on the server."
+          message="+91, 10 digits"
+          description="Indian mobile numbers only in v1. Validated on the storefront and again on the server."
         />
       );
     default:
@@ -723,8 +716,6 @@ function FileValidationSettings({
   );
 }
 
-// ─── right pane: form settings (nothing selected) ────────────────────────────
-
 function FormSettings({
   state,
   dispatch,
@@ -808,7 +799,7 @@ function FormSettings({
               type="secondary"
               style={{ fontSize: 12, display: 'block', marginTop: 4 }}
             >
-              Tests the SAVED webhook URL — save first if you just changed it.
+              Tests the saved webhook URL. Save first if you just changed it.
             </Typography.Text>
           </div>
         </SettingRow>

@@ -10,7 +10,7 @@ export function InstallPage() {
   const merchant = useMerchant();
   const forms = useForms(1);
 
-  if (merchant.isLoading || forms.isLoading) return <Typography.Text>Loading…</Typography.Text>;
+  if (merchant.isLoading || forms.isLoading) return <Typography.Text>Loading...</Typography.Text>;
   if (!merchant.data) {
     return (
       <Typography.Text>

@@ -91,7 +91,7 @@ describe('SubmissionsScreen', () => {
     renderWithProviders(<SubmissionsScreen formId="form_1" />);
     await waitFor(() =>
       expect(
-        screen.getByText(/full_name: Asha · email: asha@example.com · city: Pune/),
+        screen.getByText('full_name: Asha, email: asha@example.com, city: Pune'),
       ).toBeInTheDocument(),
     );
     // Preview truncates to the first 3 field values.

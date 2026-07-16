@@ -217,8 +217,6 @@ export class RatioForm extends LitElement {
     return grecaptcha.execute(schema.recaptchaSiteKey, { action: 'submit' });
   }
 
-  // ─── client-side validation (mirror of the backend validator) ─────────────
-
   private validateAll(): Record<string, string> {
     const errors: Record<string, string> = {};
     for (const field of this.schema?.schema ?? []) {
@@ -299,8 +297,6 @@ export class RatioForm extends LitElement {
     }
   }
 
-  // ─── submit flow ───────────────────────────────────────────────────────────
-
   private async onSubmit(event: Event): Promise<void> {
     event.preventDefault();
     // Submit-once: ignore anything after the first click until it resolves.
@@ -375,8 +371,6 @@ export class RatioForm extends LitElement {
     }
   }
 
-  // ─── render ────────────────────────────────────────────────────────────────
-
   override render(): TemplateResult {
     switch (this.status) {
       case 'loading':
@@ -431,7 +425,7 @@ export class RatioForm extends LitElement {
           ?disabled=${this.status === 'submitting'}
           @click=${this.onSubmit}
         >
-          ${this.status === 'submitting' ? 'Submitting…' : schema.submitLabel}
+          ${this.status === 'submitting' ? 'Submitting...' : schema.submitLabel}
         </button>
       </div>
     `;
@@ -485,7 +479,7 @@ export class RatioForm extends LitElement {
           name=${field.key}
           @change=${(e: Event) => this.setValue(field.key, (e.target as HTMLSelectElement).value)}
         >
-          <option value="">${field.placeholder ?? 'Select…'}</option>
+          <option value="">${field.placeholder ?? 'Select...'}</option>
           ${field.options.map(
             (opt) =>
               html`<option value=${opt} ?selected=${this.values[field.key] === opt}>

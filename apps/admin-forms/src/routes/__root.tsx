@@ -82,7 +82,7 @@ function RootLayout() {
     return (
       <StatusScreen
         title="No merchant session"
-        subTitle="Open this admin from your Ratio dashboard — a merchant context is required to load this page."
+        subTitle="Open this admin from your Ratio dashboard. A merchant context is required to load this page."
       />
     );
   }
