@@ -166,7 +166,7 @@ export function FormsListPage() {
 
       <Card>
         {!forms.isLoading && rows.length === 0 ? (
-          <Empty description="No forms yet. Create your first form to get started.">
+          <Empty description="No forms yet">
             <PrimaryButton loading={create.isPending} onClick={onNewForm}>
               Create your first form
             </PrimaryButton>

@@ -485,7 +485,7 @@ function TypeSpecificSettings({
           type="info"
           showIcon
           message="+91, 10 digits"
-          description="Indian mobile numbers only in v1. Validated on the storefront and again on the server."
+          description="Indian mobile numbers only."
         />
       );
     default:

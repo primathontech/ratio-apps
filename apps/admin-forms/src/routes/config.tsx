@@ -151,7 +151,7 @@ export function ConfigPage() {
             <FieldRow
               label="Score threshold"
               error={form.formState.errors.recaptchaThreshold?.message}
-              hint="0–1. Submissions scoring below this are silently rejected as spam (default 0.30)."
+              hint="0-1. Submissions scoring below this are silently rejected as spam (default 0.30)."
             >
               <Controller
                 control={form.control}
@@ -251,9 +251,8 @@ export function ConfigPage() {
                   onCancel={() => setConfirmDisable(false)}
                 >
                   <Typography.Paragraph>
-                    Every form on your storefront will show "temporarily unavailable" and webhook
-                    deliveries will pause. Submissions in flight are rejected. You can re-enable at
-                    any time. Remember to Save after confirming.
+                    Every form on your storefront will show "temporarily unavailable" and
+                    submissions in flight are rejected. Remember to Save after confirming.
                   </Typography.Paragraph>
                 </Modal>
               </>
