@@ -217,7 +217,7 @@ export function FormsListPage() {
       >
         {deleteTarget && deleteTarget.submissionCount > 0 ? (
           <Typography.Paragraph>
-            <Typography.Text strong>“{deleteTarget.name}”</Typography.Text> has{' '}
+            <Typography.Text strong>"{deleteTarget.name}"</Typography.Text> has{' '}
             <Typography.Text strong>
               {deleteTarget.submissionCount} submission
               {deleteTarget.submissionCount === 1 ? '' : 's'}
@@ -227,7 +227,7 @@ export function FormsListPage() {
           </Typography.Paragraph>
         ) : (
           <Typography.Paragraph>
-            {deleteTarget ? `“${deleteTarget.name}” will be removed from your storefront.` : ''}
+            {deleteTarget ? `"${deleteTarget.name}" will be removed from your storefront.` : ''}
           </Typography.Paragraph>
         )}
       </Modal>

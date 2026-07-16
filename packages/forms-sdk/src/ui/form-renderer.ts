@@ -212,7 +212,7 @@ export class RatioForm extends LitElement {
       return undefined;
     }
     const grecaptcha = window.grecaptcha;
-    if (!grecaptcha) return undefined; // script blocked/offline — backend falls back to honeypot
+    if (!grecaptcha) return undefined; // script blocked/offline: backend falls back to honeypot
     await new Promise<void>((resolve) => grecaptcha.ready(resolve));
     return grecaptcha.execute(schema.recaptchaSiteKey, { action: 'submit' });
   }
@@ -354,7 +354,7 @@ export class RatioForm extends LitElement {
           this.fieldErrors = err.fieldErrors;
           this.formError = 'Please fix the highlighted fields.';
         } else if (err.isRateLimited) {
-          this.formError = 'Too many submissions — please try again in a few minutes.';
+          this.formError = 'Too many submissions. Please try again in a few minutes.';
         } else if (err.isFormClosed) {
           this.status = 'closed';
           return;
@@ -362,10 +362,10 @@ export class RatioForm extends LitElement {
           this.status = 'unavailable';
           return;
         } else {
-          this.formError = 'Something went wrong — please try again.';
+          this.formError = 'Something went wrong. Please try again.';
         }
       } else {
-        this.formError = 'Something went wrong — please try again.';
+        this.formError = 'Something went wrong. Please try again.';
       }
       this.status = 'ready';
     }
@@ -374,7 +374,7 @@ export class RatioForm extends LitElement {
   override render(): TemplateResult {
     switch (this.status) {
       case 'loading':
-        return html`<div class="rf-status" data-state="loading">Loading…</div>`;
+        return html`<div class="rf-status" data-state="loading">Loading...</div>`;
       case 'closed':
         return html`<div class="rf-status" data-state="closed">This form is closed.</div>`;
       case 'unavailable':

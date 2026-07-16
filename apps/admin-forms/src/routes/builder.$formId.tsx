@@ -238,7 +238,7 @@ export function BuilderScreen({ formId }: { formId: string }) {
                       onSuccess: (result) =>
                         void message.info(
                           result.statusCode === null
-                            ? 'Webhook test sent — no response (network error)'
+                            ? 'Webhook test sent, no response (network error)'
                             : `Webhook responded with status ${result.statusCode}`,
                         ),
                       onError: (err) => void message.error((err as Error).message),
@@ -791,7 +791,7 @@ function FormSettings({
             {webhookTestResult && (
               <Typography.Text style={{ display: 'block', marginTop: 4 }}>
                 {webhookTestResult.statusCode === null
-                  ? 'Webhook test sent — no response (network error)'
+                  ? 'Webhook test sent, no response (network error)'
                   : `Webhook responded with status ${webhookTestResult.statusCode}`}
               </Typography.Text>
             )}
