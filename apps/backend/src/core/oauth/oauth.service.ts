@@ -35,7 +35,7 @@ export interface OAuthServiceDeps<DB> {
  * @param token JWT access token
  * @returns merchant_id from JWT payload, or undefined if not found
  */
-function extractMerchantIdFromJwt(token: string): string | undefined {
+export function extractMerchantIdFromJwt(token: string): string | undefined {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return undefined;
