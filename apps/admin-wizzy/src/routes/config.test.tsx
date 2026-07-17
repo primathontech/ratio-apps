@@ -119,6 +119,34 @@ describe('ConfigForm', () => {
     });
   });
 
+  it('preserves searchEnabled (and storefront fields) on save — does not clobber to false', async () => {
+    // Reproduces the bug: the Config page omitted the storefront-search fields,
+    // so saving it sent no `searchEnabled` and the backend default reset it to
+    // false, disabling storefront search that was turned on elsewhere.
+    routeApi(
+      makeConfig({
+        searchEnabled: true,
+        inputSelector: '#custom-search',
+        resultsPagePath: '/results',
+      }),
+    );
+    renderWithProviders(<ConfigPage />);
+    await screen.findByPlaceholderText('your-store-id');
+    fireEvent.click(screen.getByRole('button', { name: /Save configuration/ }));
+
+    await waitFor(() => {
+      const putCall = mockedApi.mock.calls.find(
+        (c) => c[0] === 'PUT' && c[1] === '/api/wizzy-config',
+      );
+      expect(putCall).toBeDefined();
+      const body = putCall?.[2] as Record<string, unknown>;
+      // The saved-on value must be round-tripped, not dropped (→ defaulted to false).
+      expect(body.searchEnabled).toBe(true);
+      expect(body.inputSelector).toBe('#custom-search');
+      expect(body.resultsPagePath).toBe('/results');
+    });
+  });
+
   it('shows sync setting checkboxes', async () => {
     routeApi(makeConfig());
     renderWithProviders(<ConfigPage />);

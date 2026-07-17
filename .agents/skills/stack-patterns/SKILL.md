@@ -15,6 +15,11 @@ Stack: NestJS 11 + Fastify + Kysely + MySQL (backend); React 19 + Vite +
 TanStack Router + React Query + react-hook-form + Zod + `@primathonos/orion`
 (admin). pnpm workspaces, Node 22.
 
+Runtime placement is configuration, not a module-code fork. Every app uses the
+same backend image; `STATE.json.deployment` decides whether its module is
+included in the shared API `ENABLED_MODULES` list or an isolated API workload,
+and whether its queue consumer runs in the shared API or `main.worker.js`.
+
 ## Backend: the NestJS module recipe
 
 A vendor module is a Nest feature module with **per-module DB isolation** — it
@@ -146,15 +151,16 @@ forms, `@primathonos/orion` for UI components.
   PRD. `__root.tsx` runs the iframe-auth handshake (`useIframeAuth`) and the
   install-session bootstrap.
 - **Build**: `pnpm --filter @ratio-app/admin-<slug> build` runs `tsr generate &&
-  tsc --noEmit && vite build`, emitting static assets to `dist/` that the backend
-  serves as the single deploy artifact.
+  tsc --noEmit && vite build`, emitting static assets to `dist/` for the app's
+  separate static deployment.
 
 ## Storefront SDK patterns
 
-**Only for apps with `hasStorefrontSdk: true`** (opt-in; the four analytics
-vendors don't ship one). The SDK is a third pillar: a **Lit 3 + Vite 6
-library-mode** package at `packages/<slug>-sdk`, served by the vendor backend at
-`/<slug>/sdk/*`. Canonical reference: **`packages/wizzy-sdk`** (golden copy-source:
+**Only for apps with `hasStorefrontSdk: true`** (opt-in; Google, Meta, PostHog,
+and MoEngage do not ship one, while Wizzy is the first that does). The SDK is a
+third pillar: a **Lit 3 + Vite 6 library-mode** package at
+`packages/<slug>-sdk`, served by the vendor backend at `/<slug>/sdk/*`.
+Canonical reference: **`packages/wizzy-sdk`** (golden copy-source:
 `packages/_template-sdk`).
 
 ### 1. Lit 3 Web Components (Shadow DOM)

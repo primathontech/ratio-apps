@@ -25,6 +25,10 @@
     "apps/backend/src/modules/moengage/db/types.ts",
     "apps/admin-moengage/src/routes/config.tsx"
   ],
+  "deployment": {
+    "apiPlacement": "shared",
+    "workerPlacement": "none"
+  },
   "deployTarget": null,
   "prUrl": null,
   "history": [

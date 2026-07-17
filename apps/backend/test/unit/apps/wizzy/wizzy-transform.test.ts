@@ -309,7 +309,7 @@ describe('transformProduct — variant facets (colors / sizes / attributes)', ()
 });
 
 describe('transformProduct — tags attribute', () => {
-  it('maps product tags into a filterable "Tags" attribute', () => {
+  it('maps product tags into a searchable, NON-filterable "Tags" attribute', () => {
     const result = transformProduct(
       baseProduct({ tags: ['Bestseller', 'Combo', 'New Arrival'] }),
       baseConfig,
@@ -321,9 +321,11 @@ describe('transformProduct — tags attribute', () => {
     expect(tags?.name).toBe('Tags');
     expect(tags?.type).toBe('string');
     expect(tags?.isSearchable).toBe(true);
-    expect(tags?.isFilterable).toBe(true);
+    // Tags help search relevance but must NOT create a "Tags" facet.
+    expect(tags?.isFilterable).toBe(false);
     expect(tags?.addInAutocomplete).toBe(false);
-    expect(tags?.values.map((v) => v.value[0])).toEqual(['Bestseller', 'Combo', 'New Arrival']);
+    expect(tags?.values).toHaveLength(1);
+    expect(tags?.values[0]?.value).toEqual(['Bestseller', 'Combo', 'New Arrival']);
   });
 
   it('dedupes tags case/space-insensitively, keeping the first-seen label', () => {
@@ -334,7 +336,7 @@ describe('transformProduct — tags attribute', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const tags = (result.payload.attributes ?? []).find((a) => a.id === 'tags');
-    expect(tags?.values.map((v) => v.value[0])).toEqual(['Bestseller', 'electrolyte']);
+    expect(tags?.values[0]?.value).toEqual(['Bestseller', 'electrolyte']);
   });
 
   it('coexists with variant attributes (both present)', () => {
@@ -737,12 +739,6 @@ describe('transformProduct — rich by-id collections → categories', () => {
     }
   });
 
-  it('sets groupId equal to product id', () => {
-    const result = transformProduct(osmoFixture(), baseConfig);
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.payload.groupId).toBe('P1');
-  });
 
   it('existing fields unchanged: sellingPrice=58800, price=69900, brand=Osmo, inStock=true', () => {
     const result = transformProduct(osmoFixture(), baseConfig);
@@ -764,12 +760,12 @@ describe('transformProduct — rich by-id collections → categories', () => {
   });
 });
 
-describe('transformProduct — groupId is always set to product id', () => {
-  it('sets groupId on a plain product (no collections)', () => {
+describe('transformProduct — groupId is omitted on the product-level record', () => {
+  it('does not set groupId on a plain product (grouping is variant-only)', () => {
     const result = transformProduct(baseProduct({ id: 'prod-42' }), baseConfig);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.payload.groupId).toBe('prod-42');
+    expect(result.payload.groupId).toBeUndefined();
   });
 });
 
@@ -857,26 +853,50 @@ describe('transformProduct — metafield enrichment: all-null metafields', () =>
   });
 });
 
-describe('transformProduct — metafield enrichment: populated custom/form_factor', () => {
-  it('emits a "Form Factor" attribute with isSearchable+isFilterable true', () => {
-    const product: RatioProduct = {
-      ...baseProduct(),
-      metafields: [
-        { namespace: 'custom', key: 'form_factor', name: 'Form Factor', value: 'Sachets' },
-      ],
-    };
-    const result = transformProduct(product, baseConfig);
+describe('transformProduct — metafield facet allowlist (store.wellversed.in parity)', () => {
+  // Only Flavour, Dietary Type (Veg/Non Veg), and Serving Size stay as attribute
+  // facets. Every other enrichment key is intentionally dropped so Wizzy stops
+  // creating its facet.
+  const REMOVED = [
+    { namespace: 'custom', key: 'form_factor', name: 'Form Factor', value: 'Sachets' },
+    { namespace: 'custom', key: 'net_weight', name: 'Net Weight', value: '250 gm' },
+    { namespace: 'shopify', key: 'dietary-use', name: 'Dietary Use', value: 'Daily' },
+    { namespace: 'shopify', key: 'creatine-type', name: 'Creatine Type', value: 'Monohydrate' },
+    { namespace: 'shopify', key: 'supplement-health-focus', name: 'Health Focus', value: 'Energy' },
+    { namespace: 'shopify', key: 'ingredient-category', name: 'Ingredient Category', value: 'Amino' },
+    { namespace: 'shopify', key: 'food-supplement-form', name: 'Supplement Form', value: 'Powder' },
+    { namespace: 'shopify', key: 'target-gender', name: 'Gender', value: 'Unisex' },
+    { namespace: 'shopify', key: 'age-group', name: 'Age Group', value: 'Adult' },
+  ];
+
+  it('drops the de-listed enrichment attributes (Form Factor, Net Weight, Gender, …)', () => {
+    const result = transformProduct({ ...baseProduct(), metafields: REMOVED }, baseConfig);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const names = (result.payload.attributes ?? []).map((a) => a.name);
+    for (const mf of REMOVED) expect(names).not.toContain(mf.name);
+  });
+
+  it('keeps Flavour, Dietary Type, and Serving Size as filterable facets', () => {
+    const result = transformProduct(
+      {
+        ...baseProduct(),
+        metafields: [
+          { namespace: 'custom', key: 'flavour_name', name: 'Flavour Name', value: 'Mango' },
+          { namespace: 'custom', key: 'prodcut_type_veg_nonveg', name: 'Veg/NonVeg', value: 'Veg' },
+          { namespace: 'custom', key: 'product_weight', name: 'Weight', value: '30 servings' },
+        ],
+      },
+      baseConfig,
+    );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const attrs = result.payload.attributes ?? [];
-    const ff = attrs.find((a) => a.name === 'Form Factor');
-    expect(ff).toBeDefined();
-    expect(ff?.id).toBe('form-factor');
-    expect(ff?.type).toBe('string');
-    expect(ff?.isSearchable).toBe(true);
-    expect(ff?.isFilterable).toBe(true);
-    expect(ff?.addInAutocomplete).toBe(false);
-    expect(ff?.values.map((v) => v.value[0])).toContain('Sachets');
+    for (const name of ['Flavour', 'Dietary Type', 'Serving Size']) {
+      const a = attrs.find((x) => x.name === name);
+      expect(a, name).toBeDefined();
+      expect(a?.isFilterable).toBe(true);
+    }
   });
 });
 

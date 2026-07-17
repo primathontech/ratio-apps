@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bootWizzy } from './loader';
+import { requireValue } from './test-utils';
 
 const CONFIG = {
   storeId: 's1',
@@ -54,10 +55,14 @@ describe('loader', () => {
     setup();
     await bootWizzy();
     expect(document.querySelector('script[type="module"]')).toBeNull();
-    document.querySelector('#search')!.dispatchEvent(new Event('focusin', { bubbles: true }));
-    const widget = document.querySelector('script[type="module"]') as HTMLScriptElement | null;
-    expect(widget).not.toBeNull();
-    expect(widget!.src).toBe('https://cdn.example.com/wizzy/sdk/wizzy-widget.js?v=0.1.0');
+    requireValue(document.querySelector('#search'), '#search input').dispatchEvent(
+      new Event('focusin', { bubbles: true }),
+    );
+    const widget = requireValue(
+      document.querySelector<HTMLScriptElement>('script[type="module"]'),
+      'widget module script',
+    );
+    expect(widget.src).toBe('https://cdn.example.com/wizzy/sdk/wizzy-widget.js?v=0.1.0');
   });
 
   it('does nothing when searchEnabled is false', async () => {
@@ -72,7 +77,9 @@ describe('loader', () => {
       ),
     );
     await bootWizzy();
-    document.querySelector('#search')!.dispatchEvent(new Event('focusin', { bubbles: true }));
+    requireValue(document.querySelector('#search'), '#search input').dispatchEvent(
+      new Event('focusin', { bubbles: true }),
+    );
     expect(document.querySelector('script[type="module"]')).toBeNull();
   });
 });

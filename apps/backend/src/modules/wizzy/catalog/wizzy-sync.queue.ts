@@ -6,9 +6,20 @@ export const WIZZY_QUEUE_NAMES = {
   dlq: 'wizzy-product-sync-dlq',
 } as const;
 
-/** A unit of Wizzy sync work enqueued by the product webhooks. */
+/**
+ * A unit of Wizzy sync work enqueued by the product webhooks.
+ *
+ * `upsert` carries the `productId`; the worker fetches the authoritative product
+ * by id (`GET /products/:id?show_variants=true`) so the payload it transforms is
+ * the SAME rich, REST-shaped structure as the full-sync path — not the leaner
+ * webhook payload (which omits `collections`/`metafields`, uses `images[].url`
+ * instead of `images[].src`, and may send empty `variants`). `product` is an
+ * OPTIONAL legacy field for rollover safety: messages enqueued before the
+ * fetch-by-id change carried the parsed product, and the worker still honors
+ * them for one deploy.
+ */
 export type WizzySyncMessage =
-  | { op: 'upsert'; merchantId: string; product: RatioProduct }
+  | { op: 'upsert'; merchantId: string; productId: string; product?: RatioProduct }
   | { op: 'delete'; merchantId: string; productId: string };
 
 /**

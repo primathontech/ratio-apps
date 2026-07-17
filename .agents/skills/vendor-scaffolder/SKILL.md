@@ -1,6 +1,6 @@
 ---
 name: vendor-scaffolder
-description: Deterministically scaffold a new vendor app by copying the _template golden module + admin and renaming every identifier/path to <slug>, then wiring it into apps.ts, app.module.ts, and .env.example, and proving it compiles with pnpm install + typecheck. No business logic — pure copy-rename-wire.
+description: Deterministically scaffold a new vendor app by copying the _template golden module + admin and renaming every identifier/path to <slug>, then wiring it into apps.ts, module-registry.ts, and .env.example, and proving it compiles with pnpm install + typecheck. No business logic — pure copy-rename-wire.
 when_to_use: The phase after GATE 3 (TDD approved). Use to produce an always-buildable starting point for the new vendor: the backend module, the admin app, and all wiring. Stops once the scaffold typechecks; backend-builder/frontend-builder implement the PRD next.
 ---
 
@@ -11,8 +11,10 @@ copying the golden template and renaming. **No business logic** — the
 `// TEMPLATE:` markers stay in place for the builders to replace next.
 
 Preconditions: `gates.prd` is `approved` in STATE.json. Read STATE.json on entry
-for the `slug` and `displayName`. Consult `house-conventions` (slug, env keys,
-file naming) and `context-keeper`.
+for the `slug`, `displayName`, and required `deployment` object. Stop if
+`deployment.apiPlacement` or `deployment.workerPlacement` is missing; route back
+to `build-app` because scaffolding must not invent production placement.
+Consult `house-conventions` (slug, env keys, file naming) and `context-keeper`.
 
 Define the identifier transform once and apply it everywhere:
 - `Template` → `<Slug>` (PascalCase, e.g. `Loyalty`) — class/type prefixes.
@@ -80,18 +82,18 @@ rsync -a --exclude node_modules --exclude dist --exclude coverage --exclude .tan
 
 ## Step 4 — Add the slug to APPS
 
-**Before you edit:** assert your new slug collides with none of the four live
-vendors (`google`, `meta`, `posthog`, `moengage`) and is not `_template`.
+**Before you edit:** assert your new slug collides with none of the five live
+vendors (`google`, `meta`, `posthog`, `moengage`, `wizzy`) and is not `_template`.
 
 In `apps/backend/src/config/apps.ts` **APPEND** `<slug>` to the existing
-four-entry `APPS` tuple — do NOT replace any existing entry:
+five-entry `APPS` tuple — do NOT replace any existing entry:
 
 ```ts
-// Before (four live vendors as of this writing):
-export const APPS = ['google', 'meta', 'posthog', 'moengage'] as const;
+// Before (five live vendors):
+export const APPS = ['google', 'meta', 'posthog', 'moengage', 'wizzy'] as const;
 
-// After (append only — existing four entries stay intact):
-export const APPS = ['google', 'meta', 'posthog', 'moengage', '<slug>'] as const;
+// After (append only — existing five entries stay intact):
+export const APPS = ['google', 'meta', 'posthog', 'moengage', 'wizzy', '<slug>'] as const;
 ```
 
 `_template` is intentionally absent from `APPS` — it is the golden boilerplate
@@ -100,50 +102,43 @@ kept on disk only as a copy-source; it is NOT a running vendor.
 The load-time guard in `apps.ts` accepts `/^[a-z0-9_-]+$/` (underscore reserved
 for `_template`); production vendor slugs must stay within `[a-z0-9-]`.
 
-## Step 5 — Register the module in app.module.ts
+## Step 5 — Register the module in module-registry.ts
 
-In `apps/backend/src/app.module.ts` make **three** additions, leaving the
-existing four entries (`google`, `meta`, `posthog`, `moengage`) intact:
+In `apps/backend/src/module-registry.ts` make **two** additions, leaving the
+existing five entries intact:
 
-1. **Import line** (at the top, alongside the existing four):
+1. **Import line** (alongside the existing five):
    ```ts
    import { <Slug>Module } from './modules/<slug>/<slug>.module';
    ```
 
-2. **`REGISTERED_MODULES` map** — append a new entry:
+2. **`MODULE_REGISTRY` map** — append a new entry:
    ```ts
-   const REGISTERED_MODULES = new Map<string, unknown>([
+   export const MODULE_REGISTRY = new Map<AppSlug, unknown>([
      ['google',    GoogleModule],
      ['meta',      MetaModule],
      ['posthog',   PosthogModule],
      ['moengage',  MoengageModule],
+     ['wizzy',     WizzyModule],
      ['<slug>',    <Slug>Module],   // ← append here
    ]);
    ```
 
-3. **`@Module({ imports: [...] })` array** — append the module:
-   ```ts
-   imports: [
-     // … ConfigModule, LoggerModule, HealthModule unchanged …
-     GoogleModule,
-     MetaModule,
-     PosthogModule,
-     MoengageModule,
-     <Slug>Module,   // ← append here
-   ],
-   ```
+`app.module.ts` resolves the enabled slugs through this registry and builds its
+imports dynamically. The load-time assertion in `module-registry.ts` throws
+`MODULE_REGISTRY: APPS contains '<slug>' but no <App>Module is registered` if
+the slug is added to `APPS` without a registry entry.
 
-**Both** `REGISTERED_MODULES` and `imports[]` are required. The load-time
-assertion in `app.module.ts` throws
-`AppModule: APPS contains '<slug>' but no <App>Module is registered`
-if the slug is in `APPS` but missing from the map. (`imports[]` can't be
-generated from `APPS` because decorator args are static — hence the assertion.)
+Do not hard-code deployment groups in application source. `ENABLED_MODULES`
+already accepts a comma-separated subset. The external EKS pipeline assembles
+the shared/dedicated workload from the approved STATE placement.
 
 ## Step 6 — Shared schema/events (only if the PRD needs them)
 
 Add vendor-specific shared files and export them from the barrel
-(`packages/shared/src/index.ts`). The four live vendors (`google`, `meta`,
-`posthog`, `moengage`) already follow this pattern — replicate it:
+(`packages/shared/src/index.ts`). The analytics/event apps (`google`, `meta`,
+`posthog`, `moengage`) follow this pattern; Wizzy instead owns search/config
+schemas without an event map.
 
 **a) Events file** `packages/shared/src/constants/<slug>-events.ts`:
 - Export `DEFAULT_<VENDOR>_EVENT_MAP` (e.g. `DEFAULT_LOYALTY_EVENT_MAP`).
@@ -166,7 +161,7 @@ Add vendor-specific shared files and export them from the barrel
   `<slug>ConfigInputSchema`.
 
 **c) Barrel exports** in `packages/shared/src/index.ts` — append after the
-existing four vendor blocks:
+existing vendor blocks:
 ```ts
 // <slug> vendor (scaffolded).
 export * from './constants/<slug>-events';
@@ -181,8 +176,8 @@ vendor-specific schema. Be consistent with the import paths renamed in Step 2.
 
 Append a `<slug>_app` + `<slug>_app_test` CREATE and GRANT block to
 `docker/mysql/init/01-database.sql`, after the last existing vendor block
-(`moengage_app`). The file currently has five vendor blocks (including
-`_template_app`); your new block is the sixth:
+(`wizzy_app`). The file currently has six blocks (five live apps plus
+`_template_app`); your new block is the seventh:
 
 ```sql
 CREATE DATABASE IF NOT EXISTS <slug>_app;
@@ -220,7 +215,8 @@ encryption key) — never commit `.env`.
 ## Step 8b — Storefront SDK (only when `hasStorefrontSdk: true`)
 
 **Skip this step entirely unless STATE.json / the PRD sets
-`hasStorefrontSdk: true`** (the four analytics vendors do NOT — absence ⇒ false).
+`hasStorefrontSdk: true`** (Google, Meta, PostHog, and MoEngage do not; absence
+means false).
 When set, the app ships a third pillar: a Lit 3 + Vite library-mode SDK package
 served by the vendor backend at `/<slug>/sdk/*`. Reference impl:
 `packages/wizzy-sdk`.
@@ -279,6 +275,7 @@ scaffold compiles.
 
 Via `context-keeper`: set `paths.module = "apps/backend/src/modules/<slug>"` and
 `paths.admin = "apps/admin-<slug>"`; append the scaffold files to `filesCreated`;
+preserve the approved `deployment` object unchanged;
 append a `vendor-scaffolder` history entry; advance `phase` to `backend-builder`.
 Hand back to `build-app`.
 
@@ -286,6 +283,6 @@ Hand back to `build-app`.
 
 - A typecheck error mentioning `_template` or `Template` = a missed rename; grep
   the module for the leftover token.
-- The load-time assertion firing = you added to `APPS` but forgot
-  `REGISTERED_MODULES` or `imports[]` in `app.module.ts`.
+- The load-time assertion firing = you added to `APPS` but forgot the import or
+  map entry in `module-registry.ts`.
 - Keep `// TEMPLATE:` markers intact — replacing them is the builders' job.

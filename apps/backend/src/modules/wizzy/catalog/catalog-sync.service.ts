@@ -80,6 +80,19 @@ export class CatalogSyncService {
     const ctx = await this.context(merchantId);
     if (!ctx) return { updated: 0, errored: 0 };
 
+    // Auto-sync gate: when "Auto-sync on product changes" is OFF, product-change
+    // events (webhook/auto) must NOT sync. Explicit syncs (manual/initial/force/
+    // reconcile) are unaffected — they reconcile on demand.
+    if ((syncType === 'webhook' || syncType === 'auto') && !ctx.autoSyncEnabled) {
+      this.logger.log({
+        msg: 'auto-sync disabled — skipping product change',
+        merchantId,
+        productId: product.id,
+        syncType,
+      });
+      return { updated: 0, errored: 0 };
+    }
+
     const result = transformProduct(product, ctx.transformConfig);
     if (!result.ok) {
       // Product filtered — missing image or all variants out of stock.
@@ -147,6 +160,17 @@ export class CatalogSyncService {
   async deleteProduct(merchantId: string, productId: string): Promise<void> {
     const ctx = await this.context(merchantId);
     if (!ctx) return;
+
+    // Auto-sync gate: a delete is a product-change event. When "Auto-sync on
+    // product changes" is OFF, skip it — a later manual/force sync reconciles.
+    if (!ctx.autoSyncEnabled) {
+      this.logger.log({
+        msg: 'auto-sync disabled — skipping product delete',
+        merchantId,
+        productId,
+      });
+      return;
+    }
 
     try {
       await this.wizzy.deleteProducts(ctx.storeId, ctx.storeSecret, ctx.apiKey, [productId]);
@@ -373,6 +397,7 @@ export class CatalogSyncService {
     storeId: string;
     storeSecret: string;
     apiKey: string;
+    autoSyncEnabled: boolean;
     transformConfig: WizzyTransformConfig;
   } | null> {
     const config = await this.handle.db
@@ -407,6 +432,7 @@ export class CatalogSyncService {
       storeId,
       storeSecret,
       apiKey,
+      autoSyncEnabled: Boolean(config.autoSyncEnabled),
       transformConfig: {
         stripHtmlDescription: Boolean(config.stripHtmlDescription),
         includeOutOfStock: Boolean(config.includeOutOfStock),

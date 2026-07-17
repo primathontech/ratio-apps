@@ -31,7 +31,7 @@ export class WizzyProductUpdatedHandler implements WebhookHandler {
       return;
     }
     const msg: WizzySyncMessage = isSellable(data)
-      ? { op: 'upsert', merchantId, product }
+      ? { op: 'upsert', merchantId, productId: product.id }
       : { op: 'delete', merchantId, productId: product.id };
     await this.queue.sendBatch(WIZZY_QUEUE_NAMES.sync, [msg]);
   }

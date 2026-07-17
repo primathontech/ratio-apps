@@ -7,7 +7,7 @@ import { StorefrontConfigService } from './storefront-config.service';
 
 /** Whitelist the inbound event body — never forward an arbitrary client payload
  * to Wizzy under the merchant's credentials. */
-function sanitizeEventBody(raw: unknown): Record<string, unknown> {
+export function sanitizeEventBody(raw: unknown): Record<string, unknown> {
   const p = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const items = Array.isArray(p.items)
     ? p.items.slice(0, 200).map((it) => {
@@ -27,6 +27,9 @@ function sanitizeEventBody(raw: unknown): Record<string, unknown> {
   if (typeof p.source === 'string') out.source = p.source;
   if (typeof p.id === 'string') out.id = p.id;
   if (typeof p.value === 'number' && Number.isFinite(p.value)) out.value = p.value;
+  // `qty` (total item quantity) is REQUIRED by Wizzy's ConvertedEvent alongside
+  // `value`; whitelist it so the purchase event isn't rejected.
+  if (typeof p.qty === 'number' && Number.isFinite(p.qty)) out.qty = p.qty;
   return out;
 }
 

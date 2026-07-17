@@ -37,7 +37,11 @@ Create `docs/agent/apps/<slug>/TDD.md` from `docs/agent/TDD.template.md`:
 5. **Shared-schema test cases** — Zod schema accept/reject cases for the
    `<slug>-config` schema.
 6. **Fixtures & helpers** — the seed data / factories the tests need.
-7. **Definition of done** — the green-gate: `pnpm -r lint`, `pnpm -r typecheck`,
+7. **Deployment contract checks** — assert PRD, TRD, and
+   `STATE.json.deployment` agree. If the app has a worker, require tests proving
+   its `*_WORKER_ENABLED` gate starts/stops consumption correctly; if placement
+   is `none`, require that no worker/queue is introduced.
+8. **Definition of done** — the green-gate: `pnpm -r lint`, `pnpm -r typecheck`,
    `pnpm -r build`, `pnpm -r test` all pass, and every acceptance criterion has a
    passing test.
 

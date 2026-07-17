@@ -18,22 +18,22 @@ template (see `vendor-scaffolder`) — never hand-rolled from scratch. The templ
 compiles, wires, and demonstrates every pattern; deviating from its structure
 breaks the shared factory and the load-time assertions.
 
-`_template` is **never wired** into `APPS` or `REGISTERED_MODULES` — it lives on
-disk as a copy-source only (see `app.module.ts` note: "the `_template` golden
-module is intentionally NOT wired here"). **Never edit `_template` to build a
-vendor** — scaffold a copy.
+`_template` is **never wired** into `APPS` or `MODULE_REGISTRY` — it lives on
+disk as a copy-source only. **Never edit `_template` to build a vendor** —
+scaffold a copy.
 
 Inside the template, `// TEMPLATE:` marker comments flag exactly the spots a
 vendor customizes (the SDK call in `sdk/sdk.service.ts`, the config fields, etc.).
 After building a real vendor, **zero `// TEMPLATE:` markers** may remain.
 
 An app may opt into a **third pillar** — a storefront SDK (Lit 3 + Vite library
-mode) — gated on the `hasStorefrontSdk` flag (default `false`; the four analytics
-vendors don't ship one, `wizzy` is the first that does). Its golden copy-source is
-`packages/_template-sdk/` (excluded from the workspace, like the other two
-templates); a scaffolded SDK package is named **`packages/<slug>-sdk`** (package
-name `@ratio-app/<slug>-sdk`), with `__slug__`/`__Slug__`/`__SLUG__` placeholders
-renamed to the slug. Reference impl: `packages/wizzy-sdk`.
+mode) — gated on the `hasStorefrontSdk` flag (default `false`; Google, Meta,
+PostHog, and MoEngage do not ship one, while Wizzy is the first that does). Its
+golden copy-source is `packages/_template-sdk/` (excluded from the workspace,
+like the other two templates); a scaffolded SDK package is named
+**`packages/<slug>-sdk`** (package name `@ratio-app/<slug>-sdk`), with
+`__slug__`/`__Slug__`/`__SLUG__` placeholders renamed to the slug. Reference
+implementation: `packages/wizzy-sdk`.
 
 ## The `core/` boundary — shared infra, never forked
 
@@ -54,10 +54,9 @@ A scaffolded vendor slug is **lowercase `[a-z0-9-]`** (letters, digits, dashes;
 e.g. `loyalty`, `klaviyo`, `gift-cards`). The leading-underscore form
 (`_template`) is **reserved for the boilerplate vendor only**.
 
-The **four live vendors** as of this writing are `google`, `meta`, `posthog`, and
-`moengage` (declared in `apps/backend/src/config/apps.ts` as
-`export const APPS = ['google', 'meta', 'posthog', 'moengage'] as const`).
-A new slug must not collide with any of these.
+The **five live vendors** are `google`, `meta`, `posthog`, `moengage`, and
+`wizzy` (declared in `apps/backend/src/config/apps.ts`). A new slug must not
+collide with any of these.
 
 The load-time guard in `apps/backend/src/config/apps.ts` accepts
 `/^[a-z0-9_-]+$/` (so `_template` passes), but production vendors must stay
@@ -69,25 +68,46 @@ matchers in `main.ts`), so no regex metacharacters.
 Every vendor gets **its own MySQL database**. The naming convention is
 `<slug>_app` (production) and `<slug>_app_test` (test). These are declared in
 `docker/mysql/init/01-database.sql` with one `CREATE DATABASE` + `GRANT` block
-per vendor. The four live vendors currently have:
+per vendor. The five live vendors currently have:
 
 ```
 google_app / google_app_test
 meta_app   / meta_app_test
 posthog_app / posthog_app_test
 moengage_app / moengage_app_test
+wizzy_app / wizzy_app_test
 ```
 
 When adding a new vendor, append a matching block for `<slug>_app` and
 `<slug>_app_test` to that file (see `vendor-scaffolder` Step 7). No cross-vendor
 shared tables — each module owns its own DB.
 
+## Deployment placement
+
+Every vendor build records a human-approved `STATE.json.deployment` object:
+
+```json
+{
+  "apiPlacement": "shared",
+  "workerPlacement": "none"
+}
+```
+
+- API: `shared` or `dedicated`.
+- Worker: `shared-api`, `dedicated-worker`, or `none`.
+- `shared-api` is valid only with a shared API placement.
+
+The fields initialize to `null`; `prd-architect` must ask before GATE 1. App
+source never hard-codes deployment groups—`ENABLED_MODULES` already supports
+comma-separated subsets. The approved external EKS pipeline/GitOps repository
+owns workload membership, commands, flags, routing, IAM, and scaling.
+
 ## Env-key derivation: `RATIO_<SLUG_UPPER>_*`
 
 `apps/backend/src/config/env.schema.ts` derives env keys **per slug in `APPS`**
 via a `.reduce` that uppercases each slug. You do **not** edit `env.schema.ts` to
 add a vendor — adding the slug to `APPS` makes the schema require these keys
-automatically for **every** entry in the tuple (currently all four live vendors):
+automatically for **every** entry in the tuple (currently all five live vendors):
 
 For a slug `<slug>` (uppercased to `<SLUG>`):
 
@@ -100,8 +120,8 @@ RATIO_<SLUG>_CALLBACK_URL          # must be a URL
 RATIO_<SLUG>_ADMIN_BASE_URL        # must be a URL
 ```
 
-For example, the four live vendors produce keys prefixed `RATIO_GOOGLE_*`,
-`RATIO_META_*`, `RATIO_POSTHOG_*`, and `RATIO_MOENGAGE_*`.
+The five live vendors produce keys prefixed `RATIO_GOOGLE_*`, `RATIO_META_*`,
+`RATIO_POSTHOG_*`, `RATIO_MOENGAGE_*`, and `RATIO_WIZZY_*`.
 
 Note the underscore arithmetic: slug `_template` uppercases to `_TEMPLATE`, so
 its keys would be `RATIO__TEMPLATE_*` (double underscore). A plain slug `loyalty`

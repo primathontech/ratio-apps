@@ -49,11 +49,11 @@ STATE.json (`gates.*: "approved"`) so a restart honors it and does not re-ask.
 
 | Gate | When | What to confirm | STATE flag |
 |---|---|---|---|
-| **GATE 1 — PRD** | after `prd-architect`, before `trd-architect` | Human approves the structured PRD (slug, data model, scopes, webhooks, screens, acceptance criteria) | `gates.prd` |
-| **GATE 2 — TRD** | after `trd-architect`, before `tdd-author` | Human approves the technical requirements/design (module shape, API routes, DB schema, integrations, NFRs) | `gates.trd` |
+| **GATE 1 — PRD** | after `prd-architect`, before `trd-architect` | Human approves the structured PRD, including API placement (`shared`/`dedicated`) and worker placement (`shared-api`/`dedicated-worker`/`none`) | `gates.prd` |
+| **GATE 2 — TRD** | after `trd-architect`, before `tdd-author` | Human approves the technical requirements/design, including the exact EKS workload/pipeline change implied by placement | `gates.trd` |
 | **GATE 3 — TDD** | after `tdd-author`, before `vendor-scaffolder` | Human approves the test plan (cases, fixtures, acceptance mapping) that implementation must satisfy | `gates.tdd` |
 | **GATE 4 — before PR** | after `code-reviewer`, before `pr-author` | Human approves opening the PR (lint/typecheck/build green, conventions met, tests match the TDD) | `gates.pr` |
-| **GATE 5 — PR merged, before deploy** | after `pr-author`, before `deployer` | Human confirms the PR is **merged** into the default branch, then approves deploying the single artifact (built from the merged code, not the feature branch) | `gates.deploy` |
+| **GATE 5 — PR merged, before deploy** | after `pr-author`, before `deployer` | Human confirms the PR is **merged** into the default branch, then approves releasing the immutable backend image + admin artifact through the configured EKS delivery pipeline | `gates.deploy` |
 
 At each gate: if the relevant `gates.*` is already `approved` in STATE.json,
 proceed without prompting. Otherwise present the artifact/results, ask for
@@ -72,11 +72,37 @@ and leave the flag `pending`.
 | `frontend-builder` | `frontend-builder` | admin screens implemented; tests per TDD |
 | `code-reviewer` | `code-reviewer` | lint + typecheck + build pass; tests cover the TDD → **GATE 4** |
 | `pr-author` | `pr-author` | branch + commits + PR (prUrl); human reviews & **merges** the PR → **GATE 5** |
-| `deployer` | `deployer` | deploy the **merged** default branch (Docker \| PM2) → `phase: done` |
+| `deployer` | `deployer` | release the **merged** default branch through the EKS deployment contract → `phase: done` |
 | `done` | — | build complete |
 
 Reference skills (`house-conventions`, `stack-patterns`, `context-keeper`) are
 **consulted** by the workers, not invoked as phases.
+
+## Required deployment decision
+
+Every new app must have this object in STATE.json before GATE 1 can be approved:
+
+```json
+{
+  "deployment": {
+    "apiPlacement": "shared",
+    "workerPlacement": "none"
+  }
+}
+```
+
+`prd-architect` must ask the human; the orchestrator must not choose silently.
+The current baseline is:
+
+- Google/PostHog/MoEngage/Wizzy APIs: `shared`;
+- Google/Wizzy workers: `shared-api`;
+- PostHog/MoEngage workers: `none`;
+- Meta API: `dedicated`;
+- Meta worker: `dedicated-worker`.
+
+The same immutable backend image is used for both placements. The choice changes
+only the EKS command, `ENABLED_MODULES`, worker flags, routing, secrets/IAM, and
+autoscaling configuration in the approved external delivery system.
 
 ## The `hasStorefrontSdk` flag (opt-in third pillar)
 
@@ -85,9 +111,9 @@ false**) threads through the phases when an app needs a storefront
 search/discovery widget. When set: `vendor-scaffolder` also copies
 `packages/_template-sdk` → `packages/<slug>-sdk` and wires the backend
 `/<slug>/sdk/*` serving routes; the SDK package build is a **sub-step of the
-frontend phase** (`frontend-builder`, after the admin); and the deploy artifact
-must serve the `/<slug>/sdk/*` bundles. Reference impl: `packages/wizzy-sdk`. The
-four analytics vendors leave it false and skip all of this.
+frontend phase** (`frontend-builder`, after the admin); and the backend image
+must serve the `/<slug>/sdk/*` bundles. Reference impl: `packages/wizzy-sdk`.
+Google, Meta, PostHog, and MoEngage leave it false and skip all of this.
 
 ## Resuming a build
 

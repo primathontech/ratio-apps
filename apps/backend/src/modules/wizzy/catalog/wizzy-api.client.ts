@@ -164,11 +164,7 @@ export class WizzyApiClient {
       try {
         return await this.request(storeId, storeSecret, apiKey, method, path, body);
       } catch (err) {
-        if (
-          err instanceof WizzyApiError &&
-          err.isRateLimited &&
-          attempt < RATE_LIMIT_MAX_RETRIES
-        ) {
+        if (err instanceof WizzyApiError && err.isRateLimited && attempt < RATE_LIMIT_MAX_RETRIES) {
           const delayMs = RATE_LIMIT_BASE_DELAY_MS * 2 ** attempt;
           this.logger.warn({
             msg: 'wizzy rate-limited (429) — backing off',
@@ -203,7 +199,15 @@ export class WizzyApiClient {
       // x-wizzy-userId attributes the event to the visitor (personalization /
       // user-journey). Sent only when a stable id is available.
       const extraHeaders = userId ? { 'x-wizzy-userId': userId } : undefined;
-      await this.request(storeId, storeSecret, apiKey, 'POST', `/events/${kind}`, body, extraHeaders);
+      await this.request(
+        storeId,
+        storeSecret,
+        apiKey,
+        'POST',
+        `/events/${kind}`,
+        body,
+        extraHeaders,
+      );
     } catch (err) {
       this.logger.warn({ msg: 'wizzy event failed', kind, err: `${err}` });
     }
@@ -246,6 +250,16 @@ export class WizzyApiClient {
     extraHeaders?: Record<string, string>,
   ): Promise<unknown> {
     const url = `${this.baseUrl}${path}`;
+    const serializedBody = body !== undefined ? JSON.stringify(body) : undefined;
+    // Log the EXACT request body we send to Wizzy, so the `/products/save`
+    // payload (and any other call) can be verified against Wizzy's spec.
+    this.logger.log({
+      msg: `wizzy ${path} request`,
+      method,
+      count: Array.isArray(body) ? body.length : undefined,
+      bytes: serializedBody?.length ?? 0,
+      body: serializedBody,
+    });
     let res: Response;
     try {
       res = await this.fetchImpl(url, {
@@ -258,7 +272,7 @@ export class WizzyApiClient {
           'x-api-key': apiKey,
           ...extraHeaders,
         },
-        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+        ...(serializedBody !== undefined ? { body: serializedBody } : {}),
       });
     } catch (err) {
       // Network / DNS / connection refused → transient

@@ -1,7 +1,7 @@
 ---
 name: context-keeper
 description: The read/write contract for the per-build state file docs/agent/apps/<slug>/STATE.json — the single source of truth that lets a vendor-app build retain context and resume in a fresh session. A REFERENCE skill every worker follows; not a standalone step.
-when_to_use: Consult at the start and end of every worker phase. On entry, read (or create) STATE.json to restore context; on exit, advance phase, append history, and persist new paths/filesCreated/scopes/webhooks/prUrl/deployTarget/gate states. Use whenever you need to know the exact STATE.json shape or how to advance it by one phase.
+when_to_use: Consult at the start and end of every worker phase. On entry, read (or create) STATE.json to restore context; on exit, advance phase, append history, and persist paths/filesCreated/scopes/webhooks/deployment/prUrl/deployTarget/gate states. Use whenever you need to know the exact STATE.json shape or how to advance it by one phase.
 ---
 
 # context-keeper
@@ -30,6 +30,8 @@ operational contract: how to read it, update it, and advance one phase.
    - **Append** an entry to `history`: `{ "phase": "<phase>", "ts": "<ISO-8601>" }`.
    - Persist anything you produced: append to `filesCreated`; set `paths.module` /
      `paths.admin`; set `scopes` / `webhooks` / `displayName` (prd-architect); set
+     `deployment.apiPlacement` / `deployment.workerPlacement` after explicitly
+     asking the human (prd-architect); set
      `docs.prd` / `docs.trd` / `docs.tdd` (prd-architect / trd-architect /
      tdd-author respectively); set `prUrl` (pr-author); set `deployTarget`
      (deployer).
@@ -48,6 +50,7 @@ Created by `prd-architect` when no STATE.json exists:
 {
   "slug": "<slug>",
   "displayName": "<Display Name>",
+  "hasStorefrontSdk": false,
   "phase": "prd-architect",
   "gates": { "prd": "pending", "trd": "pending", "tdd": "pending", "pr": "pending", "deploy": "pending" },
   "docs": { "prd": null, "trd": null, "tdd": null },
@@ -55,6 +58,7 @@ Created by `prd-architect` when no STATE.json exists:
   "webhooks": [],
   "paths": { "module": "", "admin": "" },
   "filesCreated": [],
+  "deployment": { "apiPlacement": null, "workerPlacement": null },
   "deployTarget": null,
   "prUrl": null,
   "history": [{ "phase": "prd-architect", "ts": "<ISO-8601>" }]
@@ -63,7 +67,12 @@ Created by `prd-architect` when no STATE.json exists:
 
 - `phase` ∈ `prd-architect | trd-architect | tdd-author | vendor-scaffolder | backend-builder | frontend-builder | code-reviewer | pr-author | deployer | done`
 - `gates.*` ∈ `pending | approved`
-- `deployTarget` ∈ `"docker" | "pm2" | null`
+- `deployment.apiPlacement` ∈ `"shared" | "dedicated" | null`
+- `deployment.workerPlacement` ∈ `"shared-api" | "dedicated-worker" | "none" | null`
+- Both placement fields start `null`; GATE 1 cannot be approved until the human
+  selects non-null values.
+- `workerPlacement: "shared-api"` requires `apiPlacement: "shared"`
+- `deployTarget` ∈ `"eks" | null`
 
 ## Worked example — advancing one phase
 
@@ -74,12 +83,14 @@ this on entry (PRD already signed off):
 {
   "slug": "loyalty",
   "displayName": "Loyalty Points",
+  "hasStorefrontSdk": false,
   "phase": "vendor-scaffolder",
   "gates": { "prd": "approved", "trd": "approved", "tdd": "approved", "pr": "pending", "deploy": "pending" },
   "scopes": ["read_orders", "write_customers"],
   "webhooks": ["orders/create", "app/uninstalled"],
   "paths": { "module": "", "admin": "" },
   "filesCreated": [],
+  "deployment": { "apiPlacement": "shared", "workerPlacement": "none" },
   "deployTarget": null,
   "prUrl": null,
   "history": [
@@ -95,6 +106,7 @@ On exit it writes back (note: `phase` advanced to the next worker, `paths` set,
 {
   "slug": "loyalty",
   "displayName": "Loyalty Points",
+  "hasStorefrontSdk": false,
   "phase": "backend-builder",
   "gates": { "prd": "approved", "trd": "approved", "tdd": "approved", "pr": "pending", "deploy": "pending" },
   "scopes": ["read_orders", "write_customers"],
@@ -108,6 +120,7 @@ On exit it writes back (note: `phase` advanced to the next worker, `paths` set,
     "apps/backend/src/modules/loyalty/loyalty.bootstrap.ts",
     "apps/admin-loyalty/package.json"
   ],
+  "deployment": { "apiPlacement": "shared", "workerPlacement": "none" },
   "deployTarget": null,
   "prUrl": null,
   "history": [

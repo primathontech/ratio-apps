@@ -138,9 +138,9 @@ export function StorefrontPage() {
             <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
               <Typography.Paragraph>
                 Your storefront's existing search, autocomplete and filters are powered by this
-                Wizzy store — no script tag or page setup. Set the environment variables below and
-                turn on <Typography.Text strong>Enable storefront search</Typography.Text>; when it's
-                off, the storefront falls back to its native search.
+                Wizzy store. Set the environment variables below and turn on{' '}
+                <Typography.Text strong>Enable storefront search</Typography.Text>; when it's off,
+                the storefront falls back to its native search.
               </Typography.Paragraph>
 
               <div>

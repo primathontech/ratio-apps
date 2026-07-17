@@ -126,7 +126,8 @@ export function useWebhookDeliveries() {
   const token = useMerchantStore((s) => s.token);
   return useQuery({
     queryKey: queryKeys.webhookDeliveries(),
-    queryFn: () => api<{ deliveries: WebhookDelivery[] }>('GET', '/api/v1/catalog/webhook-deliveries'),
+    queryFn: () =>
+      api<{ deliveries: WebhookDelivery[] }>('GET', '/api/v1/catalog/webhook-deliveries'),
     enabled: !!token,
     retry: false,
     // Refresh every 30s — webhook events are near-real-time.
