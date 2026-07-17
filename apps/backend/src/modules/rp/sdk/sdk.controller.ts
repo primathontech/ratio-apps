@@ -18,6 +18,9 @@ export class RpSdkController {
     }
     reply.header('Content-Type', 'application/javascript; charset=utf-8');
     reply.header('Cache-Control', 'no-cache');
+    // Wildcard CORS: cross-origin <script type="module"> tags fetch in CORS mode, and this
+    // is a public bundle with no secret — merchants must be able to load it from any domain.
+    reply.header('Access-Control-Allow-Origin', '*');
     reply.send(content);
   }
 }

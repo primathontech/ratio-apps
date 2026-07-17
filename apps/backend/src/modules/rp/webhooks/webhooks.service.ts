@@ -44,9 +44,57 @@ export class RpWebhooksService {
     await this.orderSync.upsertOrder(orderPayload, merchant.domain);
   }
 
+  /**
+   * Handles the OS `app/uninstalled` event — the adapter's equivalent of RP's own
+   * `StoreDetail.active = false` uninstall webhook. Deactivates the merchant so
+   * `RpRequestGuard` (via `RpMerchantsService.findByDomain`) closes the portal gate.
+   */
+  async handleAppUninstalled(merchantId: string): Promise<void> {
+    if (!merchantId) {
+      this.logger.warn('app uninstalled event missing merchant id — dropping');
+      return;
+    }
+    const merchant = await this.merchants.findByMerchantId(merchantId);
+    if (!merchant) {
+      this.logger.warn({ merchantId }, 'app uninstalled event: merchant not found — dropping');
+      return;
+    }
+    await this.merchants.deactivate(merchantId);
+    this.logger.log({ merchantId, domain: merchant.domain }, 'app uninstalled — merchant deactivated');
+
+    const baseUrl = this.config.get('RP_BASE_URL', { infer: true }) as string | undefined;
+    const token = this.config.get('OS_RP_TOKEN', { infer: true }) as string | undefined;
+
+    if (!baseUrl || !token) {
+      this.logger.error({ merchantId }, 'RP not configured — skipping uninstall relay');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${baseUrl}/shopify-webhook/v1/os-uninstall`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-OS-Internal-Token': token,
+        },
+        body: JSON.stringify({ merchant_id: merchant.domain }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        this.logger.error(
+          { merchantId, domain: merchant.domain, status: res.status, body: text },
+          'RP uninstall relay failed',
+        );
+      }
+    } catch (err) {
+      this.logger.error({ merchantId, domain: merchant.domain, err }, 'RP uninstall relay threw');
+    }
+  }
+
   private async forward(topic: string, merchantId: string, body: Rec): Promise<void> {
     const baseUrl = this.config.get('RP_BASE_URL', { infer: true }) as string | undefined;
-    const token = this.config.get('RP_INTERNAL_API_TOKEN', { infer: true }) as string | undefined;
+    const token = this.config.get('OS_RP_TOKEN', { infer: true }) as string | undefined;
 
     if (!baseUrl || !token) {
       this.logger.error({ topic, merchantId }, 'RP not configured — skipping webhook forward');

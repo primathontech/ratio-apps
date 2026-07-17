@@ -61,7 +61,7 @@ export class RpAdminController {
     if (!merchant) throw new UnauthorizedException('merchant not installed');
 
     const baseUrl = this.config.get('RP_BASE_URL', { infer: true }) as string | undefined;
-    const token = this.config.get('RP_INTERNAL_API_TOKEN', { infer: true }) as string | undefined;
+    const token = this.config.get('OS_RP_TOKEN', { infer: true }) as string | undefined;
 
     if (!baseUrl || !token) {
       throw new BadGatewayException('RP integration not configured');

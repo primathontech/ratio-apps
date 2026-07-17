@@ -82,6 +82,37 @@ export class RpWebhooksController {
     return { ok: true };
   }
 
+  // ── OS app lifecycle webhook ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Fires when the merchant uninstalls/disables the OS↔RP integration.
+   *
+   *   POST https://vp2j76nj-3100.inc1.devtunnels.ms/rp/webhooks/app-uninstalled
+   *
+   * Topic: app/uninstalled (matches WIZZY_WEBHOOK_TOPICS.appUninstalled convention).
+   * Mirrors RP's own uninstall webhook, which flips `StoreDetail.active = false` —
+   * without this, `return_prime_merchants.active` never gets cleared and
+   * `RpRequestGuard`/`findByDomain` never closes off portal access.
+   */
+  @Post('app-uninstalled')
+  @HttpCode(200)
+  async appUninstalled(
+    @Headers('x-merchant-id') merchantIdHeader: string,
+    @Headers('x-gk-merchant-id') merchantIdFallback: string,
+    @Req() req: FastifyRequest,
+  ) {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const merchantId =
+      merchantIdHeader ||
+      merchantIdFallback ||
+      (typeof body.merchant_id === 'string' ? body.merchant_id : '');
+
+    this.webhooks.handleAppUninstalled(merchantId).catch((err) => {
+      this.logger.error({ err, merchantId }, 'app uninstalled handler failed');
+    });
+    return { ok: true };
+  }
+
   // Individual topic endpoints kept for explicitness / future differentiation
 
   @Post('orders/create')

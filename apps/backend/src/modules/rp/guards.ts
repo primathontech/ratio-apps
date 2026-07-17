@@ -45,7 +45,7 @@ export class RpWebhookSignatureGuard implements CanActivate {
  * Validates inbound RP requests.
  *
  * Two-layer check:
- *   1. X-Shopify-Access-Token == RP_INTERNAL_API_TOKEN  (proves caller is RP)
+ *   1. X-Shopify-Access-Token == OS_RP_TOKEN  (proves caller is RP)
  *   2. X-Store == merchant domain  (identifies which merchant)
  *
  * Attaches `rpMerchant` to the request for downstream use.
@@ -62,7 +62,7 @@ export class RpRequestGuard implements CanActivate {
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
     const req = ctx.switchToHttp().getRequest<RpRequest>();
     const token = req.headers['x-shopify-access-token'] as string | undefined;
-    const expected = this.config.get('RP_INTERNAL_API_TOKEN', { infer: true });
+    const expected = this.config.get('OS_RP_TOKEN', { infer: true });
 
     if (!token || token !== expected) {
       throw new UnauthorizedException('invalid token');

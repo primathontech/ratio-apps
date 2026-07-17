@@ -1,7 +1,7 @@
-import type { RpConfig, RpExchangeProduct, RpLineItem, RpOrder, RpReason } from './types'
+import type { RpConfig, RpExchangeProduct, RpLineItem, RpOrder, RpReason } from './types';
 
 function uid(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
 async function post<T>(url: string, body: unknown, headers?: Record<string, string>): Promise<T> {
@@ -9,12 +9,17 @@ async function post<T>(url: string, body: unknown, headers?: Record<string, stri
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify(body),
-  })
-  const json = (await res.json()) as { status: boolean; messageCode?: string; data: T; message?: string }
+  });
+  const json = (await res.json()) as {
+    status: boolean;
+    messageCode?: string;
+    data: T;
+    message?: string;
+  };
   if (!json.status) {
-    throw new Error(json.message ?? json.messageCode ?? 'Request failed')
+    throw new Error(json.message ?? json.messageCode ?? 'Request failed');
   }
-  return json.data
+  return json.data;
 }
 
 export async function createSession(
@@ -26,8 +31,8 @@ export async function createSession(
     store: config.store,
     order,
     identifier,
-  })
-  return token
+  });
+  return token;
 }
 
 export async function findOrder(
@@ -35,16 +40,16 @@ export async function findOrder(
   session: string,
 ): Promise<{ order: RpOrder; lineItems: RpLineItem[]; currency: string }> {
   const data = await post<{
-    order: RpOrder
-    orders: RpLineItem[]
-    currency: string
-  }>(`${config.apiUrl}/customer/v1/find-order`, { session })
+    order: RpOrder;
+    orders: RpLineItem[];
+    currency: string;
+  }>(`${config.apiUrl}/customer/v1/find-order`, { session });
 
   return {
     order: data.order,
     lineItems: (data.orders ?? []).filter((li) => li.returnable),
     currency: data.currency ?? 'INR',
-  }
+  };
 }
 
 export async function getReasons(
@@ -54,15 +59,20 @@ export async function getReasons(
   lineItemIds: number[],
 ): Promise<RpReason[]> {
   try {
-    const data = await post<{ order: unknown; line_items: Array<{ id: number; reasons?: RpReason[] }> }>(
-      `${config.apiUrl}/customer/v1/reasons`,
-      { session, order: orderId, line_items: lineItemIds, type: 'return' },
-    )
-    const all = (data.line_items ?? []).flatMap((li) => li.reasons ?? [])
-    const seen = new Set<string>()
-    return all.filter((r) => !seen.has(r._id) && !!seen.add(r._id))
+    const data = await post<{
+      order: unknown;
+      line_items: Array<{ id: number; reasons?: RpReason[] }>;
+    }>(`${config.apiUrl}/customer/v1/reasons`, {
+      session,
+      order: orderId,
+      line_items: lineItemIds,
+      type: 'return',
+    });
+    const all = (data.line_items ?? []).flatMap((li) => li.reasons ?? []);
+    const seen = new Set<string>();
+    return all.filter((r) => !seen.has(r._id) && !!seen.add(r._id));
   } catch {
-    return []
+    return [];
   }
 }
 
@@ -85,30 +95,30 @@ export async function searchExchangeProducts(
     capped_price: String(cappedPrice),
     page: String(page),
     limit: String(limit),
-  }).toString()
+  }).toString();
   try {
     const data = await post<{ docs?: RpExchangeProduct[]; products?: RpExchangeProduct[] }>(
       `${config.apiUrl}/customer/v1/products?${qs}`,
       {},
-    )
-    return data.docs ?? data.products ?? []
+    );
+    return data.docs ?? data.products ?? [];
   } catch {
-    return []
+    return [];
   }
 }
 
 export interface CreateRequestItem {
-  id: number
-  quantity: number
-  reasonId: string
-  reasonText: string
-  comment: string
-  type: 'return' | 'exchange'
-  refundMode: string
-  originalProductId?: number | undefined
-  originalVariantId?: number | undefined
-  exchangeProductId?: number | undefined
-  exchangeVariantId?: number | undefined
+  id: number;
+  quantity: number;
+  reasonId: string;
+  reasonText: string;
+  comment: string;
+  type: 'return' | 'exchange';
+  refundMode: string;
+  originalProductId?: number | undefined;
+  originalVariantId?: number | undefined;
+  exchangeProductId?: number | undefined;
+  exchangeVariantId?: number | undefined;
 }
 
 export async function createRequest(
@@ -150,7 +160,7 @@ export async function createRequest(
       ),
     },
     { 'idempotency-key': uid() },
-  )
-  const first = results[0]
-  return { serialNumber: first?.serial_number ?? '' }
+  );
+  const first = results[0];
+  return { serialNumber: first?.serial_number ?? '' };
 }
