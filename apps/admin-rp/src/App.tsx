@@ -1,7 +1,16 @@
-import { OrionProvider, Card, PrimaryButton, Result, Spin, Typography, Form, Input } from '@primathonos/orion';
-import { useState, useEffect } from 'react';
+import {
+  Card,
+  Form,
+  Input,
+  OrionProvider,
+  PrimaryButton,
+  Result,
+  Spin,
+  Typography,
+} from '@primathonos/orion';
+import { useEffect, useState } from 'react';
 import { useIframeAuth } from '@/hooks/useIframeAuth';
-import { api, ApiException } from '@/lib/api';
+import { ApiException, api } from '@/lib/api';
 import { installPostMessageListener, readSession } from '@/lib/session';
 import { useMerchantStore } from '@/stores/useMerchantStore';
 import './index.css';
@@ -10,7 +19,15 @@ const RP_ADMIN_URL = (import.meta.env.VITE_RP_ADMIN_URL as string | undefined) ?
 
 function centered(children: React.ReactNode) {
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fafafa' }}>
+    <div
+      style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: '#fafafa',
+      }}
+    >
       {children}
     </div>
   );
@@ -22,7 +39,12 @@ function RegisterScreen() {
   const [registered, setRegistered] = useState(false);
   const [merchantDomain, setMerchantDomain] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [form] = Form.useForm<{ store_domain: string; admin_email: string; admin_password: string; confirm_password: string }>();
+  const [form] = Form.useForm<{
+    store_domain: string;
+    admin_email: string;
+    admin_password: string;
+    confirm_password: string;
+  }>();
 
   useEffect(() => {
     api<{ domain: string; registered: boolean }>('GET', '/api/admin/merchants/me')
@@ -41,7 +63,11 @@ function RegisterScreen() {
       .finally(() => setDomainLoading(false));
   }, [form]);
 
-  async function handleRegister(values: { store_domain: string; admin_email: string; admin_password: string }) {
+  async function handleRegister(values: {
+    store_domain: string;
+    admin_email: string;
+    admin_password: string;
+  }) {
     setLoading(true);
     setError(null);
     try {
@@ -53,7 +79,9 @@ function RegisterScreen() {
       setMerchantDomain(res.domain ?? values.store_domain);
       setRegistered(true);
     } catch (err) {
-      setError(err instanceof ApiException ? err.message : 'Registration failed. Please try again.');
+      setError(
+        err instanceof ApiException ? err.message : 'Registration failed. Please try again.',
+      );
     } finally {
       setLoading(false);
     }
@@ -63,16 +91,13 @@ function RegisterScreen() {
     const rpUrl = merchantDomain
       ? `${RP_ADMIN_URL}/user/login?store=${merchantDomain}`
       : RP_ADMIN_URL;
-    const sdkUrl = (import.meta.env.VITE_SDK_URL as string | undefined) ?? '/sdk/rp-portal.js';
+    const adapterUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
+    const sdkSrc = `${adapterUrl}/rp/sdk/rp-portal.js?store=${encodeURIComponent(merchantDomain ?? '')}&redirectTo=/apps/return_prime`;
     const scriptSnippet = [
-      `<!-- Add this to your storefront layout -->`,
-      `<script type="module" src="${sdkUrl}"></script>`,
-      ``,
-      `<!-- Place this where you want the portal to appear (e.g. /apps/return_prime page) -->`,
-      `<rp-return-portal`,
-      `  store="${merchantDomain ?? ''}"`,
-      `  api-url="${(import.meta.env.VITE_RP_PUBLIC_URL as string | undefined) ?? ''}"`,
-      `></rp-return-portal>`,
+      `<!-- Add this one script tag to your storefront layout (once, site-wide). -->`,
+      `<!-- It auto-detects order pages and your /apps/return_prime page and injects -->`,
+      `<!-- everything itself — no other markup needed. -->`,
+      `<script type="module" async src="${sdkSrc}"></script>`,
     ].join('\n');
 
     return centered(
@@ -91,21 +116,23 @@ function RegisterScreen() {
         />
         <div style={{ marginTop: 24 }}>
           <Typography.Text strong>Storefront SDK snippet</Typography.Text>
-          <pre style={{
-            background: '#f5f5f5',
-            border: '1px solid #d9d9d9',
-            borderRadius: 6,
-            padding: '12px 16px',
-            marginTop: 8,
-            fontSize: 12,
-            overflowX: 'auto',
-            whiteSpace: 'pre',
-            userSelect: 'all',
-          }}>
+          <pre
+            style={{
+              background: '#f5f5f5',
+              border: '1px solid #d9d9d9',
+              borderRadius: 6,
+              padding: '12px 16px',
+              marginTop: 8,
+              fontSize: 12,
+              overflowX: 'auto',
+              whiteSpace: 'pre',
+              userSelect: 'all',
+            }}
+          >
             {scriptSnippet}
           </pre>
         </div>
-      </div>
+      </div>,
     );
   }
 
@@ -128,7 +155,10 @@ function RegisterScreen() {
             label="Store Domain"
             rules={[
               { required: true, message: 'Store domain is required' },
-              { pattern: /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/, message: 'Enter a valid domain (e.g. your-store.gokwik.co)' },
+              {
+                pattern: /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/,
+                message: 'Enter a valid domain (e.g. your-store.gokwik.co)',
+              },
             ]}
           >
             <Input
@@ -186,7 +216,7 @@ function RegisterScreen() {
           </Form.Item>
         </Form>
       </Card>
-    </div>
+    </div>,
   );
 }
 
@@ -214,7 +244,7 @@ export function App() {
             ? `This app can only be opened from the Ratio dashboard. Detected parent: ${parentOrigin}`
             : 'This app can only be opened from the Ratio dashboard.'
         }
-      />
+      />,
     );
   }
 
@@ -226,7 +256,7 @@ export function App() {
         status="403"
         title="No merchant session"
         subTitle="Open this admin from your Ratio dashboard — a merchant context is required."
-      />
+      />,
     );
   }
 

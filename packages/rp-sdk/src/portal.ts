@@ -1,10 +1,23 @@
-import { LitElement, css, html, nothing } from 'lit'
-import { customElement, property, state } from 'lit/decorators.js'
-import { createRequest, createSession, findOrder, getReasons, searchExchangeProducts } from './client'
-import type { RpConfig, RpExchangeProduct, RpLineItem, RpOrder, RpReason, SelectedItem } from './types'
-import { baseStyles } from './ui/theme'
+import { css, html, LitElement, nothing, type TemplateResult } from 'lit';
+import { customElement, property, state } from 'lit/decorators.js';
+import {
+  createRequest,
+  createSession,
+  findOrder,
+  getReasons,
+  searchExchangeProducts,
+} from './client';
+import type {
+  RpConfig,
+  RpExchangeProduct,
+  RpLineItem,
+  RpOrder,
+  RpReason,
+  SelectedItem,
+} from './types';
+import { baseStyles } from './ui/theme';
 
-type Screen = 'lookup' | 'loading' | 'items' | 'reasons' | 'submitting' | 'success' | 'error'
+type Screen = 'lookup' | 'loading' | 'items' | 'reasons' | 'submitting' | 'success' | 'error';
 
 @customElement('rp-return-portal')
 export class RpReturnPortal extends LitElement {
@@ -236,103 +249,104 @@ export class RpReturnPortal extends LitElement {
         text-decoration: line-through;
       }
     `,
-  ]
+  ];
 
-  @property() store = ''
-  @property({ attribute: 'api-url' }) apiUrl = ''
-  @property({ type: Number }) channel = 1
-  @property({ attribute: 'primary-color' }) primaryColor = ''
+  @property() store = '';
+  @property({ attribute: 'api-url' }) apiUrl = '';
+  @property({ type: Number }) channel = 1;
+  @property({ attribute: 'primary-color' }) primaryColor = '';
 
-  @state() private screen: Screen = 'lookup'
-  @state() private orderInput = ''
-  @state() private identifierInput = ''
-  @state() private error = ''
+  @state() private screen: Screen = 'lookup';
+  @state() private orderInput = '';
+  @state() private identifierInput = '';
+  @state() private error = '';
 
-  @state() private session = ''
-  @state() private order: RpOrder | null = null
-  @state() private lineItems: RpLineItem[] = []
-  @state() private currency = 'INR'
-  @state() private reasons: RpReason[] = []
+  @state() private session = '';
+  @state() private order: RpOrder | null = null;
+  @state() private lineItems: RpLineItem[] = [];
+  @state() private currency = 'INR';
+  @state() private reasons: RpReason[] = [];
 
-  @state() private checkedIds = new Set<number>()
-  @state() private selections: Map<number, Partial<SelectedItem>> = new Map()
+  @state() private checkedIds = new Set<number>();
+  @state() private selections: Map<number, Partial<SelectedItem>> = new Map();
   // Per-item exchange picker state
-  @state() private exchangeProducts: Map<number, RpExchangeProduct[]> = new Map()
-  @state() private exchangeLoading: Set<number> = new Set()
+  @state() private exchangeProducts: Map<number, RpExchangeProduct[]> = new Map();
+  @state() private exchangeLoading: Set<number> = new Set();
 
-  @state() private serialNumber = ''
+  @state() private serialNumber = '';
 
   private get config(): RpConfig {
-    return { store: this.store, apiUrl: this.apiUrl, channel: this.channel }
+    return { store: this.store, apiUrl: this.apiUrl, channel: this.channel };
   }
 
   private fmt(amount: string | number): string {
-    const sym = this.currency === 'INR' ? '₹' : this.currency
-    const val = typeof amount === 'string' ? parseFloat(amount) : amount
+    const sym = this.currency === 'INR' ? '₹' : this.currency;
+    const val = typeof amount === 'string' ? parseFloat(amount) : amount;
     // RP returns prices in major units (rupees), not paise — do NOT divide by 100.
-    return `${sym}${(Number.isFinite(val) ? val : 0).toFixed(2)}`
+    return `${sym}${(Number.isFinite(val) ? val : 0).toFixed(2)}`;
   }
 
   // ─── Lookup screen ──────────────────────────────────────────────────────────
 
   private async handleLookup(e: Event): Promise<void> {
-    e.preventDefault()
-    const orderVal = this.orderInput.trim()
-    const identVal = this.identifierInput.trim()
-    if (!orderVal || !identVal) return
+    e.preventDefault();
+    const orderVal = this.orderInput.trim();
+    const identVal = this.identifierInput.trim();
+    if (!orderVal || !identVal) return;
 
-    this.screen = 'loading'
-    this.error = ''
+    this.screen = 'loading';
+    this.error = '';
 
     try {
-      const token = await createSession(this.config, orderVal, identVal)
-      this.session = token
-      const { order, lineItems, currency } = await findOrder(this.config, token)
-      this.order = order
-      this.lineItems = lineItems
-      this.currency = currency
+      const token = await createSession(this.config, orderVal, identVal);
+      this.session = token;
+      const { order, lineItems, currency } = await findOrder(this.config, token);
+      this.order = order;
+      this.lineItems = lineItems;
+      this.currency = currency;
 
       if (lineItems.length === 0) {
-        this.error = 'No items eligible for return on this order.'
-        this.screen = 'lookup'
-        return
+        this.error = 'No items eligible for return on this order.';
+        this.screen = 'lookup';
+        return;
       }
 
-      this.checkedIds = new Set()
-      this.selections = new Map()
-      this.screen = 'items'
+      this.checkedIds = new Set();
+      this.selections = new Map();
+      this.screen = 'items';
     } catch (err) {
-      this.error = err instanceof Error ? err.message : 'Order not found. Please check and try again.'
-      this.screen = 'lookup'
+      this.error =
+        err instanceof Error ? err.message : 'Order not found. Please check and try again.';
+      this.screen = 'lookup';
     }
   }
 
   // ─── Item selection screen ───────────────────────────────────────────────────
 
   private toggleItem(id: number): void {
-    const next = new Set(this.checkedIds)
+    const next = new Set(this.checkedIds);
     if (next.has(id)) {
-      next.delete(id)
+      next.delete(id);
     } else {
-      next.add(id)
+      next.add(id);
     }
-    this.checkedIds = next
+    this.checkedIds = next;
   }
 
   private async handleItemsContinue(): Promise<void> {
-    if (this.checkedIds.size === 0) return
-    this.screen = 'loading'
-    this.error = ''
+    if (this.checkedIds.size === 0) return;
+    this.screen = 'loading';
+    this.error = '';
 
-    const ids = [...this.checkedIds]
-    const fetched = await getReasons(this.config, this.session, this.order!.id, ids)
-    this.reasons = fetched
+    const ids = [...this.checkedIds];
+    const fetched = await getReasons(this.config, this.session, this.order!.id, ids);
+    this.reasons = fetched;
 
-    const initSelections = new Map<number, Partial<SelectedItem>>()
+    const initSelections = new Map<number, Partial<SelectedItem>>();
     for (const id of ids) {
-      const li = this.lineItems.find((l) => l.id === id)
-      if (!li) continue
-      const defaultReason = fetched[0]
+      const li = this.lineItems.find((l) => l.id === id);
+      if (!li) continue;
+      const defaultReason = fetched[0];
       initSelections.set(id, {
         lineItem: li,
         reasonId: defaultReason?._id ?? '',
@@ -340,74 +354,76 @@ export class RpReturnPortal extends LitElement {
         refundMode: this.defaultRefundMode(defaultReason),
         comment: '',
         type: 'return',
-      })
+      });
     }
-    this.selections = initSelections
-    this.screen = 'reasons'
+    this.selections = initSelections;
+    this.screen = 'reasons';
   }
 
   // ─── Reason selection screen ─────────────────────────────────────────────────
 
   private updateSelection(id: number, patch: Partial<SelectedItem>): void {
-    const existing = this.selections.get(id) ?? {}
-    this.selections = new Map(this.selections).set(id, { ...existing, ...patch })
+    const existing = this.selections.get(id) ?? {};
+    this.selections = new Map(this.selections).set(id, { ...existing, ...patch });
   }
 
   // Pick a refund mode that the reason actually enables — never default to one that
   // won't be shown (e.g. Store Credit on an OS store, which the backend disables).
   private defaultRefundMode(reason?: RpReason): string {
-    const p = reason?.refund_mode?.prepaid as Record<string, unknown> | undefined
-    const enabled = ['store_credit', 'pay_to_source', 'bank_transfer'].filter((m) => p?.[m])
-    const def = typeof p?.default === 'string' ? (p.default as string) : ''
-    if (def && (enabled.length === 0 || enabled.includes(def))) return def
-    return enabled[0] ?? def ?? 'store_credit'
+    const p = reason?.refund_mode?.prepaid as Record<string, unknown> | undefined;
+    const enabled = ['store_credit', 'pay_to_source', 'bank_transfer'].filter((m) => p?.[m]);
+    const def = typeof p?.default === 'string' ? (p.default as string) : '';
+    if (def && (enabled.length === 0 || enabled.includes(def))) return def;
+    return enabled[0] ?? def ?? 'store_credit';
   }
 
   private onReasonChange(id: number, reasonId: string): void {
-    const reason = this.reasons.find((r) => r._id === reasonId)
+    const reason = this.reasons.find((r) => r._id === reasonId);
     this.updateSelection(id, {
       reasonId,
       reasonText: reason?.reason ?? 'Other',
       refundMode: this.defaultRefundMode(reason),
-    })
+    });
   }
 
   private onRefundChange(id: number, refundMode: string): void {
-    this.updateSelection(id, { refundMode })
+    this.updateSelection(id, { refundMode });
   }
 
   private async onTypeChange(id: number, type: 'return' | 'exchange'): Promise<void> {
-    this.updateSelection(id, { type })
-    if (type !== 'exchange') return
-    const sel = this.selections.get(id)
-    const li = sel?.lineItem
-    if (!li?.product_id) return
+    this.updateSelection(id, { type });
+    if (type !== 'exchange') return;
+    const sel = this.selections.get(id);
+    const li = sel?.lineItem;
+    if (!li?.product_id) return;
     // Load exchange-eligible products once, capped at the returned item's price.
-    if (this.exchangeProducts.has(id) || this.exchangeLoading.has(id)) return
-    this.exchangeLoading = new Set(this.exchangeLoading).add(id)
+    if (this.exchangeProducts.has(id) || this.exchangeLoading.has(id)) return;
+    this.exchangeLoading = new Set(this.exchangeLoading).add(id);
     try {
-      const cap = parseFloat(li.price) || 0
-      const products = await searchExchangeProducts(this.config, this.session, li.product_id, cap)
-      this.exchangeProducts = new Map(this.exchangeProducts).set(id, products)
+      const cap = parseFloat(li.price) || 0;
+      const products = await searchExchangeProducts(this.config, this.session, li.product_id, cap);
+      this.exchangeProducts = new Map(this.exchangeProducts).set(id, products);
     } finally {
-      const next = new Set(this.exchangeLoading)
-      next.delete(id)
-      this.exchangeLoading = next
+      const next = new Set(this.exchangeLoading);
+      next.delete(id);
+      this.exchangeLoading = next;
     }
   }
 
   private onExchangeProductChange(id: number, productId: number): void {
-    const product = (this.exchangeProducts.get(id) ?? []).find((p) => Number(p.id) === Number(productId))
-    const variant = product?.variants?.find((v) => v.available !== false) ?? product?.variants?.[0]
+    const product = (this.exchangeProducts.get(id) ?? []).find(
+      (p) => Number(p.id) === Number(productId),
+    );
+    const variant = product?.variants?.find((v) => v.available !== false) ?? product?.variants?.[0];
     this.updateSelection(id, {
       exchangeProductId: product ? Number(product.id) : undefined,
       exchangeVariantId: variant ? Number(variant.id) : undefined,
       exchangeLabel: product?.title,
-    })
+    });
   }
 
   private onExchangeVariantChange(id: number, variantId: number): void {
-    this.updateSelection(id, { exchangeVariantId: Number(variantId) })
+    this.updateSelection(id, { exchangeVariantId: Number(variantId) });
   }
 
   private async handleSubmit(): Promise<void> {
@@ -423,19 +439,21 @@ export class RpReturnPortal extends LitElement {
       originalVariantId: sel.lineItem?.variant_id,
       exchangeProductId: sel.exchangeProductId,
       exchangeVariantId: sel.exchangeVariantId,
-    }))
+    }));
 
     if (items.some((i) => !i.reasonId)) {
-      this.error = 'Please select a reason for each item.'
-      return
+      this.error = 'Please select a reason for each item.';
+      return;
     }
-    if (items.some((i) => i.type === 'exchange' && (!i.exchangeProductId || !i.exchangeVariantId))) {
-      this.error = 'Please choose a product to exchange for.'
-      return
+    if (
+      items.some((i) => i.type === 'exchange' && (!i.exchangeProductId || !i.exchangeVariantId))
+    ) {
+      this.error = 'Please choose a product to exchange for.';
+      return;
     }
 
-    this.screen = 'submitting'
-    this.error = ''
+    this.screen = 'submitting';
+    this.error = '';
 
     try {
       const { serialNumber } = await createRequest(
@@ -443,12 +461,12 @@ export class RpReturnPortal extends LitElement {
         this.session,
         this.order!.id,
         items,
-      )
-      this.serialNumber = serialNumber
-      this.screen = 'success'
+      );
+      this.serialNumber = serialNumber;
+      this.screen = 'success';
     } catch (err) {
-      this.error = err instanceof Error ? err.message : 'Something went wrong. Please try again.'
-      this.screen = 'reasons'
+      this.error = err instanceof Error ? err.message : 'Something went wrong. Please try again.';
+      this.screen = 'reasons';
     }
   }
 
@@ -469,7 +487,9 @@ export class RpReturnPortal extends LitElement {
               type="text"
               placeholder="e.g. 2457"
               .value=${this.orderInput}
-              @input=${(e: InputEvent) => { this.orderInput = (e.target as HTMLInputElement).value }}
+              @input=${(e: InputEvent) => {
+                this.orderInput = (e.target as HTMLInputElement).value;
+              }}
               required
             />
           </div>
@@ -481,7 +501,9 @@ export class RpReturnPortal extends LitElement {
               type="text"
               placeholder="you@example.com"
               .value=${this.identifierInput}
-              @input=${(e: InputEvent) => { this.identifierInput = (e.target as HTMLInputElement).value }}
+              @input=${(e: InputEvent) => {
+                this.identifierInput = (e.target as HTMLInputElement).value;
+              }}
               required
             />
           </div>
@@ -493,7 +515,7 @@ export class RpReturnPortal extends LitElement {
           </button>
         </form>
       </div>
-    `
+    `;
   }
 
   private renderLoading() {
@@ -504,14 +526,17 @@ export class RpReturnPortal extends LitElement {
           <span>Please wait…</span>
         </div>
       </div>
-    `
+    `;
   }
 
   private renderItems() {
-    const order = this.order!
+    const order = this.order!;
     return html`
       <div class="rp-card">
-        <button class="rp-back" @click=${() => { this.screen = 'lookup'; this.error = '' }}>
+        <button class="rp-back" @click=${() => {
+          this.screen = 'lookup';
+          this.error = '';
+        }}>
           ← Back
         </button>
         <p class="rp-title">Select Items to Return</p>
@@ -552,28 +577,28 @@ export class RpReturnPortal extends LitElement {
           Continue (${this.checkedIds.size} item${this.checkedIds.size === 1 ? '' : 's'})
         </button>
       </div>
-    `
+    `;
   }
 
   private renderReasonForItem(id: number) {
-    const sel = this.selections.get(id)!
-    const li = sel.lineItem!
+    const sel = this.selections.get(id)!;
+    const li = sel.lineItem!;
 
     const allRefundModes: Array<[string, string]> = [
       ['store_credit', 'Store Credit'],
       ['pay_to_source', 'Original Payment Method'],
       ['bank_transfer', 'Bank Transfer'],
-    ]
+    ];
     // Show only the refund modes the selected reason enables. This is how OS stores
     // hide Store Credit: the backend disables refund_mode.prepaid.store_credit for OS
     // reasons (OS can't process discount-code/gift-card refunds). Fall back to all
     // modes only if the reason specifies none.
-    const prepaid = this.reasons.find((r) => String(r._id) === String(sel.reasonId))
-      ?.refund_mode?.prepaid as Record<string, boolean> | undefined
+    const prepaid = this.reasons.find((r) => String(r._id) === String(sel.reasonId))?.refund_mode
+      ?.prepaid as Record<string, boolean> | undefined;
     const availableRefundModes =
       prepaid && (prepaid.store_credit || prepaid.pay_to_source || prepaid.bank_transfer)
         ? allRefundModes.filter(([value]) => prepaid[value])
-        : allRefundModes
+        : allRefundModes;
 
     return html`
       <div class="rp-reason-block">
@@ -590,9 +615,7 @@ export class RpReturnPortal extends LitElement {
                   @change=${(e: Event) =>
                     this.onReasonChange(id, (e.target as HTMLSelectElement).value)}
                 >
-                  ${this.reasons.map(
-                    (r) => html`<option value=${r._id}>${r.reason}</option>`,
-                  )}
+                  ${this.reasons.map((r) => html`<option value=${r._id}>${r.reason}</option>`)}
                 </select>
               </div>
             `
@@ -663,26 +686,26 @@ export class RpReturnPortal extends LitElement {
             `
         }
       </div>
-    `
+    `;
   }
 
   private renderExchangePicker(id: number) {
-    const sel = this.selections.get(id)!
+    const sel = this.selections.get(id)!;
     if (this.exchangeLoading.has(id)) {
-      return html`<div class="rp-refund-section"><p class="rp-refund-label">Loading products…</p></div>`
+      return html`<div class="rp-refund-section"><p class="rp-refund-label">Loading products…</p></div>`;
     }
-    const products = this.exchangeProducts.get(id) ?? []
+    const products = this.exchangeProducts.get(id) ?? [];
     if (products.length === 0) {
-      return html`<div class="rp-refund-section"><p class="rp-refund-label">No products available to exchange for.</p></div>`
+      return html`<div class="rp-refund-section"><p class="rp-refund-label">No products available to exchange for.</p></div>`;
     }
-    const selectedProduct = products.find((p) => Number(p.id) === Number(sel.exchangeProductId))
-    const variants = selectedProduct?.variants ?? []
+    const selectedProduct = products.find((p) => Number(p.id) === Number(sel.exchangeProductId));
+    const variants = selectedProduct?.variants ?? [];
     return html`
       <div class="rp-plp">
         <label class="rp-label">Exchange for</label>
         <div class="rp-plp-grid" role="listbox" aria-label="Exchange products">
           ${products.map((p) => {
-            const isSelected = Number(p.id) === Number(sel.exchangeProductId)
+            const isSelected = Number(p.id) === Number(sel.exchangeProductId);
             return html`
               <button
                 type="button"
@@ -704,7 +727,7 @@ export class RpReturnPortal extends LitElement {
                   <div class="rp-plp-price">${this.fmt(p.variants?.[0]?.price ?? 0)}</div>
                 </div>
               </button>
-            `
+            `;
           })}
         </div>
       </div>
@@ -715,8 +738,8 @@ export class RpReturnPortal extends LitElement {
               <label class="rp-label">Choose a variant</label>
               <div class="rp-variant-chips">
                 ${variants.map((v) => {
-                  const isSel = Number(v.id) === Number(sel.exchangeVariantId)
-                  const unavailable = v.available === false
+                  const isSel = Number(v.id) === Number(sel.exchangeVariantId);
+                  const unavailable = v.available === false;
                   return html`
                     <button
                       type="button"
@@ -726,21 +749,24 @@ export class RpReturnPortal extends LitElement {
                     >
                       ${v.title} — ${this.fmt(v.price)}
                     </button>
-                  `
+                  `;
                 })}
               </div>
             </div>
           `
           : nothing
       }
-    `
+    `;
   }
 
   private renderReasons() {
-    const ids = [...this.selections.keys()]
+    const ids = [...this.selections.keys()];
     return html`
       <div class="rp-card">
-        <button class="rp-back" @click=${() => { this.screen = 'items'; this.error = '' }}>
+        <button class="rp-back" @click=${() => {
+          this.screen = 'items';
+          this.error = '';
+        }}>
           ← Back
         </button>
         <p class="rp-title">Return Details</p>
@@ -754,7 +780,7 @@ export class RpReturnPortal extends LitElement {
           Submit Return Request
         </button>
       </div>
-    `
+    `;
   }
 
   private renderSubmitting() {
@@ -765,7 +791,7 @@ export class RpReturnPortal extends LitElement {
           <span>Submitting your return…</span>
         </div>
       </div>
-    `
+    `;
   }
 
   private renderSuccess() {
@@ -782,36 +808,53 @@ export class RpReturnPortal extends LitElement {
         <button
           class="rp-btn rp-btn-primary"
           style="margin-top:8px"
-          @click=${() => { this.screen = 'lookup'; this.orderInput = ''; this.identifierInput = '' }}
+          @click=${() => {
+            this.screen = 'lookup';
+            this.orderInput = '';
+            this.identifierInput = '';
+          }}
         >
           Start a New Return
         </button>
       </div>
-    `
+    `;
   }
 
   override render() {
     const style = this.primaryColor
       ? html`<style>:host { --rp-primary: ${this.primaryColor}; --rp-primary-hover: ${this.primaryColor}; }</style>`
-      : nothing
+      : nothing;
 
-    let content
+    let content: TemplateResult;
     switch (this.screen) {
-      case 'lookup': content = this.renderLookup(); break
-      case 'loading': content = this.renderLoading(); break
-      case 'items': content = this.renderItems(); break
-      case 'reasons': content = this.renderReasons(); break
-      case 'submitting': content = this.renderSubmitting(); break
-      case 'success': content = this.renderSuccess(); break
-      default: content = this.renderLookup()
+      case 'lookup':
+        content = this.renderLookup();
+        break;
+      case 'loading':
+        content = this.renderLoading();
+        break;
+      case 'items':
+        content = this.renderItems();
+        break;
+      case 'reasons':
+        content = this.renderReasons();
+        break;
+      case 'submitting':
+        content = this.renderSubmitting();
+        break;
+      case 'success':
+        content = this.renderSuccess();
+        break;
+      default:
+        content = this.renderLookup();
     }
 
-    return html`${style}${content}`
+    return html`${style}${content}`;
   }
 }
 
 declare global {
   interface HTMLElementTagNameMap {
-    'rp-return-portal': RpReturnPortal
+    'rp-return-portal': RpReturnPortal;
   }
 }

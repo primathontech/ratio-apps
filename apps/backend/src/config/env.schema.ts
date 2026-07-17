@@ -95,11 +95,14 @@ const baseEnv = z.object({
   // Used by RpOrderSyncService to upsert orders received from GoKwik OS webhooks.
   // Optional — if unset, order sync is disabled (RP fetches on demand instead).
   RP_MONGO_URL: emptyAsUndefined(z.string().min(1)),
-  // RP_INTERNAL_API_TOKEN: RP's INTERNAL_API_TOKEN value — shared secret used
-  // to validate inbound RP requests and to authenticate our register call.
-  // Optional in baseEnv so other modules can boot without it; validated at
-  // runtime by RpRequestGuard when rp module is enabled.
-  RP_INTERNAL_API_TOKEN: emptyAsUndefined(z.string().min(1)),
+  // OS_RP_TOKEN: same name and value on both sides of the OS↔RP relationship
+  // (deliberately separate from RP's own general INTERNAL_API_TOKEN, which
+  // gates unrelated internal ops tooling — a leak or rotation on either side
+  // shouldn't affect the other's blast radius). Used to validate inbound RP
+  // requests and to authenticate our register call. Optional in baseEnv so
+  // other modules can boot without it; validated at runtime by RpRequestGuard
+  // when rp module is enabled.
+  OS_RP_TOKEN: emptyAsUndefined(z.string().min(1)),
   // RP_BASE_URL: Return Prime server base URL (no trailing slash).
   RP_BASE_URL: emptyAsUndefined(z.string().url()),
   // OS_ORDER_BASE_URL / OS_ITEM_BASE_URL: GoKwik OpenStore service base URLs.

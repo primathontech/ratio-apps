@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Return Prime Button — Demo</title>
+    <style>
+      body { margin: 0; padding: 32px; background: #f3f4f6; min-height: 100vh; }
+    </style>
+  </head>
+  <body>
+    <p>Inline mode (order summary mock — order/email prefilled):</p>
+    <rp-return-button
+      order="ORD-2528-INV"
+      email="nilesh.vishwakarma@gokwik.co"
+    ></rp-return-button>
+
+    <p style="margin-top:24px">
+      Floating mode is auto-injected bottom-right by <code>?floating=1</code> on
+      the script src… but only when no inline button exists — see demo-floating.html.
+    </p>
+
+    <!-- ONE script tag: adapter URL comes from the src itself, store from ?store= -->
+    <script
+      type="module"
+      src="http://localhost:3100/rp/sdk/rp-portal.js?store=sandbox-bblunt-v2.dev.gokwik.io"
+    ></script>
+  </body>
+</html>

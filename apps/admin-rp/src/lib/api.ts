@@ -16,7 +16,9 @@ export class ApiException extends Error {
 // the CDN-served SPA can reach the backend.
 const RAW_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
 const BASE = RAW_BASE
-  ? (RAW_BASE.endsWith('/') ? `${RAW_BASE.slice(0, -1)}/rp` : `${RAW_BASE}/rp`)
+  ? RAW_BASE.endsWith('/')
+    ? `${RAW_BASE.slice(0, -1)}/rp`
+    : `${RAW_BASE}/rp`
   : '/rp';
 
 export async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -36,5 +38,5 @@ export async function api<T>(method: string, path: string, body?: unknown): Prom
       json.error_code as string | undefined,
     );
   }
-  return ((json.data ?? json) as T);
+  return (json.data ?? json) as T;
 }

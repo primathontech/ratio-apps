@@ -1,4 +1,4 @@
-import { css } from 'lit'
+import { css } from 'lit';
 
 export const baseStyles = css`
   *,
@@ -151,4 +151,4 @@ export const baseStyles = css`
     border-top: 1px solid var(--rp-border);
     margin: 16px 0;
   }
-`
+`;

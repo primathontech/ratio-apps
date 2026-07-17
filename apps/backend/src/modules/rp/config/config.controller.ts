@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Header, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { RpRequestGuard, type RpRequest } from '../guards';
 import { RpMerchantsService } from '../merchants/merchants.service';
 
@@ -13,8 +13,14 @@ import { RpMerchantsService } from '../merchants/merchants.service';
 export class RpConfigController {
   constructor(private readonly merchants: RpMerchantsService) {}
 
-  /** Public — the storefront needs this without an RP token. */
+  /**
+   * Public — the storefront needs this without an RP token. Wildcard CORS (bypassing the
+   * app's ALLOWED_ORIGINS allowlist): the response carries no secret, just a boolean, and
+   * the rp-sdk script tag must work from ANY merchant storefront without a per-merchant
+   * allowlist entry or backend proxy.
+   */
   @Get('config')
+  @Header('Access-Control-Allow-Origin', '*')
   async getConfig(@Query('shop') shop?: string): Promise<{ returnExchangeEnabled: boolean }> {
     if (!shop) throw new BadRequestException('shop is required');
     const merchant = await this.merchants.findByDomain(shop);

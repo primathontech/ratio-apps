@@ -62,6 +62,15 @@ export class RpMerchantsService {
       .execute();
   }
 
+  /** Flip the merchant inactive (OS app uninstalled → adapter). Mirrors RP's own `StoreDetail.active = false` gate. */
+  async deactivate(merchantId: string): Promise<void> {
+    await this.handle.db
+      .updateTable('return_prime_merchants')
+      .set({ active: false, updatedAt: sql`CURRENT_TIMESTAMP(3)` })
+      .where('merchantId', '=', merchantId)
+      .execute();
+  }
+
   async updateDomain(merchantId: string, domain: string): Promise<void> {
     await this.handle.db
       .updateTable('return_prime_merchants')

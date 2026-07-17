@@ -1,6 +1,8 @@
 import { Controller, Get, Query, Redirect } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Env } from '../../../config/env.schema';
+import { RpMerchantsService } from '../merchants/merchants.service';
+import { RpOrdersService } from '../orders/orders.service';
 
 /**
  * Adapter-hosted Return Prime customer portal — the OS/headless equivalent of Shopify's
@@ -20,19 +22,49 @@ import type { Env } from '../../../config/env.schema';
  */
 @Controller('rp/customer')
 export class RpPortalController {
-  constructor(private readonly config: ConfigService<Env, true>) {}
+  constructor(
+    private readonly config: ConfigService<Env, true>,
+    private readonly merchants: RpMerchantsService,
+    private readonly orders: RpOrdersService,
+  ) {}
 
   @Get('portal')
   @Redirect()
-  portal(
+  async portal(
     @Query('shop') shop?: string,
     @Query('order') order?: string,
     @Query('email') email?: string,
+    @Query('orderId') orderId?: string,
   ) {
+    // Storefront SDK case: caller only knows the raw OS order id (from the page URL/DOM,
+    // e.g. ordr_XXXX), not the display order name — that lives only in the order record.
+    // Resolve just the NAME here so the SDK never needs page-specific wiring. Deliberately
+    // does NOT resolve email/phone from orderId alone: unlike order/email passthrough below
+    // (which only forwards values the caller already supplied), resolving PII from a bare
+    // order id — with no proof the caller is entitled to it — is a disclosure oracle (anyone
+    // who can see/guess an orderId gets the owner's email/phone back). The customer types
+    // their own email/phone on RP's portal, same as every other find-order flow.
+    // Best-effort: an unresolved lookup still redirects (unprefilled) rather than erroring —
+    // a customer who reaches this page can always type their order number themselves too.
+    let resolvedOrder = order;
+    if (orderId && !resolvedOrder && shop) {
+      try {
+        const merchant = await this.merchants.findByDomain(shop);
+        if (merchant) {
+          const result = (await this.orders.getOrder(merchant.merchantId, orderId)) as {
+            order?: { external_order_name?: string; name?: string };
+          };
+          resolvedOrder = result.order?.external_order_name ?? result.order?.name;
+        }
+      } catch {
+        /* fall through unprefilled */
+      }
+    }
+
     // `order`/`email` deep-link a specific order + customer (from the storefront Order History
     // Return/Exchange link) so the RP portal can prefill the order number and email/phone.
     const prefillQs = [
-      order ? `order=${encodeURIComponent(order)}` : '',
+      resolvedOrder ? `order=${encodeURIComponent(resolvedOrder)}` : '',
       email ? `email=${encodeURIComponent(email)}` : '',
     ]
       .filter(Boolean)

@@ -178,10 +178,22 @@ export class RpTransformerService {
   // ── Product transformation ────────────────────────────────────────────────
 
   shopifyProduct(ratioProduct: Rec): Rec {
-    const id = this.numericId(String(ratioProduct.id ?? ''));
+    // Number(), not the raw numericId() string: RP's exchange-product validator stores
+    // this id in Mongo from our JSON response, then strictly compares it (`.includes()`)
+    // against the customer's exchange_product_id/exchange_variant_id — which Joi's
+    // `number()` schema coerces to a real JS number. A string here silently fails that
+    // comparison ("Unable to validate all products") even for a product that exists.
+    const id = Number(this.numericId(String(ratioProduct.id ?? '')));
+    const images = Array.isArray(ratioProduct.images) ? (ratioProduct.images as Rec[]) : [];
+    // OS has no per-variant image association, so every variant points at the primary
+    // (first) image — matching Shopify's own behavior for single-image products. Without
+    // this, RP's productVariantImage() finds no images[].id === variant.image_id match,
+    // falls through past the (also-missing) product.image, and shows its placeholder even
+    // though real images exist in `images[]`.
+    const primaryImageId = images[0]?.id ?? null;
     const variants = Array.isArray(ratioProduct.variants)
       ? (ratioProduct.variants as Rec[]).map((v) => ({
-          id: this.numericId(String(v.id ?? '')),
+          id: Number(this.numericId(String(v.id ?? ''))),
           product_id: id,
           title: v.title,
           sku: v.sku,
@@ -195,11 +207,21 @@ export class RpTransformerService {
           // candidates are selectable during testing; a real positive value is preserved.
           // Remove/gate this once OS surfaces real inventory.
           inventory_quantity: Number(v.inventory_quantity ?? v.inventoryQuantity ?? 0) || 1,
+          // RP's checkBlocked (return_prime_public/.../common.service.js) treats
+          // `inventory_management === null` as Shopify's own shape for an
+          // untracked-inventory variant and returns "not blocked" immediately, before
+          // even looking at inventory_policy/inventory_quantity. Any other value —
+          // including `undefined` from the key being absent, which is what happened
+          // here before — falls through to "blocked", regardless of stock. OS doesn't
+          // expose per-variant inventory tracking to this adapter (same reason as the
+          // inventory_quantity accommodation above), so null is the accurate mapping.
+          inventory_management: null,
           // option1 must match the product `options` values (below) so RP's variant matcher
           // resolves a selection; OS variants have no named options, so fall back to the title.
           option1: v.option1 ?? v.title ?? 'Default Title',
           option2: v.option2 ?? null,
           option3: v.option3 ?? null,
+          image_id: primaryImageId,
         }))
       : [];
 
@@ -237,7 +259,8 @@ export class RpTransformerService {
       created_at: this.isoDate((ratioProduct.created_at ?? ratioProduct.createdAt) as string),
       updated_at: this.isoDate((ratioProduct.updated_at ?? ratioProduct.updatedAt) as string),
       tags: ratioProduct.tags ?? '',
-      images: Array.isArray(ratioProduct.images) ? ratioProduct.images : [],
+      image: images[0] ?? null,
+      images,
       variants,
     };
   }
