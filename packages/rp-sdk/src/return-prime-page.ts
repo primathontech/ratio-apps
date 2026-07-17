@@ -31,6 +31,26 @@ function waitForMount(): Promise<HTMLElement | null> {
   });
 }
 
+/** How long to wait for the portal iframe's `load` event before treating the navigation as
+ *  failed. Only catches "the iframe's own load never completed" — a cross-origin sub-resource
+ *  failure inside an iframe that itself reports `load` (e.g. a 403 on the portal's own JS
+ *  bundle) is invisible from here and out of scope. */
+const IFRAME_LOAD_TIMEOUT_MS = 8000;
+
+function renderMessage(mount: HTMLElement, message: string): void {
+  mount.innerHTML = `
+    <div style="min-height:60vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:2rem">
+      <h1 style="font-size:1.5rem;margin-bottom:0.5rem">Returns &amp; Exchanges</h1>
+      <p style="color:#666;max-width:28rem">${message}</p>
+    </div>
+  `;
+}
+
+const UNAVAILABLE_MESSAGE =
+  'Returns and exchanges are currently unavailable. Please contact our support team for help with your order.';
+const FALLBACK_MESSAGE =
+  'Returns & Exchanges is temporarily unavailable. Please contact our support team for help with your order.';
+
 export async function syncReturnPrimePage(): Promise<void> {
   if (location.pathname.replace(/\/$/, '') !== scriptConfig.returnPrimePath.replace(/\/$/, '')) {
     return;
@@ -39,16 +59,14 @@ export async function syncReturnPrimePage(): Promise<void> {
   if (!mount) return;
 
   const { adapterUrl, store } = scriptConfig;
-  if (!adapterUrl || !store) return;
+  if (!adapterUrl || !store) {
+    renderMessage(mount, FALLBACK_MESSAGE);
+    return;
+  }
 
   const enabled = await fetchEnabled(adapterUrl, store);
   if (!enabled) {
-    mount.innerHTML = `
-      <div style="min-height:60vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:2rem">
-        <h1 style="font-size:1.5rem;margin-bottom:0.5rem">Returns &amp; Exchanges</h1>
-        <p style="color:#666;max-width:28rem">Returns and exchanges are currently unavailable. Please contact our support team for help with your order.</p>
-      </div>
-    `;
+    renderMessage(mount, UNAVAILABLE_MESSAGE);
     return;
   }
 
@@ -70,4 +88,22 @@ export async function syncReturnPrimePage(): Promise<void> {
   iframe.setAttribute('allow', 'clipboard-write; local-network-access');
   iframe.style.cssText = 'width:100%;min-height:85vh;border:0;display:block';
   mount.replaceChildren(iframe);
+
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = (failed: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      iframe.removeEventListener('load', onLoad);
+      iframe.removeEventListener('error', onError);
+      if (failed) renderMessage(mount, FALLBACK_MESSAGE);
+      resolve();
+    };
+    const onLoad = () => finish(false);
+    const onError = () => finish(true);
+    const timeout = setTimeout(() => finish(true), IFRAME_LOAD_TIMEOUT_MS);
+    iframe.addEventListener('load', onLoad);
+    iframe.addEventListener('error', onError);
+  });
 }
