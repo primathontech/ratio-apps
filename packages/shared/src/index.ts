@@ -22,3 +22,6 @@ export * from './schemas/event-map';
 export * from './schemas/merchant';
 // wizzy vendor (AI search & discovery) — search/autocomplete API + storefront config schemas.
 export * from './schemas/wizzy-search';
+// delhivery vendor (carrier) — shipment status/event constants + config schema.
+export * from './constants/delhivery-events';
+export * from './schemas/delhivery-config';

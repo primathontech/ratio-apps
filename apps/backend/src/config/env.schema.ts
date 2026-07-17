@@ -95,6 +95,18 @@ const baseEnv = z.object({
   // Declared here so @nestjs/config keeps it on process.env (unknown keys are
   // stripped by the validate() step).
   FACEBOOK_CAPI_BASE_URL: z.string().url().default('https://graph.facebook.com/v21.0'),
+
+  // ─── delhivery app: carrier integration ──────────────────────────────────
+  // DELHIVERY_API_BASE: Delhivery Express B2C host (staging vs production —
+  // https://track.delhivery.com in prod). DELHIVERY_SHIPMENT_WORKER_ENABLED
+  // gates the ShipmentCreateWorker draining the delhivery-shipment-create SQS
+  // queue (mirrors GOOGLE_SYNC_WORKER_ENABLED). DELHIVERY_KWIKENGAGE_URL is the
+  // KwikEngage ingestion endpoint for app-side shipping events — unset makes
+  // event dispatch a logged no-op. All read off process.env; declared here so
+  // unknown-key stripping in validate() keeps them.
+  DELHIVERY_API_BASE: z.string().url().default('https://staging-express.delhivery.com'),
+  DELHIVERY_SHIPMENT_WORKER_ENABLED: z.enum(['true', 'false']).default('false'),
+  DELHIVERY_KWIKENGAGE_URL: emptyAsUndefined(z.string().url()),
 });
 
 // builds the schema for a given module subset (baseEnv + each module's RATIO_<UPPER>_* block)

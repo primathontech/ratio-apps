@@ -4,6 +4,7 @@ import type { DatabaseWithMerchants, MerchantRow } from '../merchants/merchant.t
 import type { DatabaseWithWebhookLog } from './webhook-log.types';
 import {
   dedupeKey,
+  envelopePayload,
   WEBHOOK_DEDUPE_WINDOW_MS,
   WEBHOOK_MAX_PAYLOAD_BYTES,
   type WebhookEnvelope,
@@ -137,7 +138,8 @@ export class WebhooksService<DB extends DatabaseWithMerchants & DatabaseWithWebh
   async dispatch(envelope: WebhookEnvelope, deliveryId?: string): Promise<void> {
     const ratioWebhookId = dedupeKey(deliveryId, envelope);
     const topic = envelope.event_type;
-    const product = envelope.product ?? {};
+    // `product` for products/* events, `order` for orders/* events.
+    const product = envelopePayload(envelope);
 
     // mysql2 doesn't auto-serialize JS objects to JSON columns — it would
     // send `[object Object]` and MySQL rejects with "Invalid JSON text".

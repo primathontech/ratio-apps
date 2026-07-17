@@ -4,6 +4,7 @@ import { MetaModule } from './modules/meta/meta.module';
 import { PosthogModule } from './modules/posthog/posthog.module';
 import { MoengageModule } from './modules/moengage/moengage.module';
 import { WizzyModule } from './modules/wizzy/wizzy.module';
+import { DelhiveryModule } from './modules/delhivery/delhivery.module';
 
 /** slug → module class. Source of truth for what CAN be mounted. */
 export const MODULE_REGISTRY = new Map<AppSlug, unknown>([
@@ -12,6 +13,7 @@ export const MODULE_REGISTRY = new Map<AppSlug, unknown>([
   ['posthog', PosthogModule],
   ['moengage', MoengageModule],
   ['wizzy', WizzyModule],
+  ['delhivery', DelhiveryModule],
 ]);
 
 for (const slug of APPS) {

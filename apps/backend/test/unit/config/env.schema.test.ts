@@ -46,6 +46,13 @@ const validEnv = {
   RATIO_WIZZY_CLIENT_SECRET: 'wizzy_secret',
   RATIO_WIZZY_CALLBACK_URL: 'http://localhost:3000/wizzy/api/v1/oauth/callback',
   RATIO_WIZZY_ADMIN_BASE_URL: 'http://localhost:5174',
+  // `delhivery` app keys (derived from the APPS tuple — required by the schema).
+  RATIO_DELHIVERY_DATABASE_URL: 'mysql://app:app@localhost:3306/delhivery_app',
+  RATIO_DELHIVERY_DATA_ENCRYPTION_KEY: Buffer.alloc(32).toString('base64'),
+  RATIO_DELHIVERY_CLIENT_ID: 'delhivery_id',
+  RATIO_DELHIVERY_CLIENT_SECRET: 'delhivery_secret',
+  RATIO_DELHIVERY_CALLBACK_URL: 'http://localhost:3000/delhivery/api/v1/oauth/callback',
+  RATIO_DELHIVERY_ADMIN_BASE_URL: 'http://localhost:5174',
 };
 
 describe('envSchema', () => {

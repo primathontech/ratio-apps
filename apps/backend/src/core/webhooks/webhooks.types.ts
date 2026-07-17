@@ -31,10 +31,52 @@ export const webhookEnvelopeSchema = z
     event_type: z.string().min(1).max(128),
     merchant_id: z.string().min(1).nullable().optional(),
     product: z.record(z.string(), z.unknown()).optional(),
+    /** Carrier/order apps: `orders/*` deliveries carry the order object here. */
+    order: z.record(z.string(), z.unknown()).optional(),
   })
   .passthrough();
 
 export type WebhookEnvelope = z.infer<typeof webhookEnvelopeSchema>;
+
+/**
+ * Envelope keys that are transport metadata, never entity fields. Used to
+ * strip the wrapper when the platform delivers the entity FLAT at the
+ * envelope root instead of nested under `product`/`order`.
+ */
+const ENVELOPE_META_KEYS = new Set(['event_type', 'merchant_id', 'product', 'order']);
+
+/**
+ * Order-only fields used to recognise a FLAT order delivery (entity fields at
+ * the envelope root, alongside `event_type`). Verified against the platform
+ * OpenAPI spec for `webhooks/order-created`.
+ */
+const FLAT_ORDER_MARKERS = ['financial_status', 'line_items', 'shipping_address', 'order_number'];
+
+/**
+ * The entity payload of an envelope — `product` for `products/*` events,
+ * `order` for `orders/*` events. Handlers receive exactly this object as
+ * their `data` argument; dedupe fingerprints are computed over it too.
+ *
+ * Wrapper-tolerant: the platform's order webhooks MAY deliver the order FLAT
+ * (order fields at the envelope root) rather than nested under `.order`. When
+ * neither `product` nor `order` is present but the envelope itself looks like
+ * an order entity (`id` + any of {@link FLAT_ORDER_MARKERS}), return the
+ * envelope with the known meta keys stripped. Returns `{}` only when nothing
+ * entity-like is present (e.g. `app/uninstalled`).
+ */
+export function envelopePayload(e: WebhookEnvelope): Record<string, unknown> {
+  const nested = e.product ?? e.order;
+  if (nested) return nested;
+  const root = e as Record<string, unknown>;
+  const looksLikeFlatOrder =
+    root.id !== undefined && FLAT_ORDER_MARKERS.some((k) => root[k] !== undefined);
+  if (!looksLikeFlatOrder) return {};
+  const entity: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(root)) {
+    if (!ENVELOPE_META_KEYS.has(key)) entity[key] = value;
+  }
+  return entity;
+}
 
 function productVersion(product: Record<string, unknown>): string | null {
   const updatedAt = product.updated_at ?? product.updatedAt;
@@ -61,9 +103,11 @@ function productVersion(product: Record<string, unknown>): string | null {
  * the exact dedup key instead.
  */
 export function deriveWebhookId(e: WebhookEnvelope): string {
-  const rid = (e.product && typeof e.product.id === 'string' && e.product.id) || 'none';
+  const payload = envelopePayload(e);
+  const id = payload.id;
+  const rid = (typeof id === 'string' && id) || (typeof id === 'number' && String(id)) || 'none';
   if (rid === 'none') return `${e.event_type}:none`;
-  const version = productVersion(e.product as Record<string, unknown>);
+  const version = productVersion(payload);
   return version ? `${e.event_type}:${rid}:${version}` : `${e.event_type}:${rid}`;
 }
 
@@ -85,7 +129,7 @@ export function dedupeKey(deliveryId: string | undefined, e: WebhookEnvelope): s
   const trimmed = typeof deliveryId === 'string' ? deliveryId.trim() : '';
   if (trimmed === '') return deriveWebhookId(e);
   const fingerprint = createHash('sha256')
-    .update(JSON.stringify(e.product ?? {}))
+    .update(JSON.stringify(envelopePayload(e)))
     .digest('hex')
     .slice(0, 16);
   return `${trimmed}:${fingerprint}`;

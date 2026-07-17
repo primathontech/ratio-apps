@@ -1,0 +1,145 @@
+{
+  "slug": "delhivery",
+  "displayName": "Delhivery Direct",
+  "hasStorefrontSdk": true,
+  "phase": "frontend-builder",
+  "gates": {
+    "prd": "approved",
+    "trd": "approved",
+    "tdd": "approved",
+    "pr": "pending",
+    "deploy": "pending"
+  },
+  "docs": {
+    "prd": "docs/agent/apps/delhivery/PRD.md",
+    "trd": "docs/agent/apps/delhivery/TRD.md",
+    "tdd": "docs/agent/apps/delhivery/TDD.md"
+  },
+  "scopes": [
+    "read_orders",
+    "write_orders",
+    "read_products"
+  ],
+  "webhooks": [
+    "app/uninstalled",
+    "orders/paid",
+    "orders/cancelled",
+    "orders/edited"
+  ],
+  "paths": {
+    "module": "apps/backend/src/modules/delhivery",
+    "admin": "apps/admin-delhivery",
+    "sdk": "packages/delhivery-sdk"
+  },
+  "filesCreated": [
+    "docs/agent/apps/delhivery/PRD.md",
+    "docs/agent/apps/delhivery/STATE.json",
+    "docs/agent/apps/delhivery/TRD.md",
+    "docs/agent/apps/delhivery/TDD.md",
+    "apps/backend/src/modules/delhivery",
+    "apps/admin-delhivery",
+    "packages/shared/src/schemas/delhivery-config.ts",
+    "packages/shared/src/constants/delhivery-events.ts",
+    "apps/backend/src/modules/delhivery/db/migrations/0004_carrier_model.ts",
+    "apps/backend/src/modules/delhivery/sdk/sdk.service.ts",
+    "apps/backend/src/modules/delhivery/sdk/sdk.controller.ts",
+    "apps/backend/src/modules/delhivery/serviceability/serviceability.service.ts",
+    "apps/backend/src/modules/delhivery/shipments/shipment.service.ts",
+    "apps/backend/src/modules/delhivery/shipments/shipments.controller.ts",
+    "apps/backend/src/modules/delhivery/shipments/shipment-create.queue.ts",
+    "apps/backend/src/modules/delhivery/shipments/shipment-create.worker.ts",
+    "apps/backend/src/modules/delhivery/shipments/build-package.ts",
+    "apps/backend/src/modules/delhivery/shipments/payment.ts",
+    "apps/backend/src/modules/delhivery/tracking/tracking.service.ts",
+    "apps/backend/src/modules/delhivery/tracking/tracking-reconcile.cron.ts",
+    "apps/backend/src/modules/delhivery/pickup/pickup.cron.ts",
+    "apps/backend/src/modules/delhivery/ratio/ratio-orders.service.ts",
+    "apps/backend/src/modules/delhivery/events/kwikengage.client.ts",
+    "apps/backend/src/modules/delhivery/oauth/ratio-oauth.http.ts",
+    "apps/backend/src/modules/delhivery/oauth/ratio-token.provider.ts",
+    "apps/backend/src/modules/delhivery/webhooks/topics.ts",
+    "apps/backend/src/modules/delhivery/webhooks/orders-paid.handler.ts",
+    "apps/backend/src/modules/delhivery/webhooks/orders-cancelled.handler.ts",
+    "apps/backend/src/modules/delhivery/webhooks/orders-edited.handler.ts",
+    "apps/backend/test/unit/apps/delhivery",
+    "apps/admin-delhivery/src/routes/shipments.tsx",
+    "apps/admin-delhivery/src/routes/shipments.test.tsx",
+    "apps/admin-delhivery/src/routes/config.test.tsx",
+    "apps/admin-delhivery/src/routes/index.test.tsx",
+    "apps/admin-delhivery/src/hooks/useShipments.ts",
+    "apps/admin-delhivery/src/test-utils.tsx",
+    "packages/delhivery-sdk/package.json",
+    "packages/delhivery-sdk/tsconfig.json",
+    "packages/delhivery-sdk/vite.config.ts",
+    "packages/delhivery-sdk/vite.loader.config.ts",
+    "packages/delhivery-sdk/.size-limit.json",
+    "packages/delhivery-sdk/docs/README.md",
+    "packages/delhivery-sdk/src/version.ts",
+    "packages/delhivery-sdk/src/version.test.ts",
+    "packages/delhivery-sdk/src/config.ts",
+    "packages/delhivery-sdk/src/client.ts",
+    "packages/delhivery-sdk/src/client.test.ts",
+    "packages/delhivery-sdk/src/loader.ts",
+    "packages/delhivery-sdk/src/loader.test.ts",
+    "packages/delhivery-sdk/src/widget.ts",
+    "packages/delhivery-sdk/src/ui/theme.ts",
+    "packages/delhivery-sdk/src/ui/theme.test.ts",
+    "packages/delhivery-sdk/src/ui/serviceability-widget.ts",
+    "packages/delhivery-sdk/src/ui/serviceability-widget.test.ts",
+    "apps/backend/src/modules/delhivery/storefront/storefront.controller.ts",
+    "apps/backend/test/unit/apps/delhivery/storefront.controller.test.ts"
+  ],
+  "deployTarget": null,
+  "prUrl": null,
+  "history": [
+    {
+      "phase": "prd-architect",
+      "ts": "2026-07-02T06:30:17.000Z"
+    },
+    {
+      "phase": "trd-architect",
+      "ts": "2026-07-02T06:34:05.000Z"
+    },
+    {
+      "phase": "tdd-author",
+      "ts": "2026-07-02T06:36:16.000Z"
+    },
+    {
+      "phase": "vendor-scaffolder",
+      "ts": "2026-07-02T06:38:08.000Z"
+    },
+    {
+      "phase": "vendor-scaffolder",
+      "ts": "2026-07-02T06:45:27.579Z"
+    },
+    {
+      "phase": "backend-builder",
+      "ts": "2026-07-02T07:29:03.000Z"
+    },
+    {
+      "phase": "backend-builder",
+      "ts": "2026-07-02T08:08:45.000Z",
+      "note": "wrapper-tolerant envelopePayload (order-wrapped OR flat); orders-cancelled keys on {orderId, externalOrderId}; orders/paid source guard tolerates missing source per verified OpenAPI payload"
+    },
+    {
+      "phase": "frontend-builder",
+      "ts": "2026-07-02T10:45:00.000Z",
+      "note": "admin screens rebuilt for the carrier model: config form (masked write-only apiToken, test-connection states, awb-trigger toggle, default box, kill switch), shipments list (statuses, label-PDF proxy print, NDR read-only + Manage-in-Delhivery link, manual create, request pickup), landing overview; template events/install screens removed; 16 vitest cases green"
+    },
+    {
+      "phase": "code-reviewer",
+      "ts": "2026-07-02T11:20:00.000Z",
+      "note": "light gate GREEN: pnpm -r lint/typecheck/test/build all pass (backend 513 pass/2 todo, admin-delhivery 16 pass, dist built); zero // TEMPLATE: markers; core not forked; wiring intact (APPS+registry+7 RATIO_DELHIVERY_ env keys); no hardcoded secrets. Noted follow-up: config PUT requires re-entering apiToken on every save (optional-on-save is a v1 UX follow-up, not a blocker)."
+    },
+    {
+      "phase": "frontend-builder",
+      "ts": "2026-07-03T07:00:00.000Z",
+      "note": "SCOPE CHANGE (confirmed with platform team): checkout integrates via a storefront SDK. hasStorefrontSdk false->true. Add packages/delhivery-sdk (serviceability-at-checkout): headless client (window.RatioDelhivery.checkServiceability) primary + optional <delhivery-serviceability> widget, served via per-merchant loader /delhivery/sdk/<merchantId>.js; calls the public /delhivery/api/serviceability endpoint (CORS *). REDESIGN vs the search-oriented _template/wizzy sdk: drop results/recent-store/anon-id. Resolves TRD open-Q #1 (serviceability consumption = via SDK)."
+    },
+    {
+      "phase": "frontend-builder",
+      "ts": "2026-07-03T09:30:00.000Z",
+      "note": "storefront-SDK pillar built: packages/delhivery-sdk (scaffolded from _template-sdk, REDESIGNED for serviceability-at-checkout) — typed DelhiveryClient over public GET /delhivery/api/serviceability (6-digit PIN guard, {data} envelope unwrap, abortable), tiny IIFE loader exposing window.RatioDelhivery.checkServiceability (primary Kwik Checkout integration; prelude/?store merchant resolution; lazy widget injection only when <delhivery-serviceability> is used), optional Lit 3 widget (Shadow DOM, EDD band + COD badge, composed serviceability CustomEvent). Dropped search pieces: results.ts/vite.results.config.ts/recent-store/anon-id/search e2e + playwright dep; two-bundle build only. Backend: DelhiveryStorefrontController serves GET /delhivery/sdk/<merchantId>.js (safeInlineJson window.__DELHIVERY__ prelude + built loader, MERCHANT_INACTIVE 404, cache 300s success-only) + /delhivery/sdk/delhivery-widget.js (mirrors wizzy storefront + google pixel patterns; core untouched). Gates GREEN: sdk typecheck/test (29)/build/size (loader 1.16KB<=3KB, widget 7.86KB<=10KB brotli) + lint; backend typecheck + 518 tests (5 new storefront controller tests). PRD/TDD updated (SDK requirement, acceptance criteria, 4b test cases). ASSUMPTION: load mechanism = per-merchant loader script tag (vs platform checkout-extension bundle) — flagged in PRD/TRD to confirm with platform."
+    }
+  ]
+}

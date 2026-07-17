@@ -1,0 +1,4 @@
+[
+  { "path": "dist/delhivery-loader.js", "limit": "3 KB" },
+  { "path": "dist/delhivery-widget.js", "limit": "10 KB" }
+]

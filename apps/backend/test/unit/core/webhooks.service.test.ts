@@ -10,6 +10,7 @@ import { WebhooksService } from '../../../src/core/webhooks/webhooks.service';
 import {
   dedupeKey,
   deriveWebhookId,
+  envelopePayload,
   WEBHOOK_DEDUPE_WINDOW_MS,
   WEBHOOK_MAX_PAYLOAD_BYTES,
   type WebhookEnvelope,
@@ -341,6 +342,68 @@ describe('WebhooksService.dispatch', () => {
     expect(handler.handle).toHaveBeenCalledTimes(1);
     expect(fake.inserts).toBe(1);
     expect(fake.updates).toBe(1);
+  });
+
+  // ---- envelopePayload (wrapper-tolerant: nested `order`, FLAT order, `product`) ----
+
+  it('envelopePayload returns the nested order for {event_type, order:{...}} envelopes', () => {
+    const order = { id: 'ordr_1', order_number: 1001, financial_status: 'paid' };
+    const env = webhookEnvelopeSchema.parse({
+      event_type: 'orders/paid',
+      merchant_id: 'mer_1',
+      order,
+    });
+    expect(envelopePayload(env)).toEqual(order);
+  });
+
+  it('envelopePayload returns the entity for a FLAT order envelope (order fields at the root)', () => {
+    const env = webhookEnvelopeSchema.parse({
+      event_type: 'orders/paid',
+      merchant_id: 'mer_1',
+      id: 'ordr_2',
+      order_number: 1002,
+      financial_status: 'paid',
+      total_price: '499.00',
+      phone: '+919999999999',
+      customer: { id: 'cust_1' },
+      shipping_address: { city: 'Delhi' },
+      line_items: [{ product_id: 'prod_1', quantity: 1 }],
+    });
+    const payload = envelopePayload(env);
+    // Meta keys are stripped; every order field survives.
+    expect(payload.event_type).toBeUndefined();
+    expect(payload.merchant_id).toBeUndefined();
+    expect(payload).toMatchObject({
+      id: 'ordr_2',
+      order_number: 1002,
+      financial_status: 'paid',
+      total_price: '499.00',
+      shipping_address: { city: 'Delhi' },
+      line_items: [{ product_id: 'prod_1', quantity: 1 }],
+    });
+    // deriveWebhookId keys on the FLAT order's id (not `:none`).
+    expect(deriveWebhookId(env).startsWith('orders/paid:ordr_2')).toBe(true);
+  });
+
+  it('envelopePayload still returns the product for {event_type, product:{...}} envelopes', () => {
+    const product = { id: 'prod_1', title: 'A' };
+    const env = webhookEnvelopeSchema.parse({
+      event_type: 'products/update',
+      merchant_id: 'mer_1',
+      product,
+    });
+    expect(envelopePayload(env)).toEqual(product);
+  });
+
+  it('envelopePayload returns {} when nothing entity-like is present (app/uninstalled)', () => {
+    const env = webhookEnvelopeSchema.parse({
+      event_type: 'app/uninstalled',
+      merchant_id: 'mer_1',
+    });
+    expect(envelopePayload(env)).toEqual({});
+    // A bare root `id` WITHOUT any order marker is not treated as an entity.
+    const idOnly = webhookEnvelopeSchema.parse({ event_type: 'app/uninstalled', id: 'x' });
+    expect(envelopePayload(idOnly)).toEqual({});
   });
 
   // ---- deriveWebhookId ----
