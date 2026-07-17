@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { requireValue } from '../test-utils';
 import './facet-list';
 import type { WizzyFacetList } from './facet-list';
 
@@ -16,15 +17,17 @@ async function mount() {
 describe('wizzy-facet-list', () => {
   it('renders the label and a checkbox per value with current selection checked', async () => {
     const el = await mount();
-    const text = el.shadowRoot!.textContent ?? '';
+    const root = requireValue(el.shadowRoot, 'facet-list shadow root');
+    const text = root.textContent ?? '';
     expect(text).toContain('Brand');
     expect(text).toContain('Wellcore');
     expect(text).toContain('YouWeFit');
-    const boxes = el.shadowRoot!.querySelectorAll('input[type="checkbox"]');
+    const boxes = root.querySelectorAll<HTMLInputElement>('input[type="checkbox"]');
     expect(boxes).toHaveLength(3);
-    const wellcore = Array.from(boxes).find(
-      (b) => (b as HTMLInputElement).value === 'Wellcore',
-    ) as HTMLInputElement;
+    const wellcore = requireValue(
+      Array.from(boxes).find((box) => box.value === 'Wellcore'),
+      'Wellcore checkbox',
+    );
     expect(wellcore.checked).toBe(true);
     el.remove();
   });
@@ -33,9 +36,13 @@ describe('wizzy-facet-list', () => {
     const el = await mount();
     const onChange = vi.fn();
     el.addEventListener('wizzy-facet-change', (e) => onChange((e as CustomEvent).detail));
-    const youwefit = Array.from(el.shadowRoot!.querySelectorAll('input[type="checkbox"]')).find(
-      (b) => (b as HTMLInputElement).value === 'YouWeFit',
-    ) as HTMLInputElement;
+    const root = requireValue(el.shadowRoot, 'facet-list shadow root');
+    const youwefit = requireValue(
+      Array.from(root.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')).find(
+        (box) => box.value === 'YouWeFit',
+      ),
+      'YouWeFit checkbox',
+    );
     youwefit.checked = true;
     youwefit.dispatchEvent(new Event('change', { bubbles: true }));
     expect(onChange).toHaveBeenCalledWith({ key: 'brands', selected: ['Wellcore', 'YouWeFit'] });

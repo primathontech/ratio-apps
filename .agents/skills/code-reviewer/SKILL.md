@@ -28,8 +28,8 @@ pnpm -r build
   **not** advance the phase. Fix-or-bounce: either fix trivial issues directly or
   hand back to the relevant builder with the error.
 - `pnpm -r test` must be green — the builders wrote these against `TDD.md`.
-- `pnpm -r build` building the admin to static is what proves the single deploy
-  artifact is producible.
+- `pnpm -r build` proves the backend image inputs and separately deployed admin
+  artifacts are producible.
 
 ## Checklist (all must hold)
 
@@ -51,10 +51,19 @@ pnpm -r build
       `apps/backend/src/core/` — it has not copied core files into
       `modules/<slug>/`. Verify nothing under `modules/<slug>/` duplicates a
       `core/` primitive.
-- [ ] **Wiring intact.** `<slug>` is in `APPS`, registered in `app.module.ts`
-      (`REGISTERED_MODULES` + `imports[]`), and `RATIO_<SLUG>_*` keys exist in
+- [ ] **Wiring intact.** `<slug>` is in `APPS`, imported and registered in
+      `module-registry.ts`, and `RATIO_<SLUG>_*` keys exist in
       `.env.example`. (A wiring miss would have failed the build above via the
       load-time assertion / env validation — this is a belt-and-suspenders read.)
+- [ ] **Deployment placement is complete.** STATE.json has an approved
+      `deployment.apiPlacement` (`shared` or `dedicated`) and
+      `deployment.workerPlacement` (`shared-api`, `dedicated-worker`, or
+      `none`); PRD and TRD agree; a worker flag/queue is not introduced when the
+      placement is `none`.
+- [ ] **Delivery change is reviewable.** The TRD and PR describe the exact
+      shared workload amendment or dedicated workload addition required in the
+      approved external EKS pipeline. No ad-hoc Kubernetes manifest was added
+      to this repository.
 
 ## On pass
 

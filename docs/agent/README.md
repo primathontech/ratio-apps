@@ -13,8 +13,10 @@ Skills live canonically in **`.agents/skills/`** and are symlinked to
 
 1. **Drop a PRD.** Copy [`PRD.template.md`](./PRD.template.md), fill it in
    (vendor name + slug, data model, scopes, webhooks, admin screens, acceptance
-   criteria), or hand a rough idea to the flow and let `prd-architect`
-   structure it.
+   criteria, API placement, and worker placement), or hand a rough idea to the
+   flow and let `prd-architect` structure it. The architect must ask whether the
+   app joins the shared backend or needs a dedicated API, and whether its worker
+   is co-located, dedicated, or absent.
 2. **Invoke the `build-app` skill.** It is the single entry point. It
    reads/creates `docs/agent/apps/<slug>/STATE.json`, walks the phases in order,
    and enforces the gates.
@@ -22,9 +24,11 @@ Skills live canonically in **`.agents/skills/`** and are symlinked to
    pauses at five irreversible points: the PRD, the TRD (technical design), the
    TDD (test plan) — all **before any code is written** — then before the PR and
    before deploy.
-4. **Output:** three signed-off design docs (PRD/TRD/TDD), a new backend module +
+4. **Output:** three signed-off design docs (PRD/TRD/TDD), a recorded
+   `STATE.json.deployment` decision, a new backend module +
    admin app + shared schemas with tests, lint / typecheck / build / test green, a
-   PR, and a single-artifact deploy (Docker or PM2).
+   PR, an immutable backend image, a separately published admin artifact, and an
+   EKS release through the configured DevOps delivery pipeline.
 
 ## Phases & gates
 
@@ -44,7 +48,7 @@ build-app (orchestrator)
   │      ▼  [GATE 4: before PR]
   ├─ pr-author ────────────────► branch + conventional commits + PR
   │      ▼  [GATE 5: before deploy]
-  └─ deployer ─────────────────► Docker | PM2 single-artifact deploy
+  └─ deployer ─────────────────► EKS release contract + verification
 ```
 
 The first three phases are **documentation + design only** — nothing is scaffolded
@@ -57,9 +61,10 @@ mid-build and resumed in a fresh session purely from that file.
 `docs/agent/apps/<slug>/` holds the build's context so anyone can pick it up:
 - `PRD.md`, `TRD.md`, `TDD.md` — the three signed-off design docs.
 - `STATE.json` — the single source of truth for progress (`phase`, `gates`,
-  `docs`, `scopes`, `webhooks`, `paths`, …). Its shape and the allowed `phase` /
-  `gate` values are in [`STATE.schema.md`](./STATE.schema.md). Every skill reads it
-  on entry and writes it on exit.
+  `docs`, `scopes`, `webhooks`, `paths`, `deployment`, …). Its shape and the
+  allowed `phase` / `gate` / placement values are in
+  [`STATE.schema.md`](./STATE.schema.md). Every skill reads it on entry and
+  writes it on exit.
 
 ## Durable context, state & feedback (cross-session)
 
@@ -72,8 +77,8 @@ any future session inherits it:
 - **`docs/agent/PROGRESS.md`** — in-flight multi-session work (ephemeral).
 - **`docs/agent/apps/<slug>/CONTEXT.md`** — per-app standing context + change journal.
 - **`remember` skill** — the single writer; classifies an entry and updates the index.
-- **`pnpm verify`** — the feedback loop (`lint → typecheck → test → build`); see the
-  Definition of Done in `AGENTS.md`.
+- **`pnpm verify`** — the feedback loop (workspace lint/typecheck, shared build,
+  tests, and all builds); see the Definition of Done in `AGENTS.md`.
 
 Save context any time with the `remember` skill ("save this to context"). Pull
 context on demand — read `context/INDEX.md` or a relevant `CONTEXT.md` only when
@@ -109,12 +114,12 @@ All live under `.agents/skills/` (symlinked as `.claude/skills/`):
 | `prd-architect` | Turn an idea / rough PRD into a structured `PRD.md`; init `STATE.json`. |
 | `trd-architect` | Turn the PRD into a Technical Requirements/Design doc (`TRD.md`). |
 | `tdd-author` | Turn the TRD into a Test Plan / test-driven design (`TDD.md`). |
-| `vendor-scaffolder` | Copy `_template` → `<slug>`; wire `apps.ts`, `app.module.ts`, env. |
+| `vendor-scaffolder` | Copy `_template` → `<slug>`; wire `apps.ts`, `module-registry.ts`, env. |
 | `backend-builder` | Implement the module (config, sdk, webhooks, db migrations); tests first. |
 | `frontend-builder` | Implement the admin screens; tests first. |
 | `code-reviewer` | Light gate — lint, typecheck, test, build, house conventions, TDD coverage. |
 | `pr-author` | Branch, conventional commits, open PR via `gh`. |
-| `deployer` | Build the single artifact; deploy via Docker or PM2. |
+| `deployer` | Build/push the shared backend image, publish the app admin, run its migration Job, and update the configured external EKS pipeline from `STATE.json.deployment`. |
 | `context-keeper` | Reference — the `STATE.json` read/write contract. |
 | `house-conventions` | Reference — commit format, naming, `core/` boundary. |
 | `stack-patterns` | Reference — NestJS/Kysely + React/Vite patterns. |

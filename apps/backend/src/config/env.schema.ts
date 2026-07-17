@@ -36,9 +36,9 @@ const baseEnv = z.object({
         .map((c) => c.trim())
         .filter(Boolean),
     ),
-  // SERVE_STATIC: when 'true', the backend serves the built admin SPA from
-  // disk via @fastify/static (single-artifact deploy — see configure-app.ts).
-  // Default false so local dev (separate Vite server on :5173) is unaffected.
+  // SERVE_STATIC: optional self-hosted admin mode for a full checkout/custom
+  // image. The standard production image is backend-only and keeps this false.
+  // Local dev uses a separate Vite server on :5173.
   // Accepts only the literal strings 'true' / 'false'; coerced to boolean.
   SERVE_STATIC: z
     .enum(['true', 'false'])

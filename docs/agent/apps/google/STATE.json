@@ -56,6 +56,10 @@
     "apps/backend/src/modules/google/webhooks/product-updated.handler.ts",
     "apps/backend/src/modules/google/webhooks/product-deleted.handler.ts"
   ],
+  "deployment": {
+    "apiPlacement": "shared",
+    "workerPlacement": "shared-api"
+  },
   "deployTarget": null,
   "prUrl": null,
   "history": [

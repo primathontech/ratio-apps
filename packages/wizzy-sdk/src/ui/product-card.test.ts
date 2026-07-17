@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { requireValue } from '../test-utils';
 import './product-card';
 import type { WizzyProductCard } from './product-card';
 
@@ -25,7 +26,7 @@ async function mount() {
 describe('wizzy-product-card', () => {
   it('renders the name, formatted final price, struck MRP and discount', async () => {
     const el = await mount();
-    const text = el.shadowRoot!.textContent ?? '';
+    const text = requireValue(el.shadowRoot, 'product-card shadow root').textContent ?? '';
     expect(text).toContain('Wellcore Creatine Monohydrate');
     expect(text).toContain('₹588');
     expect(text).toContain('₹699'); // struck MRP, shown because finalPrice < price
@@ -34,7 +35,7 @@ describe('wizzy-product-card', () => {
   });
   it('links to the product url', async () => {
     const el = await mount();
-    const a = el.shadowRoot!.querySelector('a');
+    const a = requireValue(el.shadowRoot, 'product-card shadow root').querySelector('a');
     expect(a?.getAttribute('href')).toBe('/p/1');
     el.remove();
   });

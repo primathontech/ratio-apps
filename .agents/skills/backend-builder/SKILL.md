@@ -10,7 +10,8 @@ You implement the scaffolded vendor module (`apps/backend/src/modules/<slug>/`)
 to satisfy the PRD. The scaffold already compiles and wires; your job is to fill
 in the vendor's real behavior and **replace every `// TEMPLATE:` marker**.
 
-Read STATE.json on entry for `slug`, `scopes`, `webhooks`, and `paths.module`.
+Read STATE.json on entry for `slug`, `scopes`, `webhooks`, `paths.module`, and
+`deployment`.
 Read the three approved docs: `docs/agent/apps/<slug>/PRD.md` (what), `TRD.md`
 (the technical design you implement), and `TDD.md` (the test plan you satisfy).
 Consult `stack-patterns` for the canonical module/config/sdk/webhooks/migration
@@ -70,6 +71,19 @@ pnpm --filter @ratio-app/backend exec tsx scripts/migrate.ts <slug>
 ```
 
 (The runner resolves `src/modules/<slug>/db/migrations`; `<slug>` must be in `APPS`.)
+
+### 6. Queue worker, when selected
+
+- `deployment.workerPlacement: none` — do not introduce a queue, worker flag, or
+  consumer.
+- `shared-api` or `dedicated-worker` — implement the same module-owned consumer
+  code, self-gated by the exact `*_WORKER_ENABLED` flag specified in the TRD.
+  Test disabled startup, enabled consumption, acknowledgement/retry behavior,
+  and shutdown. Placement changes the external process configuration, not the
+  worker implementation.
+
+Do not branch module code on `apiPlacement`; `ENABLED_MODULES` and the external
+EKS pipeline decide whether the module runs in the shared or dedicated API.
 
 ## Remove every `// TEMPLATE:` marker
 

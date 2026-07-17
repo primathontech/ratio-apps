@@ -34,5 +34,14 @@
 - **Security:** HMAC webhook verification; encryption-at-rest for tokens.
 - **Limits / pagination / logging-redaction / performance budgets:**
 
-## 7. Open questions / risks
+## 7. Deployment placement
+- **API placement:** `shared` | `dedicated`
+- **Worker placement:** `shared-api` | `dedicated-worker` | `none`
+- **Runtime command / flags:** <!-- main.js or main.worker.js, ENABLED_MODULES,
+  worker flag, routing, probes, IAM, queues, secrets -->
+- **Scaling / isolation rationale:** <!-- expected HTTP and queue load -->
+- **External delivery change:** <!-- exact configured GitOps/pipeline workload
+  that must be amended; do not invent manifests in this repo -->
+
+## 8. Open questions / risks
 <!-- Anything the human must decide before the test plan. -->

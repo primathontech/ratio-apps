@@ -16,20 +16,24 @@ the flow.
 
 Do not introduce alternative frameworks for these concerns.
 
-- **Backend:** NestJS 11 + Fastify, Kysely query builder, MySQL. One process,
-  many modules. Four live vendors: `google`, `meta`, `posthog`, `moengage`
-  (declared in `apps/backend/src/config/apps.ts` as
-  `APPS = ['google', 'meta', 'posthog', 'moengage'] as const`).
+- **Backend:** NestJS 11 + Fastify, Kysely query builder, MySQL. One codebase,
+  many independently selectable modules. Five live vendors: `google`, `meta`,
+  `posthog`, `moengage`, `wizzy` (declared in
+  `apps/backend/src/config/apps.ts`).
 - **Admin:** React 19 + Vite + TanStack Router (one SPA per vendor).
 - **Storefront SDK (optional):** Lit 3 (Web Components, Shadow DOM) + Vite 6
   library mode, one package per vendor at `packages/<slug>-sdk`, served by the
   vendor backend at `/<slug>/sdk/*` (IIFE loader + ESM widget/results bundles +
-  public `config/:merchantId`). Opt-in per app via `hasStorefrontSdk`; the four
-  analytics vendors don't ship one. Reference impl: `packages/wizzy-sdk`.
+  public `config/:merchantId`). Opt-in per app via `hasStorefrontSdk`; Google,
+  Meta, PostHog, and MoEngage do not ship one, while Wizzy is the first
+  SDK-enabled app. Reference impl: `packages/wizzy-sdk`.
 - **Shared:** Zod schemas + event constants in `packages/shared`.
 - **Tooling:** pnpm workspaces, Node 22, Biome (lint + format), Vitest.
-- **Deploy:** single artifact — the backend serves the built admin static
-  assets — via Docker or PM2.
+- **Deploy:** one backend-only image across three current workloads: a
+  shared `main.js` Deployment for Google/PostHog/MoEngage/Wizzy with the
+  Google/Wizzy workers enabled, a dedicated Meta `main.js` Deployment, and a
+  dedicated Meta `main.worker.js` Deployment. Admin SPAs are built and deployed
+  separately.
 
 ## The `_template` golden-path rule
 
@@ -53,11 +57,23 @@ owns its own DB. (Full detail: **`house-conventions`**.)
 
 ## Add a new app
 
-The repo currently has **four live vendors**: `google`, `meta`, `posthog`, and
-`moengage`. A fifth (or later) vendor `<slug>` is scaffolded by appending to the
-existing multi-entry `APPS` tuple — not replacing it.
+The repo currently has **five live vendors**: `google`, `meta`, `posthog`,
+`moengage`, and `wizzy`. A sixth (or later) vendor `<slug>` is scaffolded by
+appending to the existing multi-entry `APPS` tuple — not replacing it.
 
-The exact ordered recipe — append to `APPS`; the three `app.module.ts` additions;
+Before GATE 1 approval, `build-app` must ask and record:
+
+- API placement: `shared` or `dedicated`;
+- worker placement: `shared-api`, `dedicated-worker`, or `none`.
+
+Use `shared`/`shared-api` for ordinary lightweight apps. Recommend a dedicated
+API and/or worker for backend-heavy, high-volume, latency-sensitive, or
+failure-isolation-sensitive apps. These decisions live in
+`STATE.json.deployment` and drive changes to the approved external EKS
+pipeline/GitOps configuration during the deployer phase.
+
+The exact ordered recipe — append to `APPS`; import/register the module in
+`module-registry.ts`;
 the `docker/mysql/init/01-database.sql` CREATE+GRANT; the `packages/shared/src/index.ts`
 barrel exports (`DEFAULT_<VENDOR>_EVENT_MAP`, not a generic alias); the
 `.env.example` block (`env.schema.ts` derives keys from `APPS` — never edit it) —
@@ -69,8 +85,8 @@ When `hasStorefrontSdk` is set, the scaffolder also copies
 placeholders), **removes that package from the workspace exclusion** (unlike
 `_template-sdk`, it IS a real buildable package), and registers the backend
 `/<slug>/sdk/*` serving routes (loader/widget/results bundles + public
-`config/:merchantId`). The four analytics vendors skip this step. Full recipe in
-**`vendor-scaffolder`**.
+`config/:merchantId`). Google, Meta, PostHog, and MoEngage skip this step. Full
+recipe in **`vendor-scaffolder`**.
 
 Verify wiring with `pnpm verify` (or `pnpm install && pnpm -r typecheck`).
 
@@ -123,8 +139,9 @@ Tie-breakers (apply in order):
 
 ## Verification / feedback loop
 
-`pnpm verify` = `pnpm -r lint && pnpm -r typecheck && pnpm -r test && pnpm -r build`
-(blocks on first failure) — the single command that proves work is green.
+`pnpm verify` runs workspace lint and typecheck, builds `packages/shared`, then
+runs all tests and builds (blocking on the first failure). It is the single
+command that proves work is green.
 
 **Definition of Done** scales by tier. **Trivial / small** changes are done when
 `pnpm verify` is green — record a change-journal / `remember` entry ONLY if the

@@ -10,6 +10,13 @@ Definition of done / fix / Files / Links** lines. (See existing entries below.)
 
 ---
 
+### 2026-07-16 — change — Align deployment contract with the five-app EKS runtime
+- **What:** Replaced stale production Compose/PM2 and four-app guidance with the implemented five-app AWS contract: one immutable backend image across a shared non-Meta API with Google/Wizzy consumers, a dedicated Meta API, and a dedicated Meta worker; separately deployed admin SPAs; per-app MySQL databases; Redis; and SQS/DLQs. Added the missing Wizzy environment contract, introduced explicit future-app deployment placement state, and repaired clean-checkout verification failures discovered while validating the change.
+- **Why:** Active documentation, environment examples, deployment helpers, and agent skills contradicted the source implementation and could not be handed to DevOps as a reliable deployment contract.
+- **Definition of done / fix:** Deleted `docker-compose.prod.yml`; removed generic production Compose/PM2 scripts; documented the three-workload EKS split and Google/Meta/Wizzy SQS responsibilities without claiming unimplemented Kinesis or repository-owned infrastructure; kept local Compose local-only; made every future app ask and persist API/worker placement before GATE 1; aligned module registration guidance with `module-registry.ts`; made backend tests build pixel bundles on a clean checkout; fixed formatter/lint drift and the stale Meta paging test; full `pnpm verify` passes.
+- **Files:** `README.md`, `ARCHITECTURE.md`, `docs/DEPLOY.md`, `.env.example`, `AGENTS.md`, `package.json`, `docker-compose.prod.yml`, `.agents/skills/*`, `docs/agent/{PRD.template.md,TRD.template.md,STATE.schema.md}`, `docs/agent/apps/*/STATE.json`, `apps/backend/package.json`, `apps/backend/test/unit/meta/catalog-source-paging.test.ts`, `packages/wizzy-sdk/src/*`.
+- **Links:** `docs/agent/changes/align-eks-deployment-docs/SPEC.md`, `docs/agent/changes/align-eks-deployment-docs/PLAN.md`, `docs/agent/context/decisions/0005-three-workload-eks-placement.md`.
+
 ### 2026-06-17 — change — Phase 2 consolidation complete + scaffolder dry-run validated
 - **What:** Ported meta, posthog, and moengage vendors into the repo alongside google (Phase 1 tasks 3–4), updated all harness skills to be multi-vendor-aware (Task 9), then dry-ran the `vendor-scaffolder` recipe against a throwaway `zzdryrun` slug to prove a 5th vendor wires cleanly (Task 10).
 - **Why:** Establish ratio-apps as the four-vendor unified monorepo with a validated, repeatable recipe for adding future vendors.

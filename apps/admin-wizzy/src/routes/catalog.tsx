@@ -11,10 +11,9 @@ import {
   Typography,
 } from '@primathonos/orion';
 import type { WizzyCatalogStatus } from '@shared/schemas/wizzy-config';
-import { createFileRoute } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
+import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
-import { queryKeys } from '@/lib/queryKeys';
 import {
   type CatalogItem,
   useCatalogHistory,
@@ -22,6 +21,7 @@ import {
   useCatalogSummary,
   useForceSync,
 } from '@/hooks/useCatalog';
+import { queryKeys } from '@/lib/queryKeys';
 
 export const Route = createFileRoute('/catalog')({ component: CatalogPage });
 
@@ -122,11 +122,7 @@ export function CatalogPage() {
             Per-product Wizzy sync status and history.
           </Typography.Text>
         </div>
-        <PrimaryButton
-          loading={syncing}
-          disabled={syncing}
-          onClick={() => forceSync.mutate()}
-        >
+        <PrimaryButton loading={syncing} disabled={syncing} onClick={() => forceSync.mutate()}>
           {syncing ? 'Syncing…' : 'Force Sync Now'}
         </PrimaryButton>
       </div>
