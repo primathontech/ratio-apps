@@ -3,7 +3,12 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { FastifyReply } from 'fastify';
 
-const sdkPath = resolve(process.cwd(), '../../packages/rp-sdk/dist/rp-portal.js');
+// Resolved from __dirname (this file's own compiled location), not process.cwd() —
+// cwd depends on how the process is launched (e.g. PM2 starting it from the repo
+// root vs from apps/backend), so a cwd-relative path silently breaks depending on
+// deploy tooling even though the file exists on disk. __dirname is fixed at compile
+// time: dist/apps/backend/src/modules/rp/sdk → up to repo root → packages/rp-sdk/dist.
+const sdkPath = resolve(__dirname, '../../../../../../../../../packages/rp-sdk/dist/rp-portal.js');
 
 @Controller('rp/sdk')
 export class RpSdkController {
