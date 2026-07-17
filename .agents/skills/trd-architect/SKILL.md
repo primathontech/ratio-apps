@@ -36,7 +36,13 @@ every section against the PRD and the real repo patterns:
 6. **Non-functional requirements** — env keys (`RATIO_<SLUG_UPPER>_*`), security
    (HMAC webhook verification, encryption-at-rest of tokens), pagination/limits,
    logging/redaction, and any performance budgets.
-7. **Open questions / risks** — anything the human must decide before the test
+7. **Deployment placement** — copy the approved
+   `STATE.json.deployment.apiPlacement` / `workerPlacement` decision and specify
+   its exact runtime profile: `main.js` or `main.worker.js`,
+   `ENABLED_MODULES`, worker flags, ALB routing/probes, secrets, IAM, queues,
+   scaling signals, and the external GitOps/pipeline input that must change.
+   Do not create repository-local Kubernetes manifests.
+8. **Open questions / risks** — anything the human must decide before the test
    plan.
 
 Keep it concrete and tied to real file paths. If the TRD reveals a scope/webhook

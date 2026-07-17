@@ -12,11 +12,21 @@
   search/discovery widget that runs in the merchant's storefront? Sets
   `hasStorefrontSdk` in STATE.json. Opt-in (default `no`); when `yes`, the build
   also scaffolds `packages/<slug>-sdk` and the backend `/<slug>/sdk/*` routes.>
+- **API placement:** <`shared` | `dedicated` — use `shared` for an ordinary
+  lightweight app; use `dedicated` when backend load, latency, secrets, or
+  failure isolation require independent API scaling.>
+- **Worker placement:** <`shared-api` | `dedicated-worker` | `none` — select
+  `shared-api` only when the app has a lightweight queue consumer that may scale
+  with the shared API pods.>
+- **Placement rationale:** <expected request/queue load and why this isolation
+  level is appropriate.>
 
 The slug drives every derived name: the backend module
 (`apps/backend/src/modules/<slug>/`), the admin app (`apps/admin-<slug>/`), the
 URL prefix (`/<slug>/*`), the `RATIO_<SLUG_UPPER>_*` env keys, and — when a
 storefront SDK is needed — the SDK package (`packages/<slug>-sdk/`).
+The placement answers are stored in `STATE.json.deployment` and drive the
+external EKS delivery configuration.
 
 ## Problem
 

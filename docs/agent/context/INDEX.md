@@ -8,8 +8,9 @@ prefer editing through it over hand-editing.
 ## Decisions (ADRs)
 - [0001 — Multi-handler webhook dispatch](./decisions/0001-multi-handler-webhook-dispatch.md) — one module can handle N webhook topics (generic, backward-compatible core change).
 - [0002 — `_template` excluded from run/workspace](./decisions/0002-template-excluded-from-run-and-workspace.md) — kept on disk as scaffolder source; not built/run.
-- [0003 — Four-vendor monorepo consolidation](./decisions/0003-four-vendor-monorepo-consolidation.md) — ratio-apps unifies google/meta/posthog/moengage on one core; scaffolder recipe validated for 5th vendor.
+- [0003 — Four-vendor monorepo consolidation](./decisions/0003-four-vendor-monorepo-consolidation.md) — historical consolidation phase for google/meta/posthog/moengage; Wizzy was later added as the fifth live app.
 - [0004 — Storefront SDK as an opt-in third pillar](./decisions/0004-storefront-sdk-pillar.md) — pasted-`<script>` Lit SDK calling the vendor's public search API directly; `_template-sdk` + `hasStorefrontSdk` flag; wizzy is the first opt-in.
+- [0005 — Three-workload EKS placement](./decisions/0005-three-workload-eks-placement.md) — shared Google/PostHog/MoEngage/Wizzy API with Google/Wizzy consumers, dedicated Meta API, dedicated Meta worker; future app placement is an explicit PRD/STATE decision.
 
 ## Learnings
 See [learnings.md](./learnings.md).

@@ -9,9 +9,10 @@ import { loadEnv } from './config/env.schema';
 
 /**
  * Worker entrypoint — same AppModule as the API, but boots an application
- * CONTEXT (no HTTP listener). The queue/stream consumers (GoogleProductSyncWorker,
- * MetaCapiWorker, …) start via their own onModuleInit gating (`*_WORKER_ENABLED`),
- * which a worker deployment sets true and API deployments leave false.
+ * CONTEXT (no HTTP listener). Queue consumers start via their own onModuleInit
+ * gating (`*_WORKER_ENABLED`). The current production topology uses this
+ * entrypoint for the dedicated Meta worker; Google/Wizzy consumers run in the
+ * shared HTTP process with their flags enabled.
  * `enableShutdownHooks` + each worker's onModuleDestroy give a clean SIGTERM drain.
  */
 async function bootstrapWorker(): Promise<void> {

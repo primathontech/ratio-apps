@@ -33,6 +33,11 @@
 ## 6. Fixtures & helpers
 <!-- Seed data / factories the tests need. -->
 
-## 7. Definition of done
+## 7. Deployment contract checks
+- [ ] PRD, TRD, and `STATE.json.deployment` use the same API/worker placement.
+- [ ] If a worker exists, its enable flag and start/stop behavior have tests.
+- [ ] If worker placement is `none`, no worker flag, queue, or consumer is added.
+
+## 8. Definition of done
 - [ ] `pnpm verify` is green (lint → typecheck → test → build; see the Definition of Done in `AGENTS.md`)
 - [ ] Every PRD acceptance criterion has a passing test (section 2)

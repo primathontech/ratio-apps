@@ -3,7 +3,7 @@ import { APPS, type AppSlug } from './apps';
 /**
  * Which vendor modules THIS process runs, from `ENABLED_MODULES`.
  *   unset | 'all'  → every slug in APPS (dev monolith / default)
- *   'google,meta'  → exactly that subset (a prod per-module service)
+ *   'google,posthog,moengage,wizzy' → exactly that production workload subset
  * Unknown slugs fail fast so a typo can't silently mount nothing.
  */
 export function resolveEnabledModules(raw = process.env.ENABLED_MODULES): AppSlug[] {

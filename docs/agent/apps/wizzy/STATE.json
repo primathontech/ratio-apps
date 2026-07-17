@@ -18,6 +18,10 @@
     "admin": "apps/admin-wizzy",
     "sdk": "packages/wizzy-sdk"
   },
+  "deployment": {
+    "apiPlacement": "shared",
+    "workerPlacement": "shared-api"
+  },
   "deployTarget": null,
   "prUrl": null,
   "notes": "Built by adapting the hardened `google` app: config (Store ID + write-only Store Secret), Ratio OAuth + token refresh, catalog transform/sync to Wizzy /products/save|delete, all=true bulk sync + hourly reconcile, SQS sync worker, guarded ScriptTag SDK (pending_api), product webhooks. Inherits the google fixes: prices are PAISE (/100), catalog fetch uses ?all=true (the API ignores page), webhook dedup via x-webhook-id, write-only-secret UI. Backend tsc + 251 tests green; admin-wizzy tsc + 11 tests + build green; migration 0001 applied locally. OPEN: Wizzy API base/headers + /products payload shape + ScriptTag API paths are placeholders (TBD with the Wizzy team) - see wizzy-api.client.ts / wizzy-transform.ts / script-tag.client.ts comments.",

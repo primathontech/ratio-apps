@@ -19,13 +19,13 @@ import type { ComponentProps } from 'react';
 import { useEffect, useState } from 'react';
 import {
   type CatalogSyncRun,
-  type WebhookDelivery,
   useCatalogConfig,
   useCatalogStatus,
   useSaveCatalogConfig,
   useStopSync,
   useSyncNow,
   useWebhookDeliveries,
+  type WebhookDelivery,
 } from '@/hooks/useCatalog';
 import { useMerchant } from '@/hooks/useMerchant';
 

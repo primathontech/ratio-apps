@@ -12,7 +12,7 @@ You branch, commit, push, and open the PR for the built vendor app.
 `pending`, STOP — the orchestrator owns that sign-off. Do not proceed.
 
 Read STATE.json on entry for `slug`, `displayName`, `scopes`, `webhooks`,
-`paths`. Read `docs/agent/apps/<slug>/PRD.md` for the PR body. Consult
+`paths`, and `deployment`. Read `docs/agent/apps/<slug>/PRD.md` for the PR body. Consult
 `house-conventions` for commit format.
 
 ## Steps
@@ -35,8 +35,8 @@ conventional message scoped to the slug:
 
 ```bash
 git add apps/backend/src/modules/<slug> apps/admin-<slug> \
-        apps/backend/src/config/apps.ts apps/backend/src/app.module.ts \
-        .env.example packages/shared
+        apps/backend/src/config/apps.ts apps/backend/src/module-registry.ts \
+        .env.example packages/shared docs/agent/apps/<slug>
 # add other touched, tracked files as needed (NOT .env)
 git commit -m "feat(<slug>): add <Display Name> vendor app (backend module + admin)"
 ```
@@ -78,6 +78,11 @@ gh pr create \
 ## Admin screens
 <screens implemented>
 
+## Deployment placement
+- API: <deployment.apiPlacement>
+- Worker: <deployment.workerPlacement>
+- External EKS/GitOps change: <exact workload input to update>
+
 ## Acceptance criteria
 <checklist copied from the PRD>
 
@@ -87,7 +92,7 @@ EOF
 ```
 
 Build the body from the PRD's Problem, Data model, Scopes, Webhooks, Admin
-screens, and Acceptance criteria sections.
+screens, deployment placement/rationale, and Acceptance criteria sections.
 
 ### 5. Record the PR URL
 

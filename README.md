@@ -1,127 +1,161 @@
-# ratio-apps — agent-native boilerplate
+# ratio-apps
 
-A monorepo that *is* an agentic system. Drop in a PRD, invoke one skill, and
-Claude drives the full lifecycle of a new vendor app — **PRD → scaffold → build
-backend → build frontend → review → PR → deploy** — retaining all context across
-turns in a per-build state file.
+The unified Ratio marketplace monorepo for five live apps: Google, Meta,
+PostHog, MoEngage, and Wizzy. Each app owns a NestJS module, admin SPA, and
+MySQL database while sharing the backend core and one backend-only container image.
 
-Each vendor is a NestJS *module* mounted under its own URL prefix (`/<slug>/*`),
-talking to its own MySQL database; everything ships as one artifact (the backend
-serves the built admin SPA). The repo ships with a single golden template
-(`_template`) that every new vendor is scaffolded from.
+## Live apps
 
-```
+| Slug | Capability | Background worker |
+|---|---|---|
+| `google` | GA4, Google Ads, Merchant Center | SQS product sync (`GOOGLE_SYNC_WORKER_ENABLED`) |
+| `meta` | Meta Pixel, Conversions API, catalog | SQS CAPI delivery (`META_WORKER_ENABLED`) |
+| `posthog` | Browser product analytics | None |
+| `moengage` | Browser customer engagement | None |
+| `wizzy` | Catalog sync and storefront search SDK | SQS product sync (`WIZZY_SYNC_WORKER_ENABLED`) |
+
+Every module is mounted under `/<slug>/*`, connects to its own
+`<slug>_app` database, and uses module-scoped providers. Shared behavior belongs
+in `apps/backend/src/core/`; vendor modules never access each other's database.
+
+## Repository layout
+
+```text
 ratio-apps/
 ├── apps/
-│   ├── backend/                       # NestJS 11 + Fastify + Kysely + MySQL
-│   │   └── src/
-│   │       ├── core/                  # shared infra (crypto, ratio-client,
-│   │       │                          #   kysely factory, merchants, oauth,
-│   │       │                          #   webhooks, health, common) — NOT forked
-│   │       ├── modules/_template/     # copy-source for scaffolder (NOT wired/running)
-│   │       └── config/{apps,env.schema,configure-app}.ts
-│   └── _template-admin/               # golden React 19 + Vite admin SPA
-├── packages/shared/                   # Zod schemas + OpenStore event constants
-├── .claude/skills/                    # the agentic skills library (committed)
-├── docs/agent/                        # PRD template + STATE.json convention
-├── docker-compose.yml                 # mysql + backend
-└── AGENTS.md / CLAUDE.md              # the contract agents read first
+│   ├── backend/
+│   │   ├── src/core/                 # shared OAuth, DB, queue, health, webhooks
+│   │   ├── src/modules/              # google/meta/posthog/moengage/wizzy
+│   │   ├── src/main.ts               # HTTP API entrypoint
+│   │   └── src/main.worker.ts        # non-HTTP worker entrypoint
+│   ├── admin-google/
+│   ├── admin-meta/
+│   ├── admin-posthog/
+│   ├── admin-moengage/
+│   └── admin-wizzy/
+├── packages/shared/                  # schemas and OpenStore event constants
+├── packages/wizzy-sdk/               # optional storefront search SDK
+├── docker-compose.yml                # local MySQL, Redis, ElasticMQ, backend
+├── Dockerfile                        # production API/worker image
+└── docs/
 ```
+
+`apps/backend/src/modules/_template/`, `apps/_template-admin/`, and
+`packages/_template-sdk/` are scaffolder copy-sources, not live applications.
 
 ## Quick start
 
+Requires Node 22+ and pnpm 9+.
+
 ```bash
-# 1. Install (Node 22+, pnpm 9+)
 pnpm install
-
-# 2. Copy + fill the root env (generate the per-app encryption key)
 cp .env.example .env
+
+# Generate a distinct encryption key for each live app and fill its
+# RATIO_<APP>_* credentials in .env.
 node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
-#   → paste into RATIO_GOOGLE_DATA_ENCRYPTION_KEY
 
-# 3. Bring up MySQL + backend, then migrate
-pnpm infra:up                 # docker compose up -d → mysql:3306 + backend:3000
-pnpm migrate                  # apply each module's Kysely migrations
+# Local-only infrastructure: MySQL, Redis, ElasticMQ, and the backend.
+pnpm infra:up
 
-# 4. Run the admin SPA (host-side HMR)
-pnpm --filter @ratio-app/admin-google dev   # http://localhost:5173
+# Apply every live module's Kysely migrations.
+pnpm migrate
 ```
 
-The backend serves the `google` vendor under `/google/*`:
-
-| Path | Handled by |
-|---|---|
-| `GET  /google/api/v1/oauth/callback`    | OAuth install |
-| `POST /google/api/v1/oauth/webhook`     | Ratio webhooks (signed) |
-| `GET  /google/sdk/:id.js`               | per-merchant storefront pixel |
-| `GET  /google/api/merchants/me`         | merchant session |
-| `GET  /healthz` / `GET /ready`          | shared (no prefix) |
-
-## Quality gates
+Run one admin SPA with host-side HMR:
 
 ```bash
-pnpm -r lint          # biome check
-pnpm -r typecheck     # tsc --noEmit across every package
-pnpm -r test          # vitest
-pnpm -r build
+pnpm dev:admin:google
+pnpm dev:admin:meta
+pnpm dev:admin:posthog
+pnpm dev:admin:moengage
+pnpm dev:admin:wizzy
 ```
 
-## The agentic flow
+All admin development servers use port `5173`, so run one at a time unless you
+override its Vite port. The backend listens on `http://localhost:3000`.
 
-To build a new vendor app, don't hand-roll it — invoke the **`build-app`** skill
-with a PRD:
+Queue workers default to disabled. For a local integration test, enable the
+matching worker flag in `.env` and restart the backend. Production co-locates
+the Google and Wizzy consumers with the shared API workload and runs only the
+Meta consumer as a dedicated non-HTTP workload.
 
+## Runtime model
+
+- **Local:** `docker compose up` starts MySQL, Redis, ElasticMQ, and one backend
+  with every module mounted. `docker-compose.yml` is not a production topology.
+- **Shared production backend:** run the default `main.js` command with
+  `ENABLED_MODULES=google,posthog,moengage,wizzy`,
+  `GOOGLE_SYNC_WORKER_ENABLED=true`, and
+  `WIZZY_SYNC_WORKER_ENABLED=true`. These pods serve the four non-Meta APIs and
+  consume the Google/Wizzy queues.
+- **Dedicated Meta API:** run `main.js` with `ENABLED_MODULES=meta` and every
+  worker flag false.
+- **Dedicated Meta worker:** reuse the same image with
+  `main.worker.js`, `ENABLED_MODULES=meta`, and `META_WORKER_ENABLED=true`.
+- **Admins:** build every SPA independently and publish its `dist/` directory to
+  S3/CloudFront or an equivalent static host. Admin bundles are not present in
+  the backend image.
+
+`ENABLED_MODULES` defaults to `all` for local development. Unknown slugs fail
+fast. The production split deliberately isolates Meta while keeping the four
+lighter modules together. Scaling the shared backend also scales its Google and
+Wizzy queue consumers, so SQS backlog and vendor quota metrics must be considered
+alongside HTTP signals.
+
+## Implemented queue workers
+
+| Module | Source queue | DLQ | Processing behavior |
+|---|---|---|---|
+| Google | `google-product-sync` | `google-product-sync-dlq` | One product operation per message; acknowledge after GMC succeeds |
+| Meta | `meta-capi` | `meta-capi-dlq` | Buffer per merchant; flush at 800 events or five minutes; acknowledge after Meta accepts the batch |
+| Wizzy | `wizzy-product-sync` | `wizzy-product-sync-dlq` | One product operation per message; acknowledge after Wizzy succeeds |
+
+SQS queues and redrive policies are infrastructure responsibilities. In AWS,
+leave `SQS_ENDPOINT` unset so the SDK uses real SQS through the pod's IAM role.
+PostHog and MoEngage send browser events directly to their vendor SDKs and do
+not need queue consumers.
+
+## HTTP paths and health
+
+Each app exposes OAuth, webhook, admin API, and SDK routes beneath its slug.
+Shared health endpoints have no prefix:
+
+| Path | Purpose |
+|---|---|
+| `GET /healthz` | Process liveness |
+| `GET /ready` | Readiness across databases mounted in this process |
+| `GET /<slug>/api/v1/oauth/callback` | Ratio OAuth install callback |
+| `POST /<slug>/api/v1/oauth/webhook` | Signed Ratio lifecycle webhooks |
+
+The dedicated Meta worker does not open an HTTP listener; use process liveness,
+logs, and queue-age/depth metrics for its health. Google and Wizzy worker health
+is observed on the shared backend pods plus their queue metrics.
+
+## Quality gate
+
+```bash
+pnpm verify
 ```
-PRD  →  build-app  →  [GATE 1: PRD sign-off]
-                   →  TRD  → [GATE 2: TRD sign-off]
-                   →  TDD  → [GATE 3: TDD test-plan sign-off]   (no code until here)
-                   →  scaffold → backend → frontend → review
-                   →  [GATE 4: before PR]   → PR
-                   →  [GATE 5: before deploy] → Docker | PM2
-```
 
-The first three phases are design docs only — PRD (what), TRD (technical design),
-TDD (test plan) — each human-approved before any code is written. The flow is
-autonomous within each phase and pauses only at the five gates. All state and the
-three docs live in `docs/agent/apps/<slug>/` (`STATE.json` + `PRD/TRD/TDD.md`), so
-a build can be abandoned and resumed in a fresh session. See
-[`docs/agent/README.md`](./docs/agent/README.md) for the full walkthrough and
-[`docs/agent/PRD.template.md`](./docs/agent/PRD.template.md) for the PRD shape.
+The command runs workspace lint and typecheck, builds the shared package, runs
+all tests, and builds every application/package. Backend tests build the pixel
+bundles first so the gate works from a clean checkout.
 
-To add a vendor manually, follow the recipe in [`AGENTS.md`](./AGENTS.md).
+## Agentic workflow
 
-## Documentation
+The committed skills library under `.agents/skills/` drives
+PRD → TRD → TDD → scaffold → build → verify → PR → deploy. The `build-app`
+skill is the entry point for a new vendor and pauses at its human approval
+gates. During PRD design it must ask whether the new API belongs in the shared
+backend or needs a dedicated Deployment, and whether its worker is co-located,
+dedicated, or absent. See [AGENTS.md](./AGENTS.md) and
+[docs/agent/README.md](./docs/agent/README.md).
 
-- **[`AGENTS.md`](./AGENTS.md)** — the contract: stack, golden-path rule,
-  `core/` boundary, add-an-app recipe, commit format.
-- **[`ARCHITECTURE.md`](./ARCHITECTURE.md)** — module/factory pattern,
-  per-module DB isolation, single-artifact deploy.
-- **[`docs/agent/`](./docs/agent/)** — agentic flow, PRD template, `STATE.json`
-  schema.
+## Deployment documentation
 
-
-
-## Deployment topology
-
-One image, behaviour chosen by env (no `ROLE` var — the entrypoint is the role):
-
-- **Dev:** `docker compose up` → one `backend` (`ENABLED_MODULES=all`), workers in-process.
-- **Prod:** `docker compose -f docker-compose.prod.yml up` → nginx + one API service per module
-  (`svc-google` …, each `ENABLED_MODULES=<slug>`) + `svc-worker`
-  (`main.worker.js`, `*_WORKER_ENABLED=true`).
-
-`ENABLED_MODULES` (default `all`) selects mounted modules and scopes env validation.
-API entry: `main.js`. Worker entry: `main.worker.js`. Lift the prod compose onto
-ECS/EKS unchanged by pointing the datastore env at managed RDS/SQS/ElastiCache.
-
-### Meta CAPI Pipeline
-
-The Meta Conversions API (CAPI) pipeline scales from SQS to Kinesis with a phased cutover strategy. See [`docs/agent/apps/meta/CAPI-PIPELINE.md`](./docs/agent/apps/meta/CAPI-PIPELINE.md) for the operational runbook (phased `META_CAPI_BUS` flip: `sqs` → `both` → `kinesis`; DLQ reading; whale-bucket tuning; local dev with LocalStack; deferred items).
-
-**Key env knobs:**
-- `META_CAPI_BUS` (default `sqs`): `sqs`, `kinesis`, or `both` (dual-write for parity testing).
-- `META_CAPI_CONSUMER_ENABLED` (default `false`): enable Kinesis shard consumer (lease-based polling, batching, dispatch, DLQ).
-- `KINESIS_STREAM_NAME` (default `meta-capi`): stream name.
-- `META_CAPI_DLQ_BUCKET` (default `meta-capi-dlq`): S3 bucket for non-retryable events.
-- `META_CAPI_AGG_MAX` (default `100`): max events per Kinesis record.
-- `META_CAPI_WHALE_BUCKETS` (default empty): whale merchant shard routing (`merchantId:B,...`).
+- [ARCHITECTURE.md](./ARCHITECTURE.md) — module, database, API, worker, and
+  admin boundaries.
+- [docs/DEPLOY.md](./docs/DEPLOY.md) — application contract for an EKS/AWS
+  deployment. Infrastructure manifests are not shipped in this repository.
+- [AGENTS.md](./AGENTS.md) — stack and repository workflow rules.

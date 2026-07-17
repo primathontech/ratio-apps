@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { requireValue } from '../test-utils';
 import './search-overlay';
 import type { WizzySearchOverlay } from './search-overlay';
 
@@ -59,7 +60,7 @@ describe('wizzy-search-overlay', () => {
     // allow the trending fetch microtasks to settle
     await el.loadEmptyState();
     await el.updateComplete;
-    const text = el.shadowRoot!.textContent ?? '';
+    const text = requireValue(el.shadowRoot, 'search-overlay shadow root').textContent ?? '';
     expect(text.toLowerCase()).toContain('recent');
     expect(text).toContain('bcaa');
     expect(text.toLowerCase()).toContain('trending');
@@ -74,7 +75,7 @@ describe('wizzy-search-overlay', () => {
     await vi.advanceTimersByTimeAsync(250);
     vi.useRealTimers();
     await el.updateComplete;
-    const text = el.shadowRoot!.textContent ?? '';
+    const text = requireValue(el.shadowRoot, 'search-overlay shadow root').textContent ?? '';
     expect(text).toContain('Creatine Monohydrate'); // category
     expect(text).toContain('Creatine Dynamite'); // suggestion (others)
     expect(text).toContain('Wellcore Creatine'); // product
@@ -99,9 +100,13 @@ describe('wizzy-search-overlay', () => {
     await el.updateComplete;
     const onSubmit = vi.fn();
     el.addEventListener('wizzy-submit', (e) => onSubmit((e as CustomEvent).detail));
-    const cat = Array.from(el.shadowRoot!.querySelectorAll('button, a')).find((n) =>
-      (n.textContent ?? '').includes('Creatine Monohydrate'),
-    ) as HTMLElement;
+    const root = requireValue(el.shadowRoot, 'search-overlay shadow root');
+    const cat = requireValue(
+      Array.from(root.querySelectorAll<HTMLElement>('button, a')).find((node) =>
+        (node.textContent ?? '').includes('Creatine Monohydrate'),
+      ),
+      'Creatine category suggestion',
+    );
     cat.click();
     expect(onSubmit).toHaveBeenCalledWith({ q: 'Creatine Monohydrate' });
     el.remove();
