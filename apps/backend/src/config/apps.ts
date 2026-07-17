@@ -10,9 +10,9 @@
  *   1. Add its slug here.
  *   2. Add the corresponding `RATIO_<APP>_*` env keys (env.schema derives
  *      them from this list automatically).
- *   3. Register the concrete `<App>Module` in `app.module.ts`'s
- *      `REGISTERED_MODULES` map AND in the `imports[]` array — the
- *      load-time assertion in `app.module.ts` fails loudly if you forget.
+ *   3. Import and register the concrete `<App>Module` in
+ *      `module-registry.ts` — its load-time assertion fails loudly if the
+ *      `APPS` tuple and registry drift.
  */
 // `_template` is the golden boilerplate vendor. A scaffolded vendor adds its
 // own slug here (use lowercase-alphanumeric-dash, e.g. 'loyalty').

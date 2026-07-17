@@ -1,146 +1,249 @@
-# ARCHITECTURE.md
+# Ratio Apps architecture
 
-One backend, many modules, one MySQL database **per module**. Each vendor is a
-NestJS *module* mounted on its own URL prefix inside a single `apps/backend/`
-process. The repo ships with a golden template module, `_template`, kept on disk
-as the scaffolder's copy-source (NOT wired or running); the live module is
-`google`, mounted at `/google/*`. Adding a vendor means dropping in a new module +
-admin SPA + its own database — `core/` is never forked.
+Ratio Apps is one NestJS codebase containing multiple isolated marketplace app modules. Each module owns its URL prefix, credentials, database, admin SPA, and vendor integration. Shared infrastructure lives in `apps/backend/src/core/`.
 
-## System overview
+The root Dockerfile produces one backend-only image. Production reuses that image
+across three backend workloads: a shared non-Meta API with its lightweight
+Google/Wizzy workers, a dedicated Meta API, and an independently scaled Meta
+worker. Admin SPAs are separate static artifacts.
 
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                            Ratio Marketplace                               │
-│   Merchant clicks Install ──▶ ?code=…&state=…                              │
-│        └──▶ https://<host>/<slug>/api/v1/oauth/callback                    │
-└────────────────────────────────────┬───────────────────────────────────────┘
-                                     ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│              apps/backend  (NestJS 11 + Fastify, :3000)                    │
-│                                                                            │
-│   AppModule                                                                │
-│   ├── core/                    SHARED LIBRARY — generic over a Kysely DB.  │
-│   │   ├── crypto/              AES-256-GCM encrypt/decrypt                  │
-│   │   ├── ratio-client/        OAuth token + introspection RPC             │
-│   │   ├── db/kysely-factory.ts per-module Kysely client factory            │
-│   │   ├── merchants/           MerchantsService<DB>   (generic)            │
-│   │   ├── oauth/               OAuthService<DB> + AppBootstrap (generic)   │
-│   │   ├── webhooks/            WebhooksService<DB> + dedupe (generic)      │
-│   │   ├── health/             HealthRegistry + HealthController            │
-│   │   ├── common/             ZodValidationPipe, filters, @Merchant deco   │
-│   │   └── factories/          createAppProviders — the per-module wiring   │
-│   │                                                                        │
-│   └── modules/google/          mounted at /google/*  ── owns its own DB │
-│       ├── kysely.module.ts     per-module Kysely pool, registers /ready    │
-│       ├── google.module.ts     wires generic services via createAppProviders│
-│       ├── google.bootstrap.ts  AppBootstrap — seeds config on install   │
-│       ├── tokens.ts            module-private DI symbols                    │
-│       ├── guards.ts            MerchantTokenGuard + WebhookSignatureGuard   │
-│       ├── oauth/ config/ merchants/ sdk/ webhooks/   controllers/services  │
-│       └── db/{types.ts, migrations/}   per-module schema                    │
-│                                                                            │
-│   Each module's Kysely client ──▶ its own MySQL database.                  │
-│   No cross-module DB access; no @Global() providers (cross-module DI is    │
-│   intentionally blocked).                                                   │
-└──────────────────────────────────────────────────────────────────────────┘
+## Live modules
 
-┌──────────────────────────────────────────────────────────────────────────┐
-│   apps/admin-google (:5173)   React 19 + Vite + TanStack Router         │
-│   Config form + dashboard. In a single-artifact deploy the backend serves  │
-│   the built `dist/` as static assets (no separate host).                   │
-└──────────────────────────────────────────────────────────────────────────┘
+| Module | Prefix | Database | Admin | Worker |
+|---|---|---|---|---|
+| Google | `/google/*` | `google_app` | `apps/admin-google` | `google-product-sync` SQS |
+| Meta | `/meta/*` | `meta_app` | `apps/admin-meta` | `meta-capi` SQS |
+| PostHog | `/posthog/*` | `posthog_app` | `apps/admin-posthog` | None |
+| MoEngage | `/moengage/*` | `moengage_app` | `apps/admin-moengage` | None |
+| Wizzy | `/wizzy/*` | `wizzy_app` | `apps/admin-wizzy` | `wizzy-product-sync` SQS |
+
+The canonical app registry is
+`apps/backend/src/config/apps.ts`. `_template` modules and packages are
+scaffolder copy-sources and are not mounted or built as live apps.
+
+## Production topology
+
+```mermaid
+flowchart LR
+    merchant["Ratio dashboard / storefront"] --> cf["CloudFront + S3<br/>five admin SPAs"]
+    merchant --> alb["ALB + TLS + path routing"]
+
+    subgraph eks["Amazon EKS"]
+        alb --> sharedApi["Shared backend Deployment<br/>Google + PostHog + MoEngage + Wizzy APIs<br/>Google + Wizzy workers"]
+        alb --> metaApi["Dedicated Meta API Deployment"]
+        metaWorker["Dedicated Meta worker Deployment"] --> sqs["SQS queues + DLQs"]
+        sharedApi --> sqs
+    end
+
+    sharedApi --> googleDb[("RDS: google_app")]
+    metaApi --> metaDb[("RDS: meta_app")]
+    sharedApi --> posthogDb[("RDS: posthog_app")]
+    sharedApi --> moengageDb[("RDS: moengage_app")]
+    sharedApi --> wizzyDb[("RDS: wizzy_app")]
+
+    metaWorker --> metaDb
+
+    sharedApi --> redis[("ElastiCache Redis")]
+    metaApi --> redis
+
+    sqs --> sharedApi
+    sqs --> metaWorker
 ```
 
-## The module / factory pattern
+This diagram is the application contract, not an assertion that Kubernetes,
+Helm, or Terraform manifests exist in this repository.
 
-`core/` is a library: its services are plain classes generic over their `DB`
-type. A module does not subclass them — it **wires** them through the
-`createAppProviders` factory (`core/factories/app-module.factory.ts`), which:
+## One image, multiple process roles
 
-- Reads the module's own Kysely client out of its `*_DB_TOKEN`.
-- Instantiates `MerchantsService<DB>`, `OAuthService<DB>`, and
-  `WebhooksService<DB>` against that client, plus a `CryptoService` keyed by the
-  module's `RATIO_<SLUG_UPPER>_DATA_ENCRYPTION_KEY` and a `RatioClient`.
-- Returns module-scoped providers keyed by the module's own DI symbols
-  (`tokens.ts`). Because the symbols are module-owned, the providers stay
-  module-private.
+The same immutable backend image is used for every backend workload.
 
-The factory handles only the SHARED wiring. App-specific pieces — `config` and
-`sdk` services, the controllers, the `AppBootstrap` subclass, the webhook
-handler, and the two guards — are registered directly by `<Slug>Module`. The
-factory's `slug` argument drives all `RATIO_<SLUG_UPPER>_*` env lookups, so a
-scaffolded module needs only its slug changed to bind to the right credentials.
+### Shared backend process
 
-### `core/` responsibilities (extend, don't fork)
-
-`core/` owns everything cross-vendor: crypto, the Ratio OAuth/introspection
-client, the Kysely client factory, the generic merchant/oauth/webhook services,
-health probes, and the common Nest filters/pipes/decorators. New shared behavior
-is generalized into `core/` so every module benefits — it is never copied into a
-module.
-
-## Per-module DB isolation (MySQL)
-
-Each module gets its own database connected via
-`RATIO_<SLUG_UPPER>_DATABASE_URL`. The discriminator is the database itself, not
-a shared `app_key` column — the same merchant id can exist in multiple modules'
-databases independently, by design. Every module's DB carries the same
-per-merchant shape (from `db/migrations/0001_initial.ts`):
-
-```
-merchants         (id PK = Ratio merchant_id, is_active, installed_at, uninstalled_at, …)
-oauth_tokens      (merchant_id PK, access_token_enc, refresh_token_enc, expires_at, scopes)
-webhook_log       (id PK, ratio_webhook_id UNIQUE, topic, payload, signature_ok, …)
-<slug>_configs    (merchant_id PK, …vendor-specific columns…)
+```text
+node apps/backend/dist/apps/backend/src/main.js
+ENABLED_MODULES=google,posthog,moengage,wizzy
+GOOGLE_SYNC_WORKER_ENABLED=true
+WIZZY_SYNC_WORKER_ENABLED=true
+META_WORKER_ENABLED=false
 ```
 
-The module's `kysely.module.ts` registers a probe with the shared
-`HealthRegistry` at `onModuleInit`; `/ready` aggregates every module's probe
-(each a `SELECT 1` under a 1-second timeout). Migrations are per-module and run
-by the generic runner at `apps/backend/scripts/migrate.ts <slug>`.
+`ENABLED_MODULES` controls which NestJS modules are mounted and which app
+credential/database blocks are required at startup. It defaults to `all` for
+local development; unknown slugs fail fast.
 
-## Install / uninstall (per module)
+The shared backend serves the four lighter APIs and starts the Google and Wizzy
+SQS consumers through their module-init flags. Every replica therefore opens one
+database pool for each of those four modules and becomes an additional consumer
+for both queues. This intentionally keeps the workload count small, but HTTP
+autoscaling must respect Google/Wizzy vendor quotas and queue concurrency.
 
-- **Install:** Ratio redirects to `/<slug>/api/v1/oauth/callback`. The module's
-  `OAuthController` hands `(code, state)` to its bound `OAuthService<DB>`, which
-  exchanges the code using the module's `RATIO_<SLUG>_CLIENT_*` creds and, in
-  one transaction, upserts `merchants` + encrypted `oauth_tokens` and runs the
-  module's `AppBootstrap` (seeds `<slug>_configs`). The merchant id is returned
-  to the admin via an HttpOnly cookie.
-- **Uninstall:** Ratio POSTs `/<slug>/api/v1/oauth/webhook` with an
-  `X-OpenStore-Signature`. The module's `WebhookSignatureGuard` HMAC-verifies the
-  raw body with `RATIO_<SLUG>_CLIENT_SECRET`; `WebhooksService` dedupes via
-  `webhook_log` and dispatches the handler in the same transaction. The default
-  `AppUninstalledHandler` flips `is_active=false` (config + tokens preserved for
-  reinstall).
+### Dedicated Meta API process
 
-## Single-artifact deploy
+```text
+node apps/backend/dist/apps/backend/src/main.js
+ENABLED_MODULES=meta
+META_WORKER_ENABLED=false
+GOOGLE_SYNC_WORKER_ENABLED=false
+WIZZY_SYNC_WORKER_ENABLED=false
+```
 
-One process serves both the API and the admin. Vite builds the admin SPA to
-static files; the backend serves them (behind a `SERVE_STATIC` env flag so dev,
-which runs Vite separately, is unaffected). Two supported targets:
+Meta receives an independent API Deployment because its catalog and CAPI paths
+are the heaviest backend workload. Meta API scaling, failures, secrets, database
+pool, and readiness remain isolated from the shared backend.
 
-- **Docker:** a multi-stage `Dockerfile` (install deps → `pnpm -r build` →
-  `node:22` runtime with backend `dist` + admin `dist`) and `docker-compose.yml`
-  bringing up MySQL + the backend image.
-- **PM2:** `ecosystem.config.cjs` runs the built backend
-  (`apps/backend/dist/apps/backend/src/main.js` — `dist` mirrors the repo tree
-  per `tsconfig` `rootDir`) with `SERVE_STATIC=true`.
+### Dedicated Meta worker process
 
-The `deployer` skill asks which target and produces the artifact accordingly.
+```text
+node apps/backend/dist/apps/backend/src/main.worker.js
+ENABLED_MODULES=meta
+META_WORKER_ENABLED=true
+GOOGLE_SYNC_WORKER_ENABLED=false
+WIZZY_SYNC_WORKER_ENABLED=false
+```
 
-## Rate limits
+`main.worker.js` creates the Meta application context without opening an HTTP
+listener. The worker can scale from SQS backlog independently of Meta HTTP
+traffic. It stops receiving new work on shutdown; unacknowledged messages become
+visible again through SQS.
 
-URL-regex matchers in `main.ts` are the single source of truth (no
-`@RateLimit` decorator). Slugs flow into those regexes, which is why
-`apps.ts` validates them against `/^[a-z0-9_-]+$/`. Update the regex list and
-its comment block together when adding routes.
+| Module | Placement | Worker flag | Queue behavior |
+|---|---|---|---|
+| Google | Shared backend API pods | `GOOGLE_SYNC_WORKER_ENABLED=true` | Product create/update/delete operations are sent to GMC |
+| Meta | Dedicated worker pods | `META_WORKER_ENABLED=true` | Browser CAPI events are buffered per merchant and sent to Meta |
+| Wizzy | Shared backend API pods | `WIZZY_SYNC_WORKER_ENABLED=true` | Product create/update/delete operations are sent to Wizzy |
+
+PostHog and MoEngage have browser-side vendor SDK delivery and therefore no
+backend queue consumer.
+
+## Placement contract for new apps
+
+Every new app records two approved fields in
+`docs/agent/apps/<slug>/STATE.json`:
+
+```json
+{
+  "deployment": {
+    "apiPlacement": "shared",
+    "workerPlacement": "none"
+  }
+}
+```
+
+- `apiPlacement`: `shared` for the common backend or `dedicated` for an isolated
+  API Deployment.
+- `workerPlacement`: `shared-api` when the consumer runs in the shared backend
+  pods, `dedicated-worker` when it needs independent scaling, or `none`.
+
+The PRD workflow must ask for this decision. Backend-heavy, high-volume,
+latency-sensitive, or failure-isolation-sensitive apps should default to
+`dedicated`; otherwise `shared` is preferred. The deployer uses the recorded
+choice to update the approved external EKS pipeline/GitOps configuration.
+
+## Module and shared-core boundary
+
+`apps/backend/src/core/` is a library of cross-app infrastructure:
+
+- AES-256-GCM credential encryption;
+- Ratio OAuth/introspection client;
+- module-scoped Kysely client factory;
+- generic merchant, OAuth, and webhook services;
+- shared SQS wrapper and health registry;
+- validation pipes, exception filters, decorators, and request logging;
+- `createAppProviders`, which binds generic services to one module's tokens,
+  credentials, and database.
+
+App modules do not subclass or copy core services. Each module wires them with
+module-owned DI symbols, then adds only its vendor-specific configuration,
+controllers, SDK, bootstrap logic, webhooks, workers, and database schema.
+Providers are not global, preventing accidental cross-module access.
+
+## Per-app database isolation
+
+Every app uses `RATIO_<APP>_DATABASE_URL` and its own MySQL database:
+
+```text
+merchants
+oauth_tokens
+webhook_log
+<slug>_configs
+<app-specific operational tables>
+```
+
+The same merchant ID can exist independently in multiple app databases. There
+is no shared app discriminator column and no supported cross-app query path.
+
+Kysely migrations are per app and run through
+`apps/backend/scripts/migrate.ts <slug>`. Production migration execution is a
+CI/CD or one-shot job concern; the minimal runtime image does not contain the
+TypeScript migration source/tooling.
+
+## Request and lifecycle flows
+
+### Install
+
+1. Ratio redirects to `/<slug>/api/v1/oauth/callback`.
+2. The module exchanges the code using its `RATIO_<APP>_CLIENT_*` credentials.
+3. One transaction upserts the merchant and encrypted tokens.
+4. The app bootstrap seeds `<slug>_configs`.
+5. The admin receives the merchant session through an HttpOnly cookie.
+
+### Webhook
+
+1. Ratio posts to `/<slug>/api/v1/oauth/webhook`.
+2. The module verifies `X-OpenStore-Signature` in production.
+3. `webhook_log` provides idempotency.
+4. Module handlers update local state or enqueue durable work.
+
+### Queue processing
+
+API handlers enqueue and return quickly. Google/Wizzy consumers run inside the
+shared API process; the Meta consumer runs in a dedicated worker process. Every
+consumer acknowledges an SQS message only after the vendor operation succeeds.
+Failures remain unacknowledged for redelivery; AWS redrive policies move
+repeatedly failing messages to the module DLQ.
+
+## Admin and storefront delivery
+
+Each `apps/admin-<slug>` package is built independently. Production publishes
+its `dist/` directory to a dedicated static origin such as S3/CloudFront and
+sets `RATIO_<APP>_ADMIN_BASE_URL` to that public URL.
+
+Wizzy additionally ships `packages/wizzy-sdk`, an opt-in Lit storefront SDK.
+The backend image contains its built loader/widget/results bundles because the
+Wizzy API serves them under `/wizzy/sdk/*`. Private Wizzy store secrets must
+never be returned to the browser.
+
+## Health and scaling boundaries
+
+- API liveness: `GET /healthz`.
+- API readiness: `GET /ready`, which checks the databases mounted in that process.
+- Dedicated Meta worker: no HTTP listener; use process state, logs, queue
+  depth/age, DLQ depth, and successful-processing metrics.
+- Embedded Google/Wizzy consumers: use shared pod health plus queue and
+  successful-processing metrics.
+- Database pool budget:
+  each shared replica opens four module pools; each Meta API/worker replica opens
+  one Meta pool. Keep each database/cluster below approximately 60% of
+  `max_connections`.
+- Shared API HPA should use CPU plus ALB/request latency or request-rate metrics,
+  while checking that the resulting Google/Wizzy consumer count stays inside
+  vendor quotas. Meta API HPA uses HTTP signals; Meta worker autoscaling uses SQS
+  backlog and oldest-message age.
+
+The architecture can be scaled toward a 50,000-RPS target, but capacity is not
+certified by this document. Prove it with staged load tests using representative
+routes, payloads, cache ratios, database sizes, queue traffic, and vendor limits.
+
+## Local versus production
+
+`docker-compose.yml` is a local stack containing MySQL, Redis, ElasticMQ, and a
+backend with all modules mounted. Production uses managed AWS services and
+the three EKS workloads defined above. The repository intentionally has no
+production Docker Compose topology.
 
 ## Why this shape
 
-Per-module DBs keep vendors isolated (a noisy or compromised vendor can't reach
-another's data); a library-style `core/` keeps the shared logic in exactly one
-place; the `createAppProviders` factory makes a new module a near-deterministic
-copy-and-rename. That determinism is what lets the `vendor-scaffolder` skill
-produce a buildable module without bespoke wiring.
+Per-app databases preserve data ownership. A shared core and immutable image
+prevent vendor forks and release drift. The lighter apps share operational
+capacity, while Meta retains independent API and worker scaling because its
+catalog/CAPI processing dominates backend load.

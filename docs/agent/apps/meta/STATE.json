@@ -41,6 +41,10 @@
     "apps/backend/src/modules/meta/db/types.ts",
     "apps/admin-meta/src/routes/config.tsx"
   ],
+  "deployment": {
+    "apiPlacement": "dedicated",
+    "workerPlacement": "dedicated-worker"
+  },
   "deployTarget": null,
   "prUrl": null,
   "history": [

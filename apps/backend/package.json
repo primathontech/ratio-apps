@@ -7,9 +7,9 @@
     "dev": "pnpm pixel:build:all && nest start --watch",
     "start": "node dist/apps/backend/src/main.js",
     "typecheck": "tsc --noEmit && tsc -p pixel/tsconfig.json --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:cov": "vitest run --coverage",
+    "test": "pnpm pixel:build:all && vitest run",
+    "test:watch": "pnpm pixel:build:all && vitest",
+    "test:cov": "pnpm pixel:build:all && vitest run --coverage",
     "pixel:build:all": "tsc -p pixel/tsconfig.json",
     "pixel:watch": "tsc -p pixel/tsconfig.json --watch"
   },

@@ -41,6 +41,15 @@ do not invent requirements.
   search/discovery/widget surface that runs in the merchant's storefront — that
   becomes `hasStorefrontSdk: true` in STATE.json (default `no`/false; most apps,
   including the analytics vendors, are false).
+- **Deployment placement — ask explicitly; never infer silently.**
+  - API: `shared` or `dedicated`.
+  - Worker: `shared-api`, `dedicated-worker`, or `none`.
+  - Recommend `shared` for ordinary lightweight apps. Recommend `dedicated`
+    when expected HTTP/catalog/event volume, latency sensitivity, secrets,
+    vendor throttling, or failure isolation needs independent scaling.
+  - Use `shared-api` only for a lightweight SQS consumer that may scale with the
+    shared API replica count. Use `dedicated-worker` for heavy/batched consumers
+    or independent backlog scaling. Record the human-approved rationale.
 - **Problem** — the merchant problem, who uses it, why.
 - **Data model** — the vendor-specific tables beyond the standard `merchants`,
   `oauth_tokens`, `webhook_log` (every module already has those). For each new
@@ -68,6 +77,9 @@ skeleton:
 - `slug`, `displayName` set.
 - `hasStorefrontSdk` set from the PRD's **Storefront SDK?** answer (default
   `false`).
+- `deployment.apiPlacement` and `deployment.workerPlacement` set from the
+  human's explicit placement selections. GATE 1 is what approves those choices
+  as part of the complete PRD.
 - `phase: "prd-architect"`.
 - `gates: { prd, trd, tdd, pr, deploy }` all `"pending"`.
 - `docs: { prd, trd, tdd }` — set `prd` to `docs/agent/apps/<slug>/PRD.md`; `trd`
@@ -78,9 +90,10 @@ skeleton:
 
 ### 6. STOP at GATE 1 — PRD sign-off
 
-Present the PRD to the human (summarize slug, data model, scopes, webhooks,
-screens, acceptance criteria) and **explicitly ask for approval**. Do not proceed
-to the technical design (TRD) — and definitely not to scaffolding.
+Present the PRD to the human (summarize slug, deployment placement and
+rationale, data model, scopes, webhooks, screens, acceptance criteria) and
+**explicitly ask for approval**. Do not proceed to the technical design (TRD) —
+and definitely not to scaffolding.
 
 - On approval: flip `gates.prd` to `approved` in STATE.json (still
   `phase: "prd-architect"` — the orchestrator advances the phase when it invokes

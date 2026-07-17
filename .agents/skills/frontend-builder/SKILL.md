@@ -81,8 +81,8 @@ cd apps/admin-<slug> && pnpm typecheck && pnpm test && pnpm build
 
 All must PASS. `typecheck` runs `tsr generate && tsc --noEmit`; `test` runs the
 Vitest suite (every frontend case from `TDD.md` now green); `build` runs
-`tsr generate && tsc --noEmit && vite build` and emits the static `dist/` the
-backend serves as the single deploy artifact. Fix all errors before advancing.
+`tsr generate && tsc --noEmit && vite build` and emits the static `dist/` for
+separate S3/CloudFront delivery. Fix all errors before advancing.
 
 ## Update STATE.json
 

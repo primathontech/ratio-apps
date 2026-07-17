@@ -24,7 +24,8 @@ resume a build from the repo.
 | `webhooks` | string[] | Webhook topics the app subscribes to (e.g. `"orders/create"`, `"app/uninstalled"`). |
 | `paths` | object | `module` = backend module dir, `admin` = admin app dir. |
 | `filesCreated` | string[] | Repo-relative paths the build created/modified. Appended as phases run. |
-| `deployTarget` | `"docker"` \| `"pm2"` \| null | Set by the `deployer` phase; `null` until then. |
+| `deployment` | object | Runtime placement. Both fields start `null` and must be human-approved before GATE 1. `apiPlacement` becomes `"shared"` or `"dedicated"`; `workerPlacement` becomes `"shared-api"`, `"dedicated-worker"`, or `"none"`. |
+| `deployTarget` | `"eks"` \| null | Set by the `deployer` phase; `null` until then. |
 | `prUrl` | string \| null | Set by the `pr-author` phase; `null` until then. |
 | `history` | object[] | Append-only audit trail. Each entry: `{ "phase": <phase>, "ts": <ISO-8601> }`. |
 
@@ -47,6 +48,30 @@ pending | approved
 A gate flips to `approved` only after explicit human sign-off. Because the
 approval lives in this file, a session restart honors a prior approval — the
 orchestrator does not re-prompt for a gate already `approved`.
+
+### Deployment placement
+
+The PRD architect must ask for both values before GATE 1:
+
+```text
+deployment.apiPlacement = shared | dedicated
+deployment.workerPlacement = shared-api | dedicated-worker | none
+```
+
+Both values are `null` in a newly initialized state. GATE 1 cannot be approved
+until the human explicitly selects non-null values.
+
+- `shared`: append the app to the common API Deployment's `ENABLED_MODULES`.
+- `dedicated`: use the same immutable image in its own API Deployment.
+- `shared-api`: run the app's lightweight worker flag in the shared API pods;
+  valid only with `apiPlacement: shared`.
+- `dedicated-worker`: use the same image with `main.worker.js` in a separately
+  scaled worker Deployment.
+- `none`: no queue consumer.
+
+Current placement: Google/PostHog/MoEngage/Wizzy APIs are shared; Meta API is
+dedicated; Google/Wizzy workers are `shared-api`; Meta is
+`dedicated-worker`; PostHog/MoEngage are `none`.
 
 ## Complete example
 
@@ -79,6 +104,10 @@ orchestrator does not re-prompt for a gate already `approved`.
     "apps/backend/src/modules/loyalty/db/migrations/0001_initial.ts",
     "packages/shared/src/schemas/loyalty-config.ts"
   ],
+  "deployment": {
+    "apiPlacement": "shared",
+    "workerPlacement": "none"
+  },
   "deployTarget": null,
   "prUrl": null,
   "history": [
@@ -111,6 +140,10 @@ orchestrator does not re-prompt for a gate already `approved`.
   "webhooks": [],
   "paths": { "module": "", "admin": "" },
   "filesCreated": [],
+  "deployment": {
+    "apiPlacement": null,
+    "workerPlacement": null
+  },
   "deployTarget": null,
   "prUrl": null,
   "history": [{ "phase": "prd-architect", "ts": "<ISO-8601>" }]

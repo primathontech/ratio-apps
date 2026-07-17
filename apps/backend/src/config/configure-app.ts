@@ -5,10 +5,10 @@ import helmet from '@fastify/helmet';
 import fastifyStatic from '@fastify/static';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { APPS } from './apps';
 import { GlobalExceptionFilter } from '../core/common/filters/global-exception.filter';
 import { ResponseInterceptor } from '../core/common/interceptors/response.interceptor';
 import { ZodValidationPipe } from '../core/common/pipes/zod-validation.pipe';
+import { APPS } from './apps';
 
 /**
  * Wires the cross-cutting Nest concerns shared by both the production
@@ -47,21 +47,20 @@ export async function configureApp(app: NestFastifyApplication): Promise<void> {
     referrerPolicy: { policy: 'strict-origin' },
   });
 
-  // Single-artifact deploy: serve the built admin SPA from disk so one
-  // process (Docker image / PM2 fork) ships both the API and the UI. Gated
-  // behind SERVE_STATIC so local dev — which runs the admin on a separate
-  // Vite server (:5173) with its own proxy — is unaffected.
+  // Optional self-hosted/static-admin mode for a full source checkout or a
+  // custom image. The production EKS image is backend-only (SERVE_STATIC=false)
+  // and admins are deployed separately. Local Vite development is unaffected.
   if (process.env.SERVE_STATIC === 'true') {
     await registerStaticAdmin(app);
   }
 }
 
-// The admin SPA served by the single-artifact deploy. Slug-driven: serve the
-// first real vendor in APPS (the leading-underscore `_template` is the
-// scaffolder copy-source, never shipped). `SERVE_ADMIN_SLUG` overrides for a
-// deploy that ships a different vendor's admin. The vendor module's API/SDK/auth
-// routes live under `/<slug>/api`, `/<slug>/sdk`, `/<slug>/auth`; everything else
-// under `/<slug>/*` is the client-side-routed SPA.
+// The admin SPA served only when optional static-admin mode is enabled.
+// Slug-driven: serve the first real vendor in APPS (the leading-underscore
+// `_template` is the scaffolder copy-source, never shipped).
+// `SERVE_ADMIN_SLUG` selects a different vendor. API/SDK/auth routes live under
+// `/<slug>/api`, `/<slug>/sdk`, `/<slug>/auth`; everything else under
+// `/<slug>/*` is the client-side-routed SPA.
 const ADMIN_SLUG =
   process.env.SERVE_ADMIN_SLUG ?? APPS.find((a) => !a.startsWith('_')) ?? '_template';
 const ADMIN_URL_PREFIX = `/${ADMIN_SLUG}/`;
@@ -71,12 +70,10 @@ const ADMIN_URL_PREFIX = `/${ADMIN_SLUG}/`;
  * an SPA fallback (unmatched `/<slug>/*` paths → index.html) so TanStack
  * Router's client-side routes survive a hard refresh / deep link.
  *
- * Path layout assumption (must match the Dockerfile and the PM2 `cwd` in
- * ecosystem.config.cjs): the process runs with `cwd` = repo root and the admin
- * build lives at `<root>/apps/admin-<slug>/dist`. The Docker runtime stage
- * copies the admin dist to exactly that path and sets WORKDIR to the repo root,
- * so this resolves identically in dev, PM2, and Docker. `SERVE_STATIC_ROOT` can
- * override the directory for non-standard layouts.
+ * Path layout assumption: the process runs with `cwd` = repo root and the
+ * selected admin build exists at `<root>/apps/admin-<slug>/dist`.
+ * `SERVE_STATIC_ROOT` overrides the directory for a custom layout. The standard
+ * production Dockerfile intentionally does not copy admin builds.
  */
 async function registerStaticAdmin(app: NestFastifyApplication): Promise<void> {
   const root =

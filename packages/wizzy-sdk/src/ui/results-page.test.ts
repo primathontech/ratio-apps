@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { requireValue } from '../test-utils';
 import './results-page';
 import type { WizzyResultsPage } from './results-page';
 
@@ -70,15 +71,17 @@ describe('wizzy-results-page', () => {
     expect(
       (el.client as unknown as { search: ReturnType<typeof vi.fn> }).search,
     ).toHaveBeenCalledWith('creatine', expect.anything());
-    expect(el.shadowRoot!.querySelectorAll('wizzy-product-card')).toHaveLength(1);
-    expect(el.shadowRoot!.textContent).toContain('1'); // total count somewhere
+    const root = requireValue(el.shadowRoot, 'results-page shadow root');
+    expect(root.querySelectorAll('wizzy-product-card')).toHaveLength(1);
+    expect(root.textContent).toContain('1'); // total count somewhere
     el.remove();
   });
 
   it('renders a facet-list for the brands facet (values from facet.data) and a facet-range for price', async () => {
     const el = await mount();
-    const list = el.shadowRoot!.querySelector('wizzy-facet-list');
-    const range = el.shadowRoot!.querySelector('wizzy-facet-range');
+    const root = requireValue(el.shadowRoot, 'results-page shadow root');
+    const list = root.querySelector('wizzy-facet-list');
+    const range = root.querySelector('wizzy-facet-range');
     expect(list).not.toBeNull();
     expect(range).not.toBeNull();
     expect((list as unknown as { values: string[] }).values).toEqual(['Wellcore', 'YouWeFit']);
@@ -97,7 +100,9 @@ describe('wizzy-results-page', () => {
     await el.updateComplete;
     const filterFn = (el.client as unknown as { filter: ReturnType<typeof vi.fn> }).filter;
     expect(filterFn).toHaveBeenCalled();
-    expect(filterFn.mock.calls[0]![0]).toMatchObject({ brands: ['Wellcore'] });
+    expect(requireValue(filterFn.mock.calls[0], 'first filter call')[0]).toMatchObject({
+      brands: ['Wellcore'],
+    });
     el.remove();
   });
 
@@ -112,7 +117,9 @@ describe('wizzy-results-page', () => {
     );
     await el.updateComplete;
     const filterFn = (el.client as unknown as { filter: ReturnType<typeof vi.fn> }).filter;
-    expect(filterFn.mock.calls[0]![0]).toMatchObject({ sellingPrice: [{ gte: 100, lte: 900 }] });
+    expect(requireValue(filterFn.mock.calls[0], 'first filter call')[0]).toMatchObject({
+      sellingPrice: [{ gte: 100, lte: 900 }],
+    });
     el.remove();
   });
 });
