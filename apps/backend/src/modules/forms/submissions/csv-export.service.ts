@@ -13,13 +13,28 @@ export interface CsvSink {
   write(chunk: string): void | Promise<void>;
 }
 
+/** Keyset cursor: the last row's stable sort key `(createdAt, id)`. */
+interface ExportCursor {
+  createdAt: Date;
+  id: string;
+}
+
 /**
  * Full-history CSV export (AC8): streams in `EXPORT_BATCH_SIZE` pages — never
  * buffers the whole table. Header = the form schema's field keys +
  * `submitted_at`; values escaped per RFC 4180 (quotes doubled; any value
  * containing a comma, quote, or newline is quoted).
  *
+ * Pages by KEYSET on `(createdAt, id)` rather than LIMIT/OFFSET, so the cost
+ * of reaching page N is independent of N (O(n) over the whole export instead
+ * of O(n²)): each batch resumes from the previous batch's last key via
+ * `(createdAt, id) > (lastCreatedAt, lastId)`. `id` is the tiebreaker for rows
+ * sharing a `createdAt` millisecond, which keeps the ordering total (no row
+ * skipped or duplicated at a batch boundary).
+ *
  * Works for soft-deleted forms too — submissions outlive the form (AC4).
+ * Returns the number of data rows written (header excluded) — the async
+ * export job records this as `row_count`.
  */
 @Injectable()
 export class CsvExportService {
@@ -28,7 +43,7 @@ export class CsvExportService {
     private readonly submissions: SubmissionsService,
   ) {}
 
-  async export(merchantId: string, formId: string, sink: CsvSink): Promise<void> {
+  async export(merchantId: string, formId: string, sink: CsvSink): Promise<number> {
     // Includes soft-deleted forms (requireOwnForm has no deleted_at filter).
     const form = await this.submissions.requireOwnForm(merchantId, formId);
     const schema: FormField[] =
@@ -39,16 +54,30 @@ export class CsvExportService {
 
     await sink.write(`${[...keys, 'submitted_at'].map(CsvExportService.escape).join(',')}\n`);
 
-    let offset = 0;
+    let cursor: ExportCursor | null = null;
+    let rowCount = 0;
     for (;;) {
-      const rows = await this.handle.db
+      let query = this.handle.db
         .selectFrom('form_submissions')
         .select(['id', 'dataJson', 'filesJson', 'createdAt'])
         .where('formId', '=', formId)
-        .where('merchantId', '=', merchantId)
+        .where('merchantId', '=', merchantId);
+      if (cursor) {
+        const c = cursor;
+        // (createdAt, id) > (c.createdAt, c.id) — decomposed into OR/AND so it
+        // works uniformly across engines (MySQL supports row-value tuples, but
+        // this form keeps the query plan predictable on the composite key).
+        query = query.where((eb) =>
+          eb.or([
+            eb('createdAt', '>', c.createdAt),
+            eb.and([eb('createdAt', '=', c.createdAt), eb('id', '>', c.id)]),
+          ]),
+        );
+      }
+      const rows = await query
         .orderBy('createdAt', 'asc')
+        .orderBy('id', 'asc')
         .limit(EXPORT_BATCH_SIZE)
-        .offset(offset)
         .execute();
       for (const row of rows) {
         const data = CsvExportService.parse<Record<string, unknown>>(row.dataJson) ?? {};
@@ -58,10 +87,13 @@ export class CsvExportService {
         );
         cells.push(CsvExportService.escape(new Date(row.createdAt).toISOString()));
         await sink.write(`${cells.join(',')}\n`);
+        rowCount += 1;
       }
-      if (rows.length < EXPORT_BATCH_SIZE) break;
-      offset += EXPORT_BATCH_SIZE;
+      const last = rows.at(-1);
+      if (rows.length < EXPORT_BATCH_SIZE || !last) break;
+      cursor = { createdAt: new Date(last.createdAt), id: last.id };
     }
+    return rowCount;
   }
 
   private static parse<T>(value: T | string | null): T | null {

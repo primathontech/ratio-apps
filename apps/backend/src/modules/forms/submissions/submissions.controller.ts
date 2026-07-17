@@ -1,13 +1,14 @@
 import { Controller, Get, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import type { Merchant } from '@ratio-app/shared/schemas/merchant';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { isOriginAllowed } from '../../../core/common/cors';
 import { type ZodType, z } from 'zod';
+import { isOriginAllowed } from '../../../core/common/cors';
 import { CurrentMerchant } from '../../../core/common/decorators/merchant.decorator';
 import { ZodValidationPipe } from '../../../core/common/pipes/zod-validation.pipe';
 import { WebhookDeliveryService } from '../delivery/webhook-delivery.service';
 import { FormsMerchantTokenGuard } from '../guards';
 import { CsvExportService } from './csv-export.service';
+import { ExportJobService, type ExportJobStatusView } from './export-job.service';
 import {
   type SubmissionDetail,
   type SubmissionListResult,
@@ -36,6 +37,7 @@ export class SubmissionsController {
     private readonly submissions: SubmissionsService,
     private readonly csv: CsvExportService,
     private readonly webhookDelivery: WebhookDeliveryService,
+    private readonly exportJobs: ExportJobService,
   ) {}
 
   @Get('forms/:id/submissions')
@@ -94,6 +96,31 @@ export class SubmissionsController {
     } finally {
       reply.raw.end();
     }
+  }
+
+  /**
+   * Kick off an ASYNC full-history CSV export (background worker → S3 → signed
+   * download URL). Returns immediately with the job id to poll. When async
+   * export is not configured (no bucket/queue) this answers 503
+   * `exports_unavailable` and the admin falls back to the sync export above.
+   */
+  @Post('forms/:id/exports')
+  async createExport(
+    @CurrentMerchant() merchant: Merchant,
+    @Param('id') formId: string,
+  ): Promise<{ jobId: string; status: string }> {
+    const job = await this.exportJobs.createJob(merchant.id, formId);
+    return { jobId: job.id, status: job.status };
+  }
+
+  /** Poll an export job; a `ready` job carries a 1-hour signed download URL. */
+  @Get('forms/:id/exports/:jobId')
+  async exportStatus(
+    @CurrentMerchant() merchant: Merchant,
+    @Param('id') formId: string,
+    @Param('jobId') jobId: string,
+  ): Promise<ExportJobStatusView> {
+    return this.exportJobs.getJob(merchant.id, formId, jobId);
   }
 
   @Get('forms/:id/deliveries')

@@ -8,4 +8,5 @@ export const queryKeys = {
   submissionDetail: (id: string) => ['forms', 'submission', id] as const,
   deliveries: (formId: string, page: number) => ['forms', 'deliveries', formId, page] as const,
   deliveriesAll: (formId: string) => ['forms', 'deliveries', formId] as const,
+  exportJob: (formId: string, jobId: string) => ['forms', 'export', formId, jobId] as const,
 } as const;

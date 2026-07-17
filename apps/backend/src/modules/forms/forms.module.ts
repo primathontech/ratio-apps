@@ -22,6 +22,8 @@ import { FormsSdkService } from './sdk/sdk.service';
 import { FormsRecaptchaService } from './spam/recaptcha.service';
 import { SubmitRateLimitService } from './spam/submit-rate-limit.service';
 import { CsvExportService } from './submissions/csv-export.service';
+import { ExportJobService } from './submissions/export-job.service';
+import { FormsExportWorker } from './submissions/forms-export.worker';
 import { IdempotencyService } from './submissions/idempotency.service';
 import { PublicSubmissionsController } from './submissions/public-submissions.controller';
 import { SchemaValidatorService } from './submissions/schema-validator.service';
@@ -87,6 +89,10 @@ export {
     SubmissionsService,
     CsvExportService,
     FormsS3Service,
+    // Async CSV export: POST enqueues a job → self-gated worker streams the
+    // CSV into S3 via lib-storage → GET polls for the signed download URL.
+    ExportJobService,
+    FormsExportWorker,
     // Delivery engine: minute sweeper (DB is the scheduler) → SQS →
     // self-gated workers → executors.
     QueueService,

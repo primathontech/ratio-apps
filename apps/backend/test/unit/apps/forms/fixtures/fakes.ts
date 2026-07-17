@@ -1,9 +1,13 @@
+import type { Readable } from 'node:stream';
 import type { QueueService } from '../../../../../src/core/queue/queue.service';
 import type { EmailClientLike } from '../../../../../src/modules/forms/delivery/email.client';
 import type { DeliveryFetchLike } from '../../../../../src/modules/forms/delivery/webhook-delivery.service';
 import type { RecaptchaFetchLike } from '../../../../../src/modules/forms/spam/recaptcha.service';
 import type { RateLimitRedisLike } from '../../../../../src/modules/forms/spam/submit-rate-limit.service';
-import type { S3PresignerLike } from '../../../../../src/modules/forms/uploads/s3.service';
+import type {
+  S3PresignerLike,
+  S3UploaderLike,
+} from '../../../../../src/modules/forms/uploads/s3.service';
 
 /** Records enqueues; scripts receive() batches for the workers (TDD §7). */
 export class FakeQueueService {
@@ -83,6 +87,45 @@ export class FakeS3Presigner implements S3PresignerLike {
   async presignGet(params: FakeS3Presigner['gets'][number]): Promise<string> {
     this.gets.push(params);
     return `https://fake-s3/${params.key}?sig=get`;
+  }
+}
+
+/**
+ * Records streaming CSV uploads: drains the `Readable` body and stashes the
+ * concatenated bytes per object key (the export worker's S3-upload seam).
+ * `fail` makes the next upload reject, exercising the failure path.
+ */
+export class FakeS3Uploader implements S3UploaderLike {
+  uploads: Array<{
+    bucket: string;
+    region: string;
+    key: string;
+    contentType: string;
+    body: string;
+  }> = [];
+  fail = false;
+
+  async upload(params: {
+    bucket: string;
+    region: string;
+    key: string;
+    body: Readable;
+    contentType: string;
+  }): Promise<void> {
+    const chunks: Buffer[] = [];
+    await new Promise<void>((resolve, reject) => {
+      params.body.on('data', (c: Buffer | string) => chunks.push(Buffer.from(c)));
+      params.body.on('error', reject);
+      params.body.on('end', resolve);
+    });
+    if (this.fail) throw new Error('S3 upload failed');
+    this.uploads.push({
+      bucket: params.bucket,
+      region: params.region,
+      key: params.key,
+      contentType: params.contentType,
+      body: Buffer.concat(chunks).toString('utf8'),
+    });
   }
 }
 

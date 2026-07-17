@@ -112,7 +112,7 @@ describe('CsvExportService (AC8)', () => {
   it('pages through history in batches (full export beyond one batch)', async () => {
     const rows = Array.from({ length: 501 }, (_, i) =>
       submissionRow({
-        id: `sub_${i}`,
+        id: `sub_${String(i).padStart(3, '0')}`,
         idempotencyKey: `k${i}`,
         dataJson: JSON.stringify({ name: `n${i}`, email: 'e@example.com', message: '' }),
         createdAt: new Date(1_700_000_000_000 + i * 1000),
@@ -122,9 +122,52 @@ describe('CsvExportService (AC8)', () => {
       forms: [contactForm()],
       form_submissions: rows,
     });
-    await service.export(MERCHANT_ID, 'form_contact', sink);
+    const rowCount = await service.export(MERCHANT_ID, 'form_contact', sink);
+    expect(rowCount).toBe(501); // returns the data-row count (header excluded)
     expect(chunks).toHaveLength(502); // header + 501 rows across two pages
     expect(chunks[1]).toContain('n0'); // oldest first (created_at ASC)
     expect(chunks.at(-1)).toContain('n500');
+  });
+
+  it('keyset: no row is skipped or duplicated across the batch boundary', async () => {
+    // 501 rows across two pages (batch size 500). The keyset cursor resumes on
+    // (createdAt, id) > (last, last), so the row straddling the boundary must
+    // appear exactly once.
+    const rows = Array.from({ length: 501 }, (_, i) =>
+      submissionRow({
+        id: `sub_${String(i).padStart(3, '0')}`,
+        idempotencyKey: `k${i}`,
+        dataJson: JSON.stringify({ name: `n${i}`, email: 'e@example.com', message: '' }),
+        createdAt: new Date(1_700_000_000_000 + i * 1000),
+      }),
+    );
+    const { service, chunks, sink } = setup({ forms: [contactForm()], form_submissions: rows });
+    await service.export(MERCHANT_ID, 'form_contact', sink);
+    const names = chunks.slice(1).map((c) => c.split(',')[0]);
+    expect(new Set(names).size).toBe(501); // every row exactly once — no dup/skip
+    expect(names[499]).toBe('n499'); // last row of page 1
+    expect(names[500]).toBe('n500'); // first row of page 2 — the boundary row
+  });
+
+  it('keyset tiebreaker: rows sharing a createdAt millisecond order by id, still complete', async () => {
+    // All 501 rows share one createdAt: ordering therefore falls entirely to
+    // the `id` tiebreaker, and the cursor must page by id across the boundary
+    // without losing or repeating a row.
+    const sameTime = new Date('2026-03-01T00:00:00.000Z');
+    const rows = Array.from({ length: 501 }, (_, i) =>
+      submissionRow({
+        id: `sub_${String(i).padStart(3, '0')}`,
+        idempotencyKey: `k${i}`,
+        dataJson: JSON.stringify({ name: `n${i}`, email: 'e@example.com', message: '' }),
+        createdAt: sameTime,
+      }),
+    );
+    const { service, chunks, sink } = setup({ forms: [contactForm()], form_submissions: rows });
+    const rowCount = await service.export(MERCHANT_ID, 'form_contact', sink);
+    expect(rowCount).toBe(501);
+    const names = chunks.slice(1).map((c) => c.split(',')[0]);
+    expect(new Set(names).size).toBe(501);
+    expect(names[0]).toBe('n0'); // id sub_000 sorts first
+    expect(names.at(-1)).toBe('n500'); // id sub_500 sorts last
   });
 });

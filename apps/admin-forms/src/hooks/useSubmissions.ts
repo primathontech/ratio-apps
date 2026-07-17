@@ -85,6 +85,47 @@ export function useRetriggerDelivery(formId: string) {
   });
 }
 
+// ─── async CSV export (background job → S3 → signed download URL) ────────────
+
+export type ExportJobStatus = 'pending' | 'processing' | 'ready' | 'failed';
+
+export interface CreateExportResult {
+  jobId: string;
+  status: ExportJobStatus;
+}
+
+export interface ExportJobResult {
+  status: ExportJobStatus;
+  rowCount?: number;
+  /** 1-hour signed S3 URL — present only once `status === 'ready'`. */
+  downloadUrl?: string;
+}
+
+/** POST that enqueues a background export; resolves with the job id to poll. */
+export function useCreateExport(formId: string) {
+  return useMutation({
+    mutationFn: () => api<CreateExportResult>('POST', `/api/forms/${formId}/exports`),
+  });
+}
+
+/**
+ * Poll an export job every ~2s until it reaches a terminal state
+ * (`ready`/`failed`), at which point polling stops. Enabled only while a
+ * `jobId` is set.
+ */
+export function useExportJob(formId: string, jobId: string | null) {
+  const token = useMerchantStore((s) => s.token);
+  return useQuery({
+    queryKey: queryKeys.exportJob(formId, jobId ?? ''),
+    queryFn: () => api<ExportJobResult>('GET', `/api/forms/${formId}/exports/${jobId}`),
+    enabled: !!token && !!jobId,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === 'ready' || status === 'failed' ? false : 2000;
+    },
+  });
+}
+
 // The api() wrapper JSON-parses everything, and window.open can't carry the
 // Authorization header — so CSV export fetches the bytes itself and triggers
 // a client-side download.

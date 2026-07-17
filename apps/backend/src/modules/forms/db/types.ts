@@ -110,6 +110,25 @@ interface FormEmailLogTable {
   updatedAt: Generated<Date>;
 }
 
+export type FormExportJobStatus = 'pending' | 'processing' | 'ready' | 'failed';
+
+/** Async CSV export jobs — kept in lockstep with `0002_export_jobs.ts`. */
+interface FormExportJobsTable {
+  /** `exp_<random base64url>` — minted by ExportJobService. */
+  id: string;
+  formId: string;
+  merchantId: string;
+  status: Generated<FormExportJobStatus>;
+  /** S3 object key of the finished CSV; null until the worker uploads it. */
+  s3Key: Generated<string | null>;
+  /** Data rows exported (header excluded); null until ready. */
+  rowCount: Generated<number | null>;
+  /** Short failure message (never PII); null unless status = failed. */
+  error: Generated<string | null>;
+  createdAt: Generated<Date>;
+  updatedAt: Generated<Date>;
+}
+
 export interface FormsDatabase {
   merchants: BaseMerchantsTable;
   oauth_tokens: BaseOauthTokensTable;
@@ -119,6 +138,7 @@ export interface FormsDatabase {
   form_submissions: FormSubmissionsTable;
   form_webhook_deliveries: FormWebhookDeliveriesTable;
   form_email_log: FormEmailLogTable;
+  form_export_jobs: FormExportJobsTable;
 }
 
 export type FormsMerchantRow = Selectable<BaseMerchantsTable>;
@@ -127,3 +147,4 @@ export type FormRow = Selectable<FormsTable>;
 export type FormSubmissionRow = Selectable<FormSubmissionsTable>;
 export type FormWebhookDeliveryRow = Selectable<FormWebhookDeliveriesTable>;
 export type FormEmailLogRow = Selectable<FormEmailLogTable>;
+export type FormExportJobRow = Selectable<FormExportJobsTable>;

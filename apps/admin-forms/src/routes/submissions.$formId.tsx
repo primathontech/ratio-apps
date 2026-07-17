@@ -15,17 +15,20 @@ import {
   Typography,
 } from '@primathonos/orion';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from '@/hooks/useForms';
 import {
   type DeliveryRow,
   downloadSubmissionsCsv,
   type SubmissionListItem,
+  useCreateExport,
   useDeliveries,
+  useExportJob,
   useRetriggerDelivery,
   useSubmissionDetail,
   useSubmissions,
 } from '@/hooks/useSubmissions';
+import { ApiException } from '@/lib/api';
 
 export const Route = createFileRoute('/submissions/$formId')({
   component: SubmissionsRoute,
@@ -44,15 +47,46 @@ const DELIVERY_STATUS_COLOR: Record<DeliveryRow['status'], string> = {
 
 export function SubmissionsScreen({ formId }: { formId: string }) {
   const form = useForm(formId);
+  // `exporting` spans the whole flow (create → poll → download); `jobId` drives
+  // the poll and is cleared the moment the job settles.
   const [exporting, setExporting] = useState(false);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const createExport = useCreateExport(formId);
+  const exportJob = useExportJob(formId, jobId);
+
+  // React to the polled job settling: ready → plain S3 navigation (no
+  // blob/CORS); failed → surface an error. Then reset the flow.
+  useEffect(() => {
+    if (!jobId || !exportJob.data) return;
+    const { status, downloadUrl } = exportJob.data;
+    if (status === 'ready' && downloadUrl) {
+      setJobId(null);
+      setExporting(false);
+      window.location.href = downloadUrl;
+    } else if (status === 'failed') {
+      setJobId(null);
+      setExporting(false);
+      void message.error('Export failed. Please try again.');
+    }
+  }, [jobId, exportJob.data]);
 
   const onExport = async () => {
     setExporting(true);
     try {
-      await downloadSubmissionsCsv(formId);
+      const { jobId: id } = await createExport.mutateAsync();
+      setJobId(id); // polling (useExportJob) now drives the flow to completion.
     } catch (err) {
+      // Async export not configured → fall back to the sync streaming export.
+      if (err instanceof ApiException && err.errorCode === 'exports_unavailable') {
+        try {
+          await downloadSubmissionsCsv(formId);
+        } catch (fallbackErr) {
+          void message.error((fallbackErr as Error).message);
+        }
+        setExporting(false);
+        return;
+      }
       void message.error((err as Error).message);
-    } finally {
       setExporting(false);
     }
   };
@@ -69,7 +103,7 @@ export function SubmissionsScreen({ formId }: { formId: string }) {
           </Typography.Title>
         </div>
         <Button icon={<DownloadOutlined />} loading={exporting} onClick={() => void onExport()}>
-          Export CSV
+          {exporting ? 'Preparing export…' : 'Export CSV'}
         </Button>
       </div>
 
