@@ -60,18 +60,17 @@ export class FormsRecaptchaService {
   }
 
   async verify(token: string | undefined, config: RecaptchaConfigInput): Promise<RecaptchaResult> {
-    // No token at all: the client never ran reCAPTCHA — bot-shaped. This is a
-    // reject (silent success upstream), NOT an outage.
-    if (!token) {
-      return { verdict: 'reject' };
-    }
-
+    // Check the secret before the token: no secret configured means reCAPTCHA
+    // can't run at all → unavailable → honeypot fallback (F8), not a reject.
     const secret = this.resolveSecret(config);
     if (!secret) {
-      this.logger.warn({
-        msg: 'recaptcha verification unavailable — no merchant secret and no FORMS_RECAPTCHA_SHARED_SECRET',
-      });
+      this.logger.warn({ msg: 'recaptcha selected but no secret configured — honeypot fallback' });
       return { verdict: 'unavailable' };
+    }
+
+    // Secret set but no token → reCAPTCHA never ran client-side → bot (F7).
+    if (!token) {
+      return { verdict: 'reject' };
     }
 
     const threshold = this.resolveThreshold(config);

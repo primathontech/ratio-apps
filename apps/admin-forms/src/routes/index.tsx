@@ -70,7 +70,6 @@ export function FormsListPage() {
           <Space size={8}>
             <Tag color={row.status === 'active' ? 'green' : 'default'}>{row.status}</Tag>
             <Switch
-              size="small"
               aria-label={`Toggle ${row.name}`}
               checked={row.status === 'active'}
               loading={toggle.isPending && toggle.variables?.id === row.id}
@@ -110,7 +109,10 @@ export function FormsListPage() {
                 { key: 'duplicate', label: 'Duplicate' },
                 { key: 'delete', label: 'Delete', danger: true },
               ],
-              onClick: ({ key }) => {
+              onClick: ({ key, domEvent }) => {
+                // Portaled menu clicks re-dispatch up to the row onClick; stop
+                // it or Delete opens the modal AND navigates into the builder.
+                domEvent.stopPropagation();
                 if (key === 'edit') void goToBuilder(row.id);
                 if (key === 'duplicate') {
                   duplicate.mutate(row.id, {
@@ -182,9 +184,15 @@ export function FormsListPage() {
               scroll={{ x: 'max-content' }}
               onRow={(record) => ({
                 onClick: (event) => {
-                  // Row click opens the builder unless an inline control was hit.
+                  // Row click opens the builder — skip inline controls (button,
+                  // switch) and the portaled actions menu.
                   const target = event.target as HTMLElement;
-                  if (target.closest('button') || target.closest('.ant-switch')) return;
+                  if (
+                    target.closest('button') ||
+                    target.closest('.ant-switch') ||
+                    target.closest('.ant-dropdown')
+                  )
+                    return;
                   void goToBuilder((record as FormListItem).id);
                 },
                 style: { cursor: 'pointer' },

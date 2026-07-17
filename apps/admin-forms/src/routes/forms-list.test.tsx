@@ -142,6 +142,9 @@ describe('FormsListPage', () => {
     // The warning modal must mention the submission count BEFORE any DELETE.
     await waitFor(() => expect(screen.getByText(/7 submissions/)).toBeInTheDocument());
     expect(mockedApi.mock.calls.find((c) => c[0] === 'DELETE')).toBeUndefined();
+    // Clicking Delete opens the modal — it must NOT navigate into the builder
+    // (regression: the portaled menu click used to bubble to the row onClick).
+    expect(navigateMock).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
     await waitFor(() => {
       const call = mockedApi.mock.calls.find(

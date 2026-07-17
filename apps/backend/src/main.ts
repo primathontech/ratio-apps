@@ -18,49 +18,11 @@ import { configureApp } from './config/configure-app';
 import { resolveEnabledModules } from './config/enabled-modules';
 import { loadEnv } from './config/env.schema';
 import { HealthRegistry } from './core/health/health-registry.service';
+import { buildCorsOriginChecker } from './core/common/cors';
 
-type CorsOriginType = string | boolean | RegExp;
-type CorsOriginCallback = (err: Error | null, origin: CorsOriginType | CorsOriginType[]) => void;
-type CorsOriginFn = (origin: string | undefined, callback: CorsOriginCallback) => void;
-
-function buildCorsOriginChecker(rawAllowed: string): CorsOriginFn {
-  // Trust boundary: every host matched here is considered first-party. The
-  // wildcard form `https://*.gokwik.in` matches any subdomain by exact suffix
-  // (NOT substring) — so `evilgokwik.in` is NOT accepted because the proto
-  // prefix must be `https://` and the host portion must END with `.gokwik.in`
-  // (leading dot included via the `slice('https://*'.length)` math below).
-  //
-  // CAVEAT: if marketing or a 3rd-party tenant ever hosts on a `gokwik.in`
-  // subdomain (e.g. `partner.gokwik.in`) the wildcard implicitly trusts them.
-  // Audit the allowlist when onboarding tenants who control DNS under
-  // gokwik.in / gokwik.io.
-  const patterns = rawAllowed
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((p) => {
-      if (!p.startsWith('https://*.') && !p.startsWith('http://*.')) {
-        return { kind: 'exact' as const, value: p };
-      }
-      const proto = p.startsWith('https://') ? 'https://' : 'http://';
-      // `suffix` includes the leading dot, e.g. `.gokwik.in`. Combined with
-      // the `origin.startsWith(proto)` check below this is a true suffix
-      // match — `evilgokwik.in` fails because it doesn't end with the dotted
-      // suffix `.gokwik.in`.
-      const suffix = p.slice(`${proto}*`.length);
-      return { kind: 'suffix' as const, proto, suffix };
-    });
-
-  return (origin, cb) => {
-    if (!origin) return cb(null, true);
-    for (const p of patterns) {
-      if (p.kind === 'exact' && p.value === origin) return cb(null, true);
-      if (p.kind === 'suffix' && origin.startsWith(p.proto) && origin.endsWith(p.suffix))
-        return cb(null, true);
-    }
-    cb(null, false);
-  };
-}
+// CORS origin allowlist logic lives in core/common/cors.ts so the forms CSV
+// export (which hijacks the raw response and must reapply CORS itself) shares
+// exactly the same matcher — no drift between the two.
 
 async function bootstrap(): Promise<void> {
   // Validate env synchronously before Nest starts — catches bad config with a

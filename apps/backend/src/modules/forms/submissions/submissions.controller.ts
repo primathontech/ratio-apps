@@ -1,6 +1,7 @@
-import { Controller, Get, Param, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import type { Merchant } from '@ratio-app/shared/schemas/merchant';
-import type { FastifyReply } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
+import { isOriginAllowed } from '../../../core/common/cors';
 import { type ZodType, z } from 'zod';
 import { CurrentMerchant } from '../../../core/common/decorators/merchant.decorator';
 import { ZodValidationPipe } from '../../../core/common/pipes/zod-validation.pipe';
@@ -55,23 +56,35 @@ export class SubmissionsController {
   }
 
   /**
-   * Streaming CSV export. Uses `reply.hijack()` + the raw response so rows
-   * stream as they page out of the DB — the global ResponseInterceptor (which
-   * would JSON-envelope the body) never sees this route's output.
+   * Streaming CSV export. `reply.hijack()` streams rows as they page out of
+   * the DB and bypasses the JSON-enveloping ResponseInterceptor — but it also
+   * bypasses @fastify/cors, so we reapply CORS here (shared allowlist,
+   * core/common/cors) for the cross-origin admin fetch.
    */
   @Get('forms/:id/submissions/export')
   async export(
     @CurrentMerchant() merchant: Merchant,
     @Param('id') formId: string,
+    @Req() req: FastifyRequest,
     @Res() reply: FastifyReply,
   ): Promise<void> {
     // Validate existence + ownership BEFORE hijacking so a 404 still renders
     // as the standard error envelope.
     await this.submissions.requireOwnForm(merchant.id, formId);
+
+    const headers: Record<string, string> = {
+      'content-type': 'text/csv; charset=utf-8',
+      'content-disposition': `attachment; filename="${formId}-submissions.csv"`,
+    };
+    const origin = req.headers.origin;
+    if (origin && isOriginAllowed(origin, process.env.ALLOWED_ORIGINS ?? '')) {
+      headers['access-control-allow-origin'] = origin;
+      headers['access-control-allow-credentials'] = 'true';
+      headers.vary = 'Origin';
+    }
+
     reply.hijack();
-    reply.raw.statusCode = 200;
-    reply.raw.setHeader('content-type', 'text/csv; charset=utf-8');
-    reply.raw.setHeader('content-disposition', `attachment; filename="${formId}-submissions.csv"`);
+    reply.raw.writeHead(200, headers);
     try {
       await this.csv.export(merchant.id, formId, {
         write: (chunk) => {

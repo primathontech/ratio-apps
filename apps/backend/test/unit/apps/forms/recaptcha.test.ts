@@ -122,6 +122,16 @@ describe('FormsRecaptchaService (AC6, PRD F7/F8)', () => {
     expect(warn).toHaveBeenCalled();
   });
 
+  it('no token AND no secret → unavailable, not reject (reCAPTCHA-mode form with no keys)', async () => {
+    vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+    const { service } = makeService(() => ({ ok: true, status: 200 }));
+    const result = await service.verify(undefined, {
+      recaptchaSecretEnc: null,
+      recaptchaThreshold: '0.30',
+    });
+    expect(result.verdict).toBe('unavailable');
+  });
+
   it('siteverify unreachable → unavailable + warning log (honeypot fallback, F8)', async () => {
     const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
     const { service } = makeService(() => 'network-error');
