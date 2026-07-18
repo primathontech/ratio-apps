@@ -26,7 +26,7 @@ function resolveMerchantId(req: FastifyRequest): string | null {
 
 @Controller('rp/api/admin')
 export class RpAdminController {
-  private readonly logger = new Logger(RpAdminController.name);
+  private readonly logger = new Logger(`RP:${RpAdminController.name}`);
 
   constructor(
     private readonly merchants: RpMerchantsService,

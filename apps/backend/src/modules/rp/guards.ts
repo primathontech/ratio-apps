@@ -52,7 +52,7 @@ export class RpWebhookSignatureGuard implements CanActivate {
  */
 @Injectable()
 export class RpRequestGuard implements CanActivate {
-  private readonly logger = new Logger(RpRequestGuard.name);
+  private readonly logger = new Logger(`RP:${RpRequestGuard.name}`);
 
   constructor(
     private readonly merchants: RpMerchantsService,
