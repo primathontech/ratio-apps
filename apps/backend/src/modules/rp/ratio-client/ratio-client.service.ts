@@ -9,7 +9,7 @@ const anySchema = z.unknown();
 
 @Injectable()
 export class RpRatioClientService {
-  private readonly logger = new Logger(RpRatioClientService.name);
+  private readonly logger = new Logger(`RP:${RpRatioClientService.name}`);
 
   constructor(
     @Inject(RP_RATIO_CLIENT) private readonly ratio: RatioClient,

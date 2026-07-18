@@ -28,6 +28,7 @@ import { RpTransformerService } from './transformer/transformer.service';
 import { RpWebhooksController } from './webhooks/webhooks.controller';
 import { RpWebhooksService } from './webhooks/webhooks.service';
 import { RpPortalController } from './portal/portal.controller';
+import { RpPortalHealthService } from './portal/portal-health.service';
 import { RpConfigController } from './config/config.controller';
 import { RpSdkController } from './sdk/sdk.controller';
 
@@ -61,6 +62,7 @@ import { RpSdkController } from './sdk/sdk.controller';
     RpCustomersService,
     RpProductsService,
     RpDiscountsService,
+    RpPortalHealthService,
     {
       provide: RP_CRYPTO,
       inject: [ConfigService],
@@ -87,7 +89,7 @@ import { RpSdkController } from './sdk/sdk.controller';
       provide: RP_RATIO_CLIENT,
       inject: [ConfigService],
       useFactory: (config: ConfigService<Env, true>): RatioClient =>
-        new RatioClient(config.get('RATIO_API_BASE_URL', { infer: true }) as string),
+        new RatioClient(config.get('RATIO_API_BASE_URL', { infer: true }) as string, 'RP:RatioClient'),
     },
   ],
 })

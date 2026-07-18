@@ -26,7 +26,7 @@ function extractDomainFromJwt(token: string): string | undefined {
 
 @Controller('rp/auth')
 export class RpAuthController {
-  private readonly logger = new Logger(RpAuthController.name);
+  private readonly logger = new Logger(`RP:${RpAuthController.name}`);
 
   constructor(
     private readonly merchants: RpMerchantsService,

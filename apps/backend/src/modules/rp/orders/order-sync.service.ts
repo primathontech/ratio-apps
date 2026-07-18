@@ -15,7 +15,7 @@ import { normalizeOrder } from './normalize-order';
  */
 @Injectable()
 export class RpOrderSyncService implements OnModuleDestroy {
-  private readonly logger = new Logger(RpOrderSyncService.name);
+  private readonly logger = new Logger(`RP:${RpOrderSyncService.name}`);
   private client: MongoClient | null = null;
   private db: Db | null = null;
 

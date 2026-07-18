@@ -19,7 +19,7 @@ import { RpWebhooksService } from './webhooks.service';
 @Controller('rp/webhooks')
 @UseGuards(RpWebhookSignatureGuard)
 export class RpWebhooksController {
-  private readonly logger = new Logger(RpWebhooksController.name);
+  private readonly logger = new Logger(`RP:${RpWebhooksController.name}`);
 
   constructor(private readonly webhooks: RpWebhooksService) {}
 
