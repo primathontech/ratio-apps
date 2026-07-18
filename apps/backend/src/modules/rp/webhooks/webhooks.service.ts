@@ -9,7 +9,7 @@ type Rec = Record<string, unknown>;
 
 @Injectable()
 export class RpWebhooksService {
-  private readonly logger = new Logger(RpWebhooksService.name);
+  private readonly logger = new Logger(`RP:${RpWebhooksService.name}`);
 
   constructor(
     private readonly merchants: RpMerchantsService,

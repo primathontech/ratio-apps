@@ -1,8 +1,20 @@
-import { Controller, Get, Query, Redirect } from '@nestjs/common';
+import { Controller, Get, Query, Res } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { FastifyReply } from 'fastify';
 import type { Env } from '../../../config/env.schema';
 import { RpMerchantsService } from '../merchants/merchants.service';
 import { RpOrdersService } from '../orders/orders.service';
+import { RpPortalHealthService } from './portal-health.service';
+
+// Mirrors the inline-styled fallback in packages/rp-sdk/src/return-prime-page.ts's
+// renderMessage() so the server-rendered fallback (RP portal unreachable/broken) reads
+// consistently with the client-side SDK's own equivalent failure states.
+const UNAVAILABLE_HTML = `
+  <div style="min-height:60vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:2rem">
+    <h1 style="font-size:1.5rem;margin-bottom:0.5rem">Returns &amp; Exchanges</h1>
+    <p style="color:#666;max-width:28rem">Return Prime is temporarily unavailable. Please contact support for help with your order.</p>
+  </div>
+`;
 
 /**
  * Adapter-hosted Return Prime customer portal — the OS/headless equivalent of Shopify's
@@ -26,16 +38,17 @@ export class RpPortalController {
     private readonly config: ConfigService<Env, true>,
     private readonly merchants: RpMerchantsService,
     private readonly orders: RpOrdersService,
+    private readonly portalHealth: RpPortalHealthService,
   ) {}
 
   @Get('portal')
-  @Redirect()
   async portal(
+    @Res() reply: FastifyReply,
     @Query('shop') shop?: string,
     @Query('order') order?: string,
     @Query('email') email?: string,
     @Query('orderId') orderId?: string,
-  ) {
+  ): Promise<void> {
     // Storefront SDK case: caller only knows the raw OS order id (from the page URL/DOM,
     // e.g. ordr_XXXX), not the display order name — that lives only in the order record.
     // Resolve just the NAME here so the SDK never needs page-specific wiring. Deliberately
@@ -75,10 +88,25 @@ export class RpPortalController {
     if (portalUrl) {
       const base = portalUrl.replace(/\/$/, '');
       const target = shop ? `${base}/${encodeURIComponent(shop)}` : base;
-      return { url: prefillQs ? `${target}?${prefillQs}` : target, statusCode: 302 };
+      // Health-check the raw target (pre-prefillQs — order/email don't affect whether the
+      // portal shell or its assets are reachable). Fails open on any inconclusive signal, so
+      // this only ever suppresses the redirect on a definitive negative.
+      const healthy = await this.portalHealth.checkHealthy(target);
+      if (!healthy) {
+        reply.type('text/html').send(UNAVAILABLE_HTML);
+        return;
+      }
+      reply.redirect(prefillQs ? `${target}?${prefillQs}` : target);
+      return;
     }
     const baseUrl = this.config.get('RP_BASE_URL', { infer: true }) as string;
+    const target = `${baseUrl}/os/v1/customer-portal${shop ? `?shop=${encodeURIComponent(shop)}` : ''}`;
+    const healthy = await this.portalHealth.checkHealthy(target);
+    if (!healthy) {
+      reply.type('text/html').send(UNAVAILABLE_HTML);
+      return;
+    }
     const params = [shop ? `shop=${encodeURIComponent(shop)}` : '', prefillQs].filter(Boolean).join('&');
-    return { url: `${baseUrl}/os/v1/customer-portal${params ? `?${params}` : ''}`, statusCode: 302 };
+    reply.redirect(`${baseUrl}/os/v1/customer-portal${params ? `?${params}` : ''}`);
   }
 }

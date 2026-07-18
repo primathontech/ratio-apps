@@ -13,7 +13,7 @@ import { RpWebhooksService } from '../webhooks/webhooks.service';
  */
 @Injectable()
 export class RpCatalogSyncService {
-  private readonly logger = new Logger(RpCatalogSyncService.name);
+  private readonly logger = new Logger(`RP:${RpCatalogSyncService.name}`);
   private static readonly PAGE_SIZE = 50;
   private static readonly MAX_PAGES = 400;
 
