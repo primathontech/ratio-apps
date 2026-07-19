@@ -47,6 +47,7 @@ export function mapPaymentMode(order: Rec): { mode: 'COD' | 'Prepaid'; codAmount
     financial === 'pending' ||
     financial === 'unpaid';
 
-  const total = asNumber(order.total_price ?? order.total_amount ?? order.total ?? 0);
+  // paise → rupees (Delhivery expects rupees).
+  const total = asNumber(order.total_price ?? order.total_amount ?? order.total ?? 0) / 100;
   return isCod ? { mode: 'COD', codAmount: total } : { mode: 'Prepaid', codAmount: 0 };
 }

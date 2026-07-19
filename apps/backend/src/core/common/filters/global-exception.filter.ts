@@ -134,6 +134,23 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       }
       return { status: exception.getStatus(), message: exception.message };
     }
+    // Delhivery SDK errors carry the carrier's own wording plus the upstream
+    // HTTP status. Duck-type on name + numeric status instead of importing
+    // the vendor class (core must not depend on a module). Pass a sane 4xx/5xx
+    // through; anything else becomes 422 so a bogus status can't break the
+    // envelope.
+    if (
+      exception instanceof Error &&
+      exception.name === 'DelhiveryApiError' &&
+      typeof (exception as { status?: unknown }).status === 'number'
+    ) {
+      const s = (exception as unknown as { status: number }).status;
+      return {
+        status: s >= 400 && s <= 599 ? s : HttpStatus.UNPROCESSABLE_ENTITY,
+        message: exception.message,
+        errorCode: 'DELHIVERY_ERROR',
+      };
+    }
     return {
       status: HttpStatus.INTERNAL_SERVER_ERROR,
       message: 'internal server error',

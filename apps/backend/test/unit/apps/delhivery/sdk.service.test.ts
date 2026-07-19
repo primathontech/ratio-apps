@@ -89,9 +89,13 @@ describe('DelhiverySdkService (Delhivery Express B2C adapter)', () => {
     expect(res.awb).toBe('AWB123456');
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toContain('/api/cmu/create.json');
+    // Form-urlencoded body with the JSON URL-encoded in `data`.
+    expect((init.headers as Record<string, string>)['content-type']).toBe(
+      'application/x-www-form-urlencoded',
+    );
     const body = String(init.body);
     expect(body.startsWith('format=json&data=')).toBe(true);
-    const data = JSON.parse(body.slice('format=json&data='.length)) as {
+    const data = JSON.parse(decodeURIComponent(body.slice('format=json&data='.length))) as {
       shipments: Array<Record<string, unknown>>;
       pickup_location: { name: string };
     };

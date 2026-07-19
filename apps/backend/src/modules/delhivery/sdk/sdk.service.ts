@@ -376,9 +376,12 @@ export class DelhiverySdkService {
       ],
       pickup_location: { name: config.pickupLocationName },
     };
+    // `format=json&data=<json>` form body: the JSON must be URL-encoded or an
+    // unescaped char in any field truncates it (Delhivery "Unterminated string").
     const res = await this.request(config.apiToken, '/api/cmu/create.json', {
       method: 'POST',
-      body: `format=json&data=${JSON.stringify(payload)}`,
+      contentType: 'application/x-www-form-urlencoded',
+      body: `format=json&data=${encodeURIComponent(JSON.stringify(payload))}`,
     });
     const json = (await res.json()) as Rec;
     const packages = Array.isArray(json.packages) ? (json.packages as Rec[]) : [];
