@@ -48,7 +48,15 @@ export default defineConfig({
   // the domain root. Absolute asset URLs (/assets/…) would 404 there. './' makes
   // index.html reference assets relative to its own location.
   base: './',
-  plugins: [tanstackRouter({ target: 'react', autoCodeSplitting: true }), react()],
+  plugins: [
+    tanstackRouter({
+      target: 'react',
+      autoCodeSplitting: true,
+      // Colocated *.test.tsx files under routes/ are tests, not routes.
+      routeFileIgnorePattern: '.*\\.test\\.tsx?$',
+    }),
+    react(),
+  ],
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
