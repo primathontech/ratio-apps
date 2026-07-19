@@ -333,4 +333,17 @@ describe('DelhiveryShipmentService.listPendingOrders', () => {
 
     expect(items[0].customerName).toBe('Meera P');
   });
+
+  it('excludes cancelled orders even when still paid + unfulfilled', async () => {
+    const { service } = makeService({
+      pendingOrders: [
+        { ...awaiting, id: 'ord_cancelled_at', order_number: '4004', cancelled_at: '2026-07-04T00:00:00.000Z' },
+        { ...awaiting, id: 'ord_status', order_number: '4005', status: 'cancelled' },
+        awaiting,
+      ],
+    });
+    const items = await service.listPendingOrders('mer_1');
+
+    expect(items.map((i) => i.orderNumber)).toEqual(['2002']);
+  });
 });

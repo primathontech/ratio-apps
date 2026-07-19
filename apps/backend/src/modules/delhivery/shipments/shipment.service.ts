@@ -37,6 +37,14 @@ function str(v: unknown, fallback = ''): string {
   return fallback;
 }
 
+/** A cancelled order stays paid + unfulfilled, so keep it off the AWB worklist. */
+function isCancelled(order: Rec): boolean {
+  const cancelledAt = order.cancelled_at ?? order.cancelledAt;
+  if (cancelledAt != null && cancelledAt !== '') return true;
+  const status = str(order.status ?? order.order_status).toLowerCase();
+  return status === 'cancelled' || status === 'canceled';
+}
+
 /**
  * Shipment lifecycle — create (manifestation → AWB), cancel, recreate, list.
  * The `delhivery_shipments` row is the SOURCE OF TRUTH; every state change is
@@ -274,10 +282,12 @@ export class DelhiveryShipmentService {
       financialStatus: 'paid',
       fulfillmentStatus: 'unfulfilled',
     });
-    const withNumbers = orders.map((order) => ({
-      order,
-      orderNumber: str(order.order_number ?? order.orderNumber, str(order.id)),
-    }));
+    const withNumbers = orders
+      .filter((order) => !isCancelled(order))
+      .map((order) => ({
+        order,
+        orderNumber: str(order.order_number ?? order.orderNumber, str(order.id)),
+      }));
 
     const orderNumbers = withNumbers.map((o) => o.orderNumber).filter(Boolean);
     const taken = new Set<string>();
