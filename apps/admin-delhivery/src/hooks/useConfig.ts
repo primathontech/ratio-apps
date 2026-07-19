@@ -13,17 +13,18 @@ export type MaskedDelhiveryConfig = Omit<DelhiveryConfig, 'apiToken'> & {
   hasApiToken: boolean;
 };
 
-/** PUT response: the saved (masked) config + the warehouse-registration result. */
-export type SavedDelhiveryConfig = MaskedDelhiveryConfig & {
-  warehouseRegistered: boolean;
-  /**
-   * `created` = new warehouse; `exists` = already registered, unchanged;
-   * `updated` = existing warehouse's address synced via edit; `failed` = couldn't register/update.
-   */
-  warehouseStatus: 'created' | 'exists' | 'updated' | 'failed';
+/**
+ * `created` = new warehouse; `exists` = already registered, unchanged;
+ * `updated` = existing warehouse's address synced via edit; `failed` = couldn't register/update.
+ */
+export type WarehouseStatus = 'created' | 'exists' | 'updated' | 'failed';
+
+/** POST /api/delhivery-config/warehouse response. */
+export interface WarehouseRegistration {
+  warehouseStatus: WarehouseStatus;
   /** Delhivery's own message for the outcome, displayed verbatim, not hardcoded. */
   warehouseMessage: string;
-};
+}
 
 /** POST /api/delhivery-config/test response. */
 export interface TestConnectionResult {
@@ -52,15 +53,25 @@ export function useConfig() {
   });
 }
 
+/** PUT the config. Persists only; never talks to Delhivery. */
 export function useUpdateConfig() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: DelhiveryConfigInput) =>
-      api<SavedDelhiveryConfig>('PUT', '/api/delhivery-config', input),
+      api<MaskedDelhiveryConfig>('PUT', '/api/delhivery-config', input),
     onSuccess: (data) => {
-      const { warehouseRegistered: _ignored, warehouseStatus: _ws, warehouseMessage: _wm, ...masked } = data;
-      qc.setQueryData(queryKeys.config(), masked);
+      qc.setQueryData(queryKeys.config(), data);
     },
+  });
+}
+
+/**
+ * Register the SAVED pickup location as a Delhivery warehouse. The only
+ * mutation that reaches the carrier; save the config first, then register.
+ */
+export function useRegisterWarehouse() {
+  return useMutation({
+    mutationFn: () => api<WarehouseRegistration>('POST', '/api/delhivery-config/warehouse'),
   });
 }
 

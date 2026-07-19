@@ -31,19 +31,19 @@ function makeConfig(overrides: Partial<MaskedDelhiveryConfig> = {}): MaskedDelhi
 function routeApi(
   config: MaskedDelhiveryConfig,
   testResult: { ok: boolean; status: number } = { ok: true, status: 200 },
-  putResponse?: Record<string, unknown>,
+  warehouseResult: Record<string, unknown> | Error = {
+    warehouseStatus: 'created',
+    warehouseMessage: 'A new client warehouse has been created',
+  },
 ) {
   mockedApi.mockImplementation((method: string, path: string) => {
     if (path === '/api/delhivery-config' && method === 'GET') return Promise.resolve(config);
-    if (path === '/api/delhivery-config' && method === 'PUT') {
-      return Promise.resolve(
-        putResponse ?? {
-          ...config,
-          warehouseRegistered: true,
-          warehouseStatus: 'created',
-          warehouseMessage: 'A new client warehouse has been created',
-        },
-      );
+    // PUT persists only: it returns the saved masked config, no warehouse outcome.
+    if (path === '/api/delhivery-config' && method === 'PUT') return Promise.resolve(config);
+    if (path === '/api/delhivery-config/warehouse' && method === 'POST') {
+      return warehouseResult instanceof Error
+        ? Promise.reject(warehouseResult)
+        : Promise.resolve(warehouseResult);
     }
     if (path === '/api/delhivery-config/test' && method === 'POST') {
       return Promise.resolve(testResult);
@@ -57,6 +57,10 @@ function routeApi(
     }
     return Promise.resolve({});
   });
+}
+
+function callsTo(method: string, path: string) {
+  return mockedApi.mock.calls.filter((c) => c[0] === method && c[1] === path);
 }
 
 beforeEach(() => {
@@ -77,15 +81,14 @@ describe('ConfigPage', () => {
     renderWithProviders(<ConfigPage />);
     await screen.findByText('Delhivery credentials');
 
-    fireEvent.click(screen.getByRole('button', { name: /Save configuration/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Save & register with Delhivery/ }));
 
     await waitFor(() => expect(screen.getByText('API token is required')).toBeInTheDocument());
     expect(screen.getByText('pickup location name is required')).toBeInTheDocument();
     expect(screen.getByText('GSTIN is required')).toBeInTheDocument();
-    // Save must not have fired.
-    expect(
-      mockedApi.mock.calls.find((c) => c[0] === 'PUT' && c[1] === '/api/delhivery-config'),
-    ).toBeUndefined();
+    // Neither the save nor the registration may have fired.
+    expect(callsTo('PUT', '/api/delhivery-config')).toHaveLength(0);
+    expect(callsTo('POST', '/api/delhivery-config/warehouse')).toHaveLength(0);
   });
 
   // form.cutoffFormat, pickup cutoff must be HH:mm (24h).
@@ -94,19 +97,18 @@ describe('ConfigPage', () => {
     renderWithProviders(<ConfigPage />);
     const cutoff = await screen.findByPlaceholderText('10:00');
 
-    fireEvent.change(screen.getByPlaceholderText(/Delhivery Express B2C token/), {
-      target: { value: 'tok-123' },
-    });
     fireEvent.change(cutoff, { target: { value: '25:99' } });
-    fireEvent.click(screen.getByRole('button', { name: /Save configuration/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Save settings/ }));
 
     await waitFor(() =>
       expect(screen.getByText('pickupCutoff must be HH:mm (24h)')).toBeInTheDocument(),
     );
+    expect(callsTo('PUT', '/api/delhivery-config')).toHaveLength(0);
   });
 
-  // form.awbTriggerToggle, switching to manual is sent to the backend.
-  it('saves awbTrigger=manual when the manual option is selected', async () => {
+  // settings.saveIsLocalOnly, "Save settings" PUTs the full form state and
+  // NEVER calls the warehouse-registration endpoint.
+  it('save settings: PUTs the config and never hits the warehouse endpoint', async () => {
     routeApi(makeConfig());
     renderWithProviders(<ConfigPage />);
     await screen.findByPlaceholderText(/Delhivery Express B2C token/);
@@ -115,17 +117,21 @@ describe('ConfigPage', () => {
       target: { value: 'tok-123' },
     });
     fireEvent.click(screen.getByRole('radio', { name: /Manual: create from Shipments/ }));
-    fireEvent.click(screen.getByRole('button', { name: /Save configuration/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Save settings/ }));
 
     await waitFor(() => {
-      const putCall = mockedApi.mock.calls.find(
-        (c) => c[0] === 'PUT' && c[1] === '/api/delhivery-config',
-      );
-      expect(putCall).toBeDefined();
-      const body = putCall?.[2] as Record<string, unknown>;
+      const putCalls = callsTo('PUT', '/api/delhivery-config');
+      expect(putCalls).toHaveLength(1);
+      const body = putCalls[0]?.[2] as Record<string, unknown>;
       expect(body.awbTrigger).toBe('manual');
+      // The whole form state rides along, no fields are lost across cards.
       expect(body.apiToken).toBe('tok-123');
+      expect(body.pickupLocationName).toBe('Main Warehouse');
+      expect(body.gstin).toBe('22AAAAA0000A1Z5');
     });
+    await waitFor(() => expect(screen.getByText('Settings saved.')).toBeInTheDocument());
+    // The carrier is never contacted from the settings card.
+    expect(callsTo('POST', '/api/delhivery-config/warehouse')).toHaveLength(0);
   });
 
   // form.testConnectionStates, idle → loading → ok.
@@ -160,8 +166,9 @@ describe('ConfigPage', () => {
     expect(button).toBeDisabled();
   });
 
-  // form.saveBindsApi, a valid submit PUTs the full config shape.
-  it('submits the full config to PUT /api/delhivery-config and shows Saved', async () => {
+  // pickup.saveThenRegister, a valid "Save & register" PUTs the full config
+  // shape first and only then POSTs the warehouse registration.
+  it('save & register: PUTs the full config, then registers, then shows the message', async () => {
     routeApi(makeConfig());
     renderWithProviders(<ConfigPage />);
     await screen.findByPlaceholderText(/Delhivery Express B2C token/);
@@ -170,21 +177,31 @@ describe('ConfigPage', () => {
       target: { value: 'new-token-9' },
     });
     fireEvent.change(screen.getByLabelText('GSTIN'), { target: { value: '29BBBBB1111B2Z6' } });
-    fireEvent.click(screen.getByRole('button', { name: /Save configuration/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Save & register with Delhivery/ }));
 
     await waitFor(() => {
-      const putCall = mockedApi.mock.calls.find(
-        (c) => c[0] === 'PUT' && c[1] === '/api/delhivery-config',
-      );
-      expect(putCall).toBeDefined();
-      const body = putCall?.[2] as Record<string, unknown>;
+      const putCalls = callsTo('PUT', '/api/delhivery-config');
+      expect(putCalls).toHaveLength(1);
+      const body = putCalls[0]?.[2] as Record<string, unknown>;
       expect(body.apiToken).toBe('new-token-9');
       expect(body.gstin).toBe('29BBBBB1111B2Z6');
       expect(body.pickupLocationName).toBe('Main Warehouse');
       expect(body.pickupCutoff).toBe('10:00');
       expect(body.defaultBox).toEqual({ l: 10, b: 10, h: 10 });
     });
-    await waitFor(() => expect(screen.getByText(/Saved/)).toBeInTheDocument());
+    await waitFor(() => expect(callsTo('POST', '/api/delhivery-config/warehouse')).toHaveLength(1));
+    // Persist strictly before register.
+    const putIndex = mockedApi.mock.calls.findIndex(
+      (c) => c[0] === 'PUT' && c[1] === '/api/delhivery-config',
+    );
+    const registerIndex = mockedApi.mock.calls.findIndex(
+      (c) => c[0] === 'POST' && c[1] === '/api/delhivery-config/warehouse',
+    );
+    expect(putIndex).toBeLessThan(registerIndex);
+    // Delhivery's own outcome message is rendered.
+    await waitFor(() =>
+      expect(screen.getByText(/A new client warehouse has been created/)).toBeInTheDocument(),
+    );
   });
 
   // form.tokenOptionalOnEdit, when a token is already saved, editing other
@@ -196,40 +213,54 @@ describe('ConfigPage', () => {
 
     // Change only the GSTIN; leave the token field blank.
     fireEvent.change(screen.getByLabelText('GSTIN'), { target: { value: '29BBBBB1111B2Z6' } });
-    fireEvent.click(screen.getByRole('button', { name: /Save configuration/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Save & register with Delhivery/ }));
 
     await waitFor(() => {
-      const putCall = mockedApi.mock.calls.find(
-        (c) => c[0] === 'PUT' && c[1] === '/api/delhivery-config',
-      );
-      expect(putCall).toBeDefined();
-      const body = putCall?.[2] as Record<string, unknown>;
+      const putCalls = callsTo('PUT', '/api/delhivery-config');
+      expect(putCalls).toHaveLength(1);
+      const body = putCalls[0]?.[2] as Record<string, unknown>;
       expect(body.apiToken).toBe('');
       expect(body.gstin).toBe('29BBBBB1111B2Z6');
     });
     expect(screen.queryByText('API token is required')).not.toBeInTheDocument();
   });
 
-  // form.warehouseFailureMessage, a failed warehouse sync surfaces Delhivery's OWN
-  // reason verbatim (not a hardcoded string).
-  it('surfaces Delhivery\'s own message on a failed warehouse registration', async () => {
-    routeApi(makeConfig(), { ok: true, status: 200 }, {
-      ...makeConfig(),
-      warehouseRegistered: false,
-      warehouseStatus: 'failed',
-      warehouseMessage: 'ClientWarehouse pincode is not serviceable',
-    });
+  // pickup.warehouseFailureMessage, a failed registration surfaces Delhivery's
+  // OWN reason verbatim (not a hardcoded string), and the config stays saved.
+  it("surfaces Delhivery's own message on a failed warehouse registration", async () => {
+    routeApi(
+      makeConfig(),
+      { ok: true, status: 200 },
+      {
+        warehouseStatus: 'failed',
+        warehouseMessage: 'ClientWarehouse pincode is not serviceable',
+      },
+    );
     renderWithProviders(<ConfigPage />);
     await screen.findByPlaceholderText(/Delhivery Express B2C token/);
 
-    fireEvent.change(screen.getByPlaceholderText(/Delhivery Express B2C token/), {
-      target: { value: 'new-token-9' },
-    });
     fireEvent.change(screen.getByLabelText('GSTIN'), { target: { value: '29BBBBB1111B2Z6' } });
-    fireEvent.click(screen.getByRole('button', { name: /Save configuration/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Save & register with Delhivery/ }));
+
+    await waitFor(() => expect(screen.getByText(/pincode is not serviceable/)).toBeInTheDocument());
+    // The PUT still persisted the config before the carrier failure surfaced.
+    expect(callsTo('PUT', '/api/delhivery-config')).toHaveLength(1);
+  });
+
+  // pickup.registrationUnreachable, a rejected POST (e.g. Delhivery timing out
+  // behind the backend) reports "saved locally" instead of a silent failure.
+  it('shows a saved-locally warning when the registration call itself fails', async () => {
+    routeApi(makeConfig(), { ok: true, status: 200 }, new Error('Request timed out'));
+    renderWithProviders(<ConfigPage />);
+    await screen.findByPlaceholderText(/Delhivery Express B2C token/);
+
+    fireEvent.click(screen.getByRole('button', { name: /Save & register with Delhivery/ }));
 
     await waitFor(() =>
-      expect(screen.getByText(/pincode is not serviceable/)).toBeInTheDocument(),
+      expect(
+        screen.getByText(/Saved locally. Warehouse registration failed: Request timed out/),
+      ).toBeInTheDocument(),
     );
+    expect(callsTo('PUT', '/api/delhivery-config')).toHaveLength(1);
   });
 });

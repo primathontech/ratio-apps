@@ -16,7 +16,13 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useRef } from 'react';
 import { Controller, FormProvider, useForm } from 'react-hook-form';
 import type { z } from 'zod';
-import { useConfig, useTestConnection, useUpdateConfig } from '@/hooks/useConfig';
+import {
+  useConfig,
+  useRegisterWarehouse,
+  useTestConnection,
+  useUpdateConfig,
+  type WarehouseStatus,
+} from '@/hooks/useConfig';
 import { useDefaults } from '@/hooks/useDefaults';
 
 // Zod separates input vs output types for schemas with `.default()`:
@@ -48,7 +54,11 @@ const EMPTY_FORM: ConfigInput = {
 export function ConfigPage() {
   const { data, isLoading } = useConfig();
   const defaults = useDefaults();
-  const update = useUpdateConfig();
+  // One PUT mutation per card so each save button carries its own
+  // pending/success/error state; both persist the SAME full form state.
+  const savePickup = useUpdateConfig();
+  const saveSettings = useUpdateConfig();
+  const registerWarehouse = useRegisterWarehouse();
   const test = useTestConnection();
 
   // Token is required only on first-time setup. Once one is stored the field
@@ -105,23 +115,39 @@ export function ConfigPage() {
 
   if (isLoading) return <Typography.Text>Loading…</Typography.Text>;
 
-  const onSubmit = form.handleSubmit(
-    (values) => update.mutate(values),
-    // Surface validation errors visibly instead of `handleSubmit` silently
-    // swallowing them, a hidden rule would make Save look broken.
-    (errors) => {
-      // eslint-disable-next-line no-console
-      console.warn('Delhivery config form validation failed:', errors);
-      form.setError('root', {
-        type: 'validation',
-        message: 'Form has invalid fields. Check the highlighted inputs.',
-      });
-    },
-  );
+  // Surface validation errors visibly instead of `handleSubmit` silently
+  // swallowing them, a hidden rule would make Save look broken.
+  const onInvalid = (errors: object) => {
+    // eslint-disable-next-line no-console
+    console.warn('Delhivery config form validation failed:', errors);
+    form.setError('root', {
+      type: 'validation',
+      message: 'Form has invalid fields. Check the highlighted inputs.',
+    });
+  };
+
+  // "Save settings": persist only. Operational tweaks (box size, AWB trigger,
+  // cutoff, kill switch) must never touch the carrier.
+  const submitSettings = form.handleSubmit((values) => {
+    form.clearErrors('root');
+    savePickup.reset();
+    registerWarehouse.reset();
+    saveSettings.mutate(values);
+  }, onInvalid);
+
+  // "Save & register": persist first, then register the warehouse. The ONLY
+  // path that calls Delhivery, and only after the config is safely saved.
+  const submitPickup = form.handleSubmit((values) => {
+    form.clearErrors('root');
+    saveSettings.reset();
+    registerWarehouse.reset();
+    savePickup.mutate(values, { onSuccess: () => registerWarehouse.mutate() });
+  }, onInvalid);
 
   return (
     <FormProvider {...form}>
-      <form onSubmit={onSubmit}>
+      {/* Two save buttons drive their own submits; Enter must not pick one implicitly. */}
+      <form onSubmit={(e) => e.preventDefault()}>
         <Space direction="vertical" size="large" style={{ display: 'flex' }}>
           <Card
             title="Delhivery credentials"
@@ -190,7 +216,14 @@ export function ConfigPage() {
             </Space>
           </Card>
 
-          <Card title="Pickup & manifest">
+          <Card
+            title="Pickup warehouse"
+            extra={
+              <Typography.Text type="secondary">
+                Registered with Delhivery when you save this section
+              </Typography.Text>
+            }
+          >
             <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
               <FieldRow
                 label="Pickup location name"
@@ -313,29 +346,46 @@ export function ConfigPage() {
                 />
               </FieldRow>
 
-              <FieldRow
-                label="Pickup cutoff (IST)"
-                error={form.formState.errors.pickupCutoff?.message}
-                hint="Daily manifest cutoff, 24h HH:mm. Pending shipments are manifested for pickup at this time."
-              >
-                <Controller
-                  control={form.control}
-                  name="pickupCutoff"
-                  render={({ field, fieldState }) => (
-                    <Input
-                      {...field}
-                      value={field.value ?? ''}
-                      placeholder="10:00"
-                      style={{ maxWidth: 120 }}
-                      {...(fieldState.invalid ? { status: 'error' as const } : {})}
-                    />
-                  )}
+              {savePickup.error && (
+                <Alert type="error" message={(savePickup.error as Error).message} showIcon />
+              )}
+              {registerWarehouse.error && (
+                <Alert
+                  type="warning"
+                  message={`Saved locally. Warehouse registration failed: ${(registerWarehouse.error as Error).message}`}
+                  showIcon
                 />
-              </FieldRow>
+              )}
+              {registerWarehouse.isSuccess && (
+                <Alert
+                  type={
+                    registerWarehouse.data.warehouseStatus === 'failed'
+                      ? 'warning'
+                      : registerWarehouse.data.warehouseStatus === 'exists'
+                        ? 'info'
+                        : 'success'
+                  }
+                  message={warehouseAlert(
+                    registerWarehouse.data.warehouseStatus,
+                    registerWarehouse.data.warehouseMessage,
+                  )}
+                  showIcon
+                />
+              )}
+
+              <div style={{ textAlign: 'right' }}>
+                <PrimaryButton
+                  htmlType="button"
+                  loading={savePickup.isPending || registerWarehouse.isPending}
+                  onClick={submitPickup}
+                >
+                  Save &amp; register with Delhivery
+                </PrimaryButton>
+              </div>
             </Space>
           </Card>
 
-          <Card title="Shipment creation">
+          <Card title="Shipment settings">
             <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
               <FieldRow
                 label="AWB trigger"
@@ -376,6 +426,26 @@ export function ConfigPage() {
                 </Space>
               </FieldRow>
 
+              <FieldRow
+                label="Pickup cutoff (IST)"
+                error={form.formState.errors.pickupCutoff?.message}
+                hint="Daily manifest cutoff, 24h HH:mm. Pending shipments are manifested for pickup at this time."
+              >
+                <Controller
+                  control={form.control}
+                  name="pickupCutoff"
+                  render={({ field, fieldState }) => (
+                    <Input
+                      {...field}
+                      value={field.value ?? ''}
+                      placeholder="10:00"
+                      style={{ maxWidth: 120 }}
+                      {...(fieldState.invalid ? { status: 'error' as const } : {})}
+                    />
+                  )}
+                />
+              </FieldRow>
+
               <Controller
                 control={form.control}
                 name="enabled"
@@ -392,34 +462,29 @@ export function ConfigPage() {
                   </div>
                 )}
               />
+
+              {saveSettings.error && (
+                <Alert type="error" message={(saveSettings.error as Error).message} showIcon />
+              )}
+              {saveSettings.isSuccess && (
+                <Alert type="success" message="Settings saved." showIcon />
+              )}
+
+              <div style={{ textAlign: 'right' }}>
+                <PrimaryButton
+                  htmlType="button"
+                  loading={saveSettings.isPending}
+                  onClick={submitSettings}
+                >
+                  Save settings
+                </PrimaryButton>
+              </div>
             </Space>
           </Card>
 
           {form.formState.errors.root && (
             <Alert type="warning" message={form.formState.errors.root.message} showIcon />
           )}
-          {update.error && (
-            <Alert type="error" message={(update.error as Error).message} showIcon />
-          )}
-          {update.isSuccess && (
-            <Alert
-              type={
-                update.data.warehouseStatus === 'failed'
-                  ? 'warning'
-                  : update.data.warehouseStatus === 'exists'
-                    ? 'info'
-                    : 'success'
-              }
-              message={warehouseAlert(update.data.warehouseStatus, update.data.warehouseMessage)}
-              showIcon
-            />
-          )}
-
-          <div style={{ textAlign: 'right' }}>
-            <PrimaryButton htmlType="submit" loading={update.isPending}>
-              Save configuration
-            </PrimaryButton>
-          </div>
         </Space>
       </form>
     </FormProvider>
@@ -459,17 +524,15 @@ function BoxDimInput({
   );
 }
 
-// The config is always saved locally; the warehouse outcome message is
-// Delhivery's OWN (surfaced verbatim). Static text is only a fallback for the
-// rare case where Delhivery returned no message at all.
-function warehouseAlert(
-  status: 'created' | 'exists' | 'updated' | 'failed',
-  message: string,
-): string {
+// Registration only runs after the PUT succeeded, so the config is always
+// saved locally; the warehouse outcome message is Delhivery's OWN (surfaced
+// verbatim). Static text is only a fallback for the rare case where Delhivery
+// returned no message at all.
+function warehouseAlert(status: WarehouseStatus, message: string): string {
   if (message) {
     return status === 'failed' ? `Saved locally. Delhivery: ${message}` : `Saved. ${message}`;
   }
-  const fallback: Record<'created' | 'exists' | 'updated' | 'failed', string> = {
+  const fallback: Record<WarehouseStatus, string> = {
     created: 'Pickup location registered with Delhivery.',
     exists: 'Pickup location already registered with Delhivery.',
     updated: 'Pickup address updated on Delhivery.',

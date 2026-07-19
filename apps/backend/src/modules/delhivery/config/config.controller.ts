@@ -11,12 +11,12 @@ import { CurrentMerchant } from '../../../core/common/decorators/merchant.decora
 import { ZodValidationPipe } from '../../../core/common/pipes/zod-validation.pipe';
 import { DelhiveryMerchantTokenGuard } from '../guards';
 import { DelhiverySdkService } from '../sdk/sdk.service';
-import { type UpdateConfigDto, updateConfigDtoSchema } from './delhivery-config.dto';
 import { DelhiveryConfigService } from './config.service';
+import { type UpdateConfigDto, updateConfigDtoSchema } from './delhivery-config.dto';
 
-/** The masked shape the admin sees — the raw token NEVER leaves the backend. */
+/** The masked shape the admin sees: the raw token NEVER leaves the backend. */
 type MaskedDelhiveryConfig = Omit<DelhiveryConfig, 'apiToken'> & {
-  /** `''` when unset, otherwise `••••` + last 4 chars — enough to recognize the key. */
+  /** `''` when unset, otherwise `••••` + last 4 chars, enough to recognize the key. */
   apiTokenMasked: string;
   hasApiToken: boolean;
 };
@@ -58,10 +58,10 @@ export class DelhiveryConfigController {
   }
 
   /**
-   * Save the config (token encrypted at rest) and best-effort register the
-   * pickup location as a Delhivery warehouse. Warehouse registration must not
-   * fail the save — the warehouse usually already exists on Delhivery's side
-   * (their API rejects duplicates), so its result is reported, not thrown.
+   * Persist the config (token encrypted at rest). Saving never talks to
+   * Delhivery: warehouse registration is its own explicit action
+   * (POST delhivery-config/warehouse), so editing operational settings
+   * cannot stall or alarm on a slow or unreachable carrier.
    */
   @Put('delhivery-config')
   @UseGuards(DelhiveryMerchantTokenGuard)
@@ -69,24 +69,27 @@ export class DelhiveryConfigController {
     @CurrentMerchant() merchant: Merchant,
     @Body(new ZodValidationPipe(updateConfigDtoSchema as unknown as ZodType<UpdateConfigDto>))
     body: UpdateConfigDto,
-  ): Promise<
-    MaskedDelhiveryConfig & {
-      warehouseRegistered: boolean;
-      warehouseStatus: 'created' | 'exists' | 'updated' | 'failed';
-      /** Delhivery's own message for the outcome — surfaced verbatim, not hardcoded. */
-      warehouseMessage: string;
-    }
-  > {
-    const saved = await this.config.upsert(merchant.id, body);
-    // syncWarehouse creates the warehouse (or, if the name already exists, edits it
-    // to match the saved pickup details) — idempotent and self-healing across saves.
+  ): Promise<MaskedDelhiveryConfig> {
+    return maskConfig(await this.config.upsert(merchant.id, body));
+  }
+
+  /**
+   * Register the saved pickup location as a Delhivery warehouse. Idempotent:
+   * creates the warehouse, or edits it to match the saved pickup details when
+   * the name already exists. The carrier outcome (Delhivery's own message,
+   * verbatim) is reported, never thrown; the saved config is untouched either way.
+   */
+  @Post('delhivery-config/warehouse')
+  @UseGuards(DelhiveryMerchantTokenGuard)
+  async registerWarehouse(@CurrentMerchant() merchant: Merchant): Promise<{
+    warehouseStatus: 'created' | 'exists' | 'updated' | 'failed';
+    warehouseMessage: string;
+  }> {
+    // Registration reads the saved pickup details, so a missing config row is
+    // a 404 (CONFIG_NOT_FOUND) before any carrier call is attempted.
+    await this.config.getByMerchantId(merchant.id);
     const warehouse = await this.sdk.syncWarehouse(merchant.id);
-    return {
-      ...maskConfig(saved),
-      warehouseRegistered: warehouse.ok,
-      warehouseStatus: warehouse.status,
-      warehouseMessage: warehouse.message,
-    };
+    return { warehouseStatus: warehouse.status, warehouseMessage: warehouse.message };
   }
 
   /** Validate the stored Delhivery token against the live API. */
