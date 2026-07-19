@@ -33,6 +33,16 @@ export interface ShipmentListResponse {
   pageSize: number;
 }
 
+/** A paid + unfulfilled order with no shipment yet, awaiting a manual AWB. */
+export interface PendingOrder {
+  orderId: string;
+  orderNumber: string;
+  customerName: string;
+  amountRupees: number;
+  city: string;
+  createdAt: string;
+}
+
 export function useShipments(page: number, status?: string) {
   const token = useMerchantStore((s) => s.token);
   return useQuery({
@@ -46,6 +56,21 @@ export function useShipments(page: number, status?: string) {
     // Retry only transient (network / 5xx) failures, and only a couple of
     // times, a retry FUNCTION overrides any `retry: false` client default,
     // so it must terminate on its own.
+    retry: (count, err) => {
+      const s = (err as { status?: number }).status;
+      return count < 2 && (!s || s >= 500);
+    },
+    refetchOnWindowFocus: false,
+  });
+}
+
+/** Paid + unfulfilled orders awaiting a manual AWB, GET /api/shipments/pending. */
+export function usePendingOrders() {
+  const token = useMerchantStore((s) => s.token);
+  return useQuery({
+    queryKey: queryKeys.pendingOrders(),
+    queryFn: () => api<{ items: PendingOrder[] }>('GET', '/api/shipments/pending'),
+    enabled: !!token,
     retry: (count, err) => {
       const s = (err as { status?: number }).status;
       return count < 2 && (!s || s >= 500);

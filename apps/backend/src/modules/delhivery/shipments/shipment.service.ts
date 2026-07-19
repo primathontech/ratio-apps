@@ -19,6 +19,16 @@ export interface OrderRef {
   orderNumber?: string | undefined;
 }
 
+/** A paid + unfulfilled order with no shipment yet, awaiting a manual AWB. */
+export interface PendingOrder {
+  orderId: string;
+  orderNumber: string;
+  customerName: string;
+  amountRupees: number;
+  city: string;
+  createdAt: string;
+}
+
 const PAGE_SIZE = 20;
 
 function str(v: unknown, fallback = ''): string {
@@ -96,7 +106,8 @@ export class DelhiveryShipmentService {
       orderNumber,
       paymentMode: payment.mode,
       codAmount: payment.codAmount,
-      totalAmount: Number(order.total_price ?? order.total_amount ?? 0) || payment.codAmount,
+      // paise → rupees (see mapPaymentMode).
+      totalAmount: Number(order.total_price ?? order.total_amount ?? 0) / 100 || payment.codAmount,
       weightGrams: pkg.weightGrams,
       dims: pkg.dims,
       hsnCode: pkg.hsnCode,
@@ -251,6 +262,51 @@ export class DelhiveryShipmentService {
       .offset((page - 1) * PAGE_SIZE)
       .execute()) as DelhiveryShipmentRow[];
     return { items, page, pageSize: PAGE_SIZE };
+  }
+
+  /**
+   * Paid + unfulfilled orders with no shipment row yet; the manual "Create
+   * AWB" worklist. Excludes already-shipped orders in one batch SELECT keyed
+   * on the UNIQUE order_number.
+   */
+  async listPendingOrders(merchantId: string): Promise<PendingOrder[]> {
+    const orders = await this.orders.listOrders(merchantId, {
+      financialStatus: 'paid',
+      fulfillmentStatus: 'unfulfilled',
+    });
+    const withNumbers = orders.map((order) => ({
+      order,
+      orderNumber: str(order.order_number ?? order.orderNumber, str(order.id)),
+    }));
+
+    const orderNumbers = withNumbers.map((o) => o.orderNumber).filter(Boolean);
+    const taken = new Set<string>();
+    if (orderNumbers.length > 0) {
+      const rows = (await this.handle.db
+        .selectFrom('delhivery_shipments')
+        .select('orderNumber')
+        .where('merchantId', '=', merchantId)
+        .where('orderNumber', 'in', orderNumbers)
+        .where('active', '=', true)
+        .execute()) as { orderNumber: string }[];
+      for (const r of rows) taken.add(r.orderNumber);
+    }
+
+    return withNumbers
+      .filter((o) => !taken.has(o.orderNumber))
+      .map(({ order, orderNumber }) => {
+        const address = (order.shipping_address ?? order.shippingAddress ?? {}) as Rec;
+        const customer = (order.customer ?? {}) as Rec;
+        const fullName = `${str(customer.first_name)} ${str(customer.last_name)}`.trim();
+        return {
+          orderId: str(order.id),
+          orderNumber,
+          customerName: fullName || str(address.name),
+          amountRupees: Number(order.total_price ?? order.total_amount ?? 0) / 100,
+          city: str(address.city),
+          createdAt: str(order.created_at ?? order.createdAt),
+        };
+      });
   }
 
   /** Shipment + its tracking timeline (for the admin detail view). */

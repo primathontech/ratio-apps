@@ -5,7 +5,12 @@ import type { ReactElement, ReactNode } from 'react';
 
 export function makeClient() {
   return new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    // retryDelay 0 keeps hook-level retry predicates (which override retry:false
+    // with a function) instant under test.
+    defaultOptions: {
+      queries: { retry: false, retryDelay: 0 },
+      mutations: { retry: false },
+    },
   });
 }
 

@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ShipmentRow } from '@/hooks/useShipments';
+import type { PendingOrder, ShipmentRow } from '@/hooks/useShipments';
 import { api, apiBlob } from '@/lib/api';
 import { useMerchantStore } from '@/stores/useMerchantStore';
 import { renderWithProviders } from '../test-utils';
@@ -33,10 +33,44 @@ function makeShipment(overrides: Partial<ShipmentRow> = {}): ShipmentRow {
   };
 }
 
+function makePendingOrder(overrides: Partial<PendingOrder> = {}): PendingOrder {
+  return {
+    orderId: 'ordr_42',
+    orderNumber: '2002',
+    customerName: 'Asha K',
+    amountRupees: 1499,
+    city: 'Bengaluru',
+    createdAt: '2026-07-02T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
 function routeShipments(items: ShipmentRow[]) {
   mockedApi.mockImplementation((method: string, path: string) => {
     if (method === 'GET' && path.startsWith('/api/shipments')) {
       return Promise.resolve({ items, page: 1, pageSize: 20 });
+    }
+    return Promise.resolve({});
+  });
+}
+
+/**
+ * Manual mode: awbTrigger=manual config + the pending-orders worklist. Pending
+ * is checked before the list path since both start with `/api/shipments`.
+ */
+function routeManual(pending: PendingOrder[], shipments: ShipmentRow[] = []) {
+  mockedApi.mockImplementation((method: string, path: string) => {
+    if (method === 'GET' && path === '/api/delhivery-config') {
+      return Promise.resolve({ awbTrigger: 'manual', enabled: true, hasApiToken: true });
+    }
+    if (method === 'GET' && path === '/api/shipments/pending') {
+      return Promise.resolve({ items: pending });
+    }
+    if (method === 'GET' && path.startsWith('/api/shipments')) {
+      return Promise.resolve({ items: shipments, page: 1, pageSize: 20 });
+    }
+    if (method === 'POST' && path === '/api/shipments') {
+      return Promise.resolve(makeShipment());
     }
     return Promise.resolve({});
   });
@@ -140,28 +174,142 @@ describe('ShipmentsPage', () => {
     expect(await screen.findByText(/shipments backend unavailable/)).toBeInTheDocument();
   });
 
-  // Manual mode support, create a shipment for an order from the screen.
-  it('creates a shipment manually via POST /api/shipments', async () => {
-    routeShipments([]);
-    mockedApi.mockImplementation((method: string, path: string) => {
-      if (method === 'GET' && path.startsWith('/api/shipments')) {
-        return Promise.resolve({ items: [], page: 1, pageSize: 20 });
-      }
-      if (method === 'POST' && path === '/api/shipments') {
-        return Promise.resolve(makeShipment());
-      }
-      return Promise.resolve({});
-    });
+  // Manual mode, the pending-orders worklist surfaces paid+unfulfilled orders.
+  it('renders the "Orders awaiting AWB" list in manual mode', async () => {
+    routeManual([makePendingOrder({ orderNumber: '2002', customerName: 'Asha K' })]);
     renderWithProviders(<ShipmentsPage />);
 
-    const input = await screen.findByPlaceholderText(/ordr_/);
-    fireEvent.change(input, { target: { value: 'ordr_42' } });
-    fireEvent.click(screen.getByRole('button', { name: /Create shipment/ }));
+    expect(await screen.findByText('Orders awaiting AWB')).toBeInTheDocument();
+    expect(await screen.findByText('2002')).toBeInTheDocument();
+    expect(screen.getByText('Asha K')).toBeInTheDocument();
+    expect(screen.getByText('₹1499')).toBeInTheDocument();
+    expect(screen.getByText('Bengaluru')).toBeInTheDocument();
+  });
+
+  // Manual mode, "Create AWB" reuses POST /api/shipments {order_id}.
+  it('creates an AWB via POST /api/shipments {order_id}', async () => {
+    routeManual([makePendingOrder({ orderId: 'ordr_42' })]);
+    renderWithProviders(<ShipmentsPage />);
+
+    const button = await screen.findByRole('button', { name: /Create AWB/ });
+    fireEvent.click(button);
 
     await waitFor(() => {
       const post = mockedApi.mock.calls.find((c) => c[0] === 'POST' && c[1] === '/api/shipments');
       expect(post).toBeDefined();
       expect(post?.[2]).toEqual({ order_id: 'ordr_42' });
     });
+  });
+
+  // Manual mode, a successful create refetches the pending list.
+  it('refetches the pending list after a successful create', async () => {
+    routeManual([makePendingOrder({ orderId: 'ordr_42' })]);
+    renderWithProviders(<ShipmentsPage />);
+
+    const button = await screen.findByRole('button', { name: /Create AWB/ });
+    fireEvent.click(button);
+
+    await waitFor(() => {
+      const gets = mockedApi.mock.calls.filter(
+        (c) => c[0] === 'GET' && c[1] === '/api/shipments/pending',
+      );
+      expect(gets.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  // Manual mode, empty worklist shows the empty state.
+  it('shows the empty state when no orders await an AWB', async () => {
+    routeManual([]);
+    renderWithProviders(<ShipmentsPage />);
+
+    expect(await screen.findByText('No orders awaiting AWB')).toBeInTheDocument();
+  });
+
+  // Manual mode, the pending fetch is loading.
+  it('shows a loading state while pending orders are fetched', async () => {
+    mockedApi.mockImplementation((method: string, path: string) => {
+      if (method === 'GET' && path === '/api/delhivery-config') {
+        return Promise.resolve({ awbTrigger: 'manual', enabled: true, hasApiToken: true });
+      }
+      if (method === 'GET' && path === '/api/shipments/pending') {
+        return new Promise(() => {});
+      }
+      if (method === 'GET' && path.startsWith('/api/shipments')) {
+        return Promise.resolve({ items: [], page: 1, pageSize: 20 });
+      }
+      return Promise.resolve({});
+    });
+    renderWithProviders(<ShipmentsPage />);
+
+    expect(await screen.findByText(/Loading orders/)).toBeInTheDocument();
+  });
+
+  // Manual mode, a failed pending fetch surfaces an error with a working Retry.
+  // A 4xx is not retried, so exactly one fetch happens per attempt.
+  it('shows an error with a working Retry when the pending fetch fails', async () => {
+    mockedApi.mockImplementation((method: string, path: string) => {
+      if (method === 'GET' && path === '/api/delhivery-config') {
+        return Promise.resolve({ awbTrigger: 'manual', enabled: true, hasApiToken: true });
+      }
+      if (method === 'GET' && path === '/api/shipments/pending') {
+        return Promise.reject(Object.assign(new Error('pending unavailable'), { status: 403 }));
+      }
+      if (method === 'GET' && path.startsWith('/api/shipments')) {
+        return Promise.resolve({ items: [], page: 1, pageSize: 20 });
+      }
+      return Promise.resolve({});
+    });
+    renderWithProviders(<ShipmentsPage />);
+
+    expect(await screen.findByText('Could not load orders')).toBeInTheDocument();
+    const pendingGets = () =>
+      mockedApi.mock.calls.filter((c) => c[0] === 'GET' && c[1] === '/api/shipments/pending');
+    expect(pendingGets()).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole('button', { name: /Retry/ }));
+    await waitFor(() => expect(pendingGets().length).toBeGreaterThanOrEqual(2));
+  });
+
+  // usePendingOrders retry predicate: a 5xx is retried up to the count-2 cap.
+  it('retries the pending fetch on a 5xx', async () => {
+    mockedApi.mockImplementation((method: string, path: string) => {
+      if (method === 'GET' && path === '/api/delhivery-config') {
+        return Promise.resolve({ awbTrigger: 'manual', enabled: true, hasApiToken: true });
+      }
+      if (method === 'GET' && path === '/api/shipments/pending') {
+        return Promise.reject(Object.assign(new Error('pending upstream'), { status: 502 }));
+      }
+      if (method === 'GET' && path.startsWith('/api/shipments')) {
+        return Promise.resolve({ items: [], page: 1, pageSize: 20 });
+      }
+      return Promise.resolve({});
+    });
+    renderWithProviders(<ShipmentsPage />);
+
+    expect(await screen.findByText('Could not load orders')).toBeInTheDocument();
+    await waitFor(() => {
+      const gets = mockedApi.mock.calls.filter(
+        (c) => c[0] === 'GET' && c[1] === '/api/shipments/pending',
+      );
+      // initial + 2 retries (predicate caps at count < 2).
+      expect(gets).toHaveLength(3);
+    });
+  });
+
+  // Auto mode, the worklist is not rendered.
+  it('does not render the pending-orders list in auto mode', async () => {
+    mockedApi.mockImplementation((method: string, path: string) => {
+      if (method === 'GET' && path === '/api/delhivery-config') {
+        return Promise.resolve({ awbTrigger: 'auto', enabled: true, hasApiToken: true });
+      }
+      if (method === 'GET' && path.startsWith('/api/shipments')) {
+        return Promise.resolve({ items: [], page: 1, pageSize: 20 });
+      }
+      return Promise.resolve({});
+    });
+    renderWithProviders(<ShipmentsPage />);
+
+    await waitFor(() => expect(screen.getByText('No shipments yet')).toBeInTheDocument());
+    expect(screen.queryByText('Orders awaiting AWB')).toBeNull();
   });
 });

@@ -3,8 +3,6 @@ import {
   Button,
   Card,
   Empty,
-  Input,
-  PrimaryButton,
   Select,
   Space,
   Table,
@@ -17,9 +15,12 @@ import {
 } from '@shared/constants/delhivery-events';
 import { createFileRoute } from '@tanstack/react-router';
 import { useState } from 'react';
+import { useConfig } from '@/hooks/useConfig';
 import {
+  type PendingOrder,
   type ShipmentRow,
   useCreateShipment,
+  usePendingOrders,
   useRequestPickup,
   useShipments,
 } from '@/hooks/useShipments';
@@ -68,6 +69,7 @@ export function ShipmentsPage() {
   const [page, setPage] = useState(1);
   const list = useShipments(page, status === 'ALL' ? undefined : status);
   const pickup = useRequestPickup();
+  const trigger = useConfig().data?.awbTrigger;
 
   const items = list.data?.items ?? [];
   const pageSize = list.data?.pageSize ?? 20;
@@ -158,7 +160,7 @@ export function ShipmentsPage() {
         </Space>
       </Card>
 
-      <ManualCreateCard />
+      {trigger === 'manual' && <PendingOrdersCard />}
     </Space>
   );
 }
@@ -284,41 +286,85 @@ function ShipmentsTable({ items }: { items: ShipmentRow[] }) {
   );
 }
 
-function ManualCreateCard() {
+function PendingOrdersCard() {
+  const pending = usePendingOrders();
   const create = useCreateShipment();
-  const [orderId, setOrderId] = useState('');
+  const items = pending.data?.items ?? [];
+
+  const columns = [
+    {
+      title: 'Order',
+      dataIndex: 'orderNumber',
+      key: 'orderNumber',
+      render: (value: unknown) => <Typography.Text strong>{value as string}</Typography.Text>,
+    },
+    {
+      title: 'Customer',
+      dataIndex: 'customerName',
+      key: 'customerName',
+    },
+    {
+      title: 'Amount',
+      dataIndex: 'amountRupees',
+      key: 'amountRupees',
+      render: (value: unknown) => <Typography.Text>{`₹${value as number}`}</Typography.Text>,
+    },
+    {
+      title: 'City',
+      dataIndex: 'city',
+      key: 'city',
+    },
+    {
+      title: 'Created',
+      dataIndex: 'createdAt',
+      key: 'createdAt',
+      render: (value: unknown) => (
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          {new Date(value as string).toLocaleString()}
+        </Typography.Text>
+      ),
+    },
+    {
+      title: 'Actions',
+      dataIndex: 'orderId',
+      key: 'actions',
+      render: (_v: unknown, record: unknown) => {
+        const row = record as PendingOrder;
+        return (
+          <Button
+            size="small"
+            loading={create.isPending && create.variables?.order_id === row.orderId}
+            onClick={() => create.mutate({ order_id: row.orderId })}
+          >
+            Create AWB
+          </Button>
+        );
+      },
+    },
+  ];
 
   return (
-    <Card
-      title="Create shipment manually"
-      extra={
-        <Typography.Text type="secondary">
-          For AWB trigger = manual, or to re-ship an order.
-        </Typography.Text>
-      }
-    >
+    <Card title="Orders awaiting AWB">
       <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
-        <Space wrap>
-          <Input
-            value={orderId}
-            onChange={(e) => setOrderId(e.target.value)}
-            placeholder="ordr_… (Ratio order id)"
-            style={{ width: 280 }}
-          />
-          <PrimaryButton
-            loading={create.isPending}
-            disabled={!orderId.trim()}
-            onClick={() => create.mutate({ order_id: orderId.trim() })}
-          >
-            Create shipment
-          </PrimaryButton>
-        </Space>
         {create.error && <Alert type="error" message={(create.error as Error).message} showIcon />}
-        {create.isSuccess && (
+        {pending.isError ? (
           <Alert
-            type="success"
+            type="error"
             showIcon
-            message={`Shipment created for order ${create.data.orderNumber || create.data.orderId}${create.data.awb ? `, AWB ${create.data.awb}` : ''}.`}
+            message="Could not load orders"
+            description={(pending.error as Error).message}
+            action={<Button onClick={() => void pending.refetch()}>Retry</Button>}
+          />
+        ) : pending.isLoading ? (
+          <Typography.Text type="secondary">Loading orders…</Typography.Text>
+        ) : (
+          <Table
+            rowKey="orderId"
+            columns={columns}
+            dataSource={items}
+            pagination={false}
+            scroll={{ x: 'max-content' }}
+            locale={{ emptyText: <Empty description="No orders awaiting AWB" /> }}
           />
         )}
       </Space>

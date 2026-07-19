@@ -28,7 +28,7 @@ const paidOrder = {
   order_number: '1001',
   source: 'Online Store',
   payment_method: 'COD',
-  total_price: 1499,
+  total_price: 149900, // paise → ₹1499
   phone: '9999999999',
   shipping_address: {
     name: 'Asha K',
@@ -59,11 +59,16 @@ function fakeHandle(init: { shipmentRow?: DelhiveryShipmentRow } = {}) {
   const recorder: {
     inserted?: Record<string, unknown>;
     updates: Record<string, unknown>[];
-  } = { updates: [] };
+    selectWheres: unknown[][];
+  } = { updates: [], selectWheres: [] };
 
   const selectChain = {
     selectAll: () => selectChain,
-    where: () => selectChain,
+    select: () => selectChain,
+    where: (...args: unknown[]) => {
+      recorder.selectWheres.push(args);
+      return selectChain;
+    },
     limit: () => selectChain,
     orderBy: () => selectChain,
     offset: () => selectChain,
@@ -98,6 +103,7 @@ function makeService(opts: {
   shipmentRow?: DelhiveryShipmentRow;
   order?: Record<string, unknown> | null;
   createShipment?: unknown;
+  pendingOrders?: Record<string, unknown>[];
 } = {}) {
   const { handle, holder, recorder } = fakeHandle(
     opts.shipmentRow !== undefined ? { shipmentRow: opts.shipmentRow } : {},
@@ -111,6 +117,7 @@ function makeService(opts: {
   } as unknown as DelhiverySdkService;
   const orders = {
     getOrder: vi.fn(async () => (opts.order === undefined ? paidOrder : opts.order)),
+    listOrders: vi.fn(async () => opts.pendingOrders ?? []),
     getProduct: vi.fn(async () => product),
     patchOrder: vi.fn(async () => undefined),
     setExternalOrderId: vi.fn(async () => undefined),
@@ -256,5 +263,74 @@ describe('DelhiveryShipmentService.cancelForOrder (webhook.cancelledCancelsAwb)'
     const { service, sdk } = makeService();
     expect(await service.cancelForOrder('mer_1', { orderId: 'ord_x', orderNumber: '9' })).toBeNull();
     expect(sdk.cancelShipment).not.toHaveBeenCalled();
+  });
+});
+
+describe('DelhiveryShipmentService.listPendingOrders', () => {
+  const alreadyShipped = {
+    // orderId differs from order_number so the exclusion is pinned to orderNumber.
+    id: 'ord_shipped',
+    order_number: '1001',
+    total_price: 199900,
+    customer: { first_name: 'Ravi', last_name: 'Shipped' },
+    shipping_address: { city: 'Pune' },
+    created_at: '2026-07-01T00:00:00.000Z',
+  };
+  const awaiting = {
+    id: 'ord_2',
+    order_number: '2002',
+    total_price: 149900, // paise → ₹1499
+    customer: { first_name: 'Asha', last_name: 'K' },
+    shipping_address: { city: 'Bengaluru' },
+    created_at: '2026-07-02T00:00:00.000Z',
+  };
+
+  it('excludes already-shipped orders and maps the lean paise→rupees shape', async () => {
+    // holder.row = existingActive (order_number 1001) → the batch SELECT returns it.
+    const { service, orders, recorder } = makeService({
+      shipmentRow: existingActive,
+      pendingOrders: [alreadyShipped, awaiting],
+    });
+    const items = await service.listPendingOrders('mer_1');
+
+    expect(orders.listOrders).toHaveBeenCalledWith('mer_1', {
+      financialStatus: 'paid',
+      fulfillmentStatus: 'unfulfilled',
+    });
+    // The batch SELECT is scoped to the merchant, the exact order numbers, and
+    // only live shipments — a cancelled row must not exclude its order.
+    expect(recorder.selectWheres).toEqual([
+      ['merchantId', '=', 'mer_1'],
+      ['orderNumber', 'in', ['1001', '2002']],
+      ['active', '=', true],
+    ]);
+    expect(items).toEqual([
+      {
+        orderId: 'ord_2',
+        orderNumber: '2002',
+        customerName: 'Asha K',
+        amountRupees: 1499,
+        city: 'Bengaluru',
+        createdAt: '2026-07-02T00:00:00.000Z',
+      },
+    ]);
+  });
+
+  it('falls back to the shipping-address name when the customer name is empty', async () => {
+    const { service } = makeService({
+      pendingOrders: [
+        {
+          id: 'ord_3',
+          order_number: '3003',
+          total_price: 50000,
+          customer: {},
+          shipping_address: { name: 'Meera P', city: 'Chennai' },
+          created_at: '2026-07-03T00:00:00.000Z',
+        },
+      ],
+    });
+    const items = await service.listPendingOrders('mer_1');
+
+    expect(items[0].customerName).toBe('Meera P');
   });
 });

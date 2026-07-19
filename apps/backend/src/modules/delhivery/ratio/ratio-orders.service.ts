@@ -1,6 +1,6 @@
 import { HttpException, Inject, Injectable, Logger } from '@nestjs/common';
 import { z } from 'zod';
-import type { RatioClient } from '../../../core/ratio-client/ratio.client';
+import type { RatioClient, RatioRequestOptions } from '../../../core/ratio-client/ratio.client';
 import { RatioTokenProvider } from '../oauth/ratio-token.provider';
 import { DELHIVERY_RATIO } from '../tokens';
 
@@ -25,6 +25,11 @@ export interface RestockItem {
  */
 export interface RatioOrdersPort {
   getOrder(merchantId: string, orderId: string): Promise<Rec | null>;
+  /** Single-`v1` `GET /api/v1/orders` list, optionally filtered by status. */
+  listOrders(
+    merchantId: string,
+    opts: { financialStatus?: string; fulfillmentStatus?: string },
+  ): Promise<Rec[]>;
   getProduct(merchantId: string, productId: string): Promise<Rec | null>;
   /** `PATCH /orders/{id}` — mirror fulfillment_status + tracking summary. */
   patchOrder(merchantId: string, orderId: string, patch: Rec): Promise<void>;
@@ -48,8 +53,8 @@ function isUpstreamNotFound(err: unknown): boolean {
 }
 
 /**
- * Concrete {@link RatioOrdersPort} over the platform REST API (same
- * `/api/v1/v1/...` mount the google module's product source uses).
+ * {@link RatioOrdersPort} over the platform REST API. Per the ecosystem spec,
+ * orders are single-`v1` (`/api/v1/orders/{id}`); products stay double-`v1`.
  */
 @Injectable()
 export class RatioOrdersService implements RatioOrdersPort {
@@ -60,13 +65,18 @@ export class RatioOrdersService implements RatioOrdersPort {
     @Inject(DELHIVERY_RATIO) private readonly ratio: RatioClient,
   ) {}
 
-  async getOrder(merchantId: string, orderId: string): Promise<Rec | null> {
+  /** Bearer token + tenant header; the platform 400s without `gk-merchant-id`. */
+  private async authOpts(merchantId: string): Promise<RatioRequestOptions> {
     const accessToken = await this.tokens.getAccessToken(merchantId);
+    return { accessToken, headers: { 'gk-merchant-id': merchantId } };
+  }
+
+  async getOrder(merchantId: string, orderId: string): Promise<Rec | null> {
     try {
       const env = await this.ratio.request(
-        `/api/v1/v1/orders/${encodeURIComponent(orderId)}`,
+        `/api/v1/orders/${encodeURIComponent(orderId)}`,
         anyObjectSchema,
-        { accessToken },
+        await this.authOpts(merchantId),
       );
       const order = (env as Rec).order ?? (env as Rec).data ?? env;
       return order && typeof order === 'object' ? (order as Rec) : null;
@@ -76,13 +86,33 @@ export class RatioOrdersService implements RatioOrdersPort {
     }
   }
 
+  async listOrders(
+    merchantId: string,
+    opts: { financialStatus?: string; fulfillmentStatus?: string },
+  ): Promise<Rec[]> {
+    const qs = new URLSearchParams({ sort_field: 'created_at', sort_direction: 'desc' });
+    if (opts.financialStatus) qs.set('financial_status', opts.financialStatus);
+    if (opts.fulfillmentStatus) qs.set('fulfillment_status', opts.fulfillmentStatus);
+    try {
+      const env = await this.ratio.request(
+        `/api/v1/orders?${qs.toString()}`,
+        anyObjectSchema,
+        await this.authOpts(merchantId),
+      );
+      const list = (env as Rec).orders ?? (env as Rec).data ?? env;
+      return Array.isArray(list) ? (list as Rec[]) : [];
+    } catch (err) {
+      if (isUpstreamNotFound(err)) return [];
+      throw err;
+    }
+  }
+
   async getProduct(merchantId: string, productId: string): Promise<Rec | null> {
-    const accessToken = await this.tokens.getAccessToken(merchantId);
     try {
       const env = await this.ratio.request(
         `/api/v1/v1/products/${encodeURIComponent(productId)}?show_variants=true`,
         anyObjectSchema,
-        { accessToken },
+        await this.authOpts(merchantId),
       );
       const product = (env as Rec).product ?? (env as Rec).data ?? env;
       return product && typeof product === 'object' ? (product as Rec) : null;
@@ -93,27 +123,25 @@ export class RatioOrdersService implements RatioOrdersPort {
   }
 
   async patchOrder(merchantId: string, orderId: string, patch: Rec): Promise<void> {
-    const accessToken = await this.tokens.getAccessToken(merchantId);
-    await this.ratio.request(`/api/v1/v1/orders/${encodeURIComponent(orderId)}`, anyObjectSchema, {
+    await this.ratio.request(`/api/v1/orders/${encodeURIComponent(orderId)}`, anyObjectSchema, {
+      ...(await this.authOpts(merchantId)),
       method: 'PATCH',
       body: patch,
-      accessToken,
     });
   }
 
   async setExternalOrderId(merchantId: string, orderId: string, externalId: string): Promise<void> {
-    const accessToken = await this.tokens.getAccessToken(merchantId);
     await this.ratio.request(
-      `/api/v1/v1/orders/${encodeURIComponent(orderId)}/external-id`,
+      `/api/v1/orders/${encodeURIComponent(orderId)}/external-id`,
       anyObjectSchema,
-      { method: 'PATCH', body: { external_order_id: externalId }, accessToken },
+      { ...(await this.authOpts(merchantId)), method: 'PATCH', body: { external_order_id: externalId } },
     );
   }
 
   async incrementStock(merchantId: string, items: RestockItem[]): Promise<void> {
     if (items.length === 0) return;
-    const accessToken = await this.tokens.getAccessToken(merchantId);
     await this.ratio.request('/api/v1/v1/inventory/increment_stock', anyObjectSchema, {
+      ...(await this.authOpts(merchantId)),
       method: 'POST',
       body: {
         items: items.map((i) => ({
@@ -122,16 +150,14 @@ export class RatioOrdersService implements RatioOrdersPort {
           quantity: i.quantity,
         })),
       },
-      accessToken,
     });
   }
 
   async createRefund(merchantId: string, orderId: string): Promise<void> {
-    const accessToken = await this.tokens.getAccessToken(merchantId);
     await this.ratio.request(
-      `/api/v1/v1/orders/${encodeURIComponent(orderId)}/refunds`,
+      `/api/v1/orders/${encodeURIComponent(orderId)}/refunds`,
       anyObjectSchema,
-      { method: 'POST', body: { reason: 'rto_completed' }, accessToken },
+      { ...(await this.authOpts(merchantId)), method: 'POST', body: { reason: 'rto_completed' } },
     );
     this.logger.log({ msg: 'refund triggered for RTO', merchantId, orderId });
   }

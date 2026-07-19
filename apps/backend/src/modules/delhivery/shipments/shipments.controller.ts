@@ -19,7 +19,7 @@ import type { DelhiveryShipmentRow, DelhiveryTrackingEventRow } from '../db/type
 import { DelhiveryMerchantTokenGuard } from '../guards';
 import { PickupCron } from '../pickup/pickup.cron';
 import { DelhiverySdkService } from '../sdk/sdk.service';
-import { DelhiveryShipmentService } from './shipment.service';
+import { DelhiveryShipmentService, type PendingOrder } from './shipment.service';
 
 const listQuerySchema = z.object({
   page: z.coerce.number().int().positive().optional(),
@@ -93,6 +93,12 @@ export class DelhiveryShipmentsController {
    * `:awb` is validated and ownership-checked against the merchant's own
    * shipments before any upstream call.
    */
+  /** Paid + unfulfilled orders awaiting a manual AWB (manual trigger mode). */
+  @Get('shipments/pending')
+  async pending(@CurrentMerchant() merchant: Merchant): Promise<{ items: PendingOrder[] }> {
+    return { items: await this.shipments.listPendingOrders(merchant.id) };
+  }
+
   @Get('shipments/:awb/label')
   async label(
     @CurrentMerchant() merchant: Merchant,
