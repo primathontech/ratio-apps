@@ -390,7 +390,7 @@ export function ConfigPage() {
               <FieldRow
                 label="AWB trigger"
                 error={form.formState.errors.awbTrigger?.message}
-                hint="Auto creates the AWB as soon as an order is paid; Manual leaves creation to you on the Shipments screen."
+                hint="Auto creates the AWB when an order is paid. Manual lists your paid orders on the Shipments screen so you create each AWB yourself."
               >
                 <Controller
                   control={form.control}
@@ -401,7 +401,7 @@ export function ConfigPage() {
                       onChange={(e) => field.onChange(e.target.value as 'auto' | 'manual')}
                     >
                       <RadioButton value="auto">Auto: AWB on paid order</RadioButton>
-                      <RadioButton value="manual">Manual: create from Shipments</RadioButton>
+                      <RadioButton value="manual">Manual: create per order</RadioButton>
                     </RadioGroup>
                   )}
                 />

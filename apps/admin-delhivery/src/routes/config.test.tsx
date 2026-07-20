@@ -116,7 +116,7 @@ describe('ConfigPage', () => {
     fireEvent.change(screen.getByPlaceholderText(/Delhivery Express B2C token/), {
       target: { value: 'tok-123' },
     });
-    fireEvent.click(screen.getByRole('radio', { name: /Manual: create from Shipments/ }));
+    fireEvent.click(screen.getByRole('radio', { name: /Manual: create per order/ }));
     fireEvent.click(screen.getByRole('button', { name: /Save settings/ }));
 
     await waitFor(() => {
