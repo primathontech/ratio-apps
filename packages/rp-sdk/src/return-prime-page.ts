@@ -90,27 +90,53 @@ function mountPortalIframe(mount: HTMLElement, portalUrl: string): Promise<boole
   });
 }
 
-/** Watches `mount` for its content being wiped out from under the SDK after it was already
- *  populated (e.g. a Next.js hydration correction reconciling `[data-rp-mount]` back to its
- *  own empty virtual-DOM version, discarding the iframe we just inserted). This is a distinct
- *  concern from `waitForMount()`'s observer, which only watches for the mount *appearing*.
- *  On detecting a wipe, re-applies whatever was showing before: a fresh iframe (re-running the
- *  same load/error/timeout race) if the portal was up, or the same message otherwise. */
-function watchForExternalWipe(mount: HTMLElement, restore: () => void): void {
+/** Watches for the mount's content being wiped out from under the SDK after it was already
+ *  populated. This covers two distinct ways a Next.js hydration correction can discard our
+ *  work: (1) `[data-rp-mount]`'s children get cleared but the element itself is reused, or
+ *  (2) the whole element gets discarded and replaced with a fresh node from React's own
+ *  virtual DOM (a different node identity entirely — observing the old node's own childList
+ *  would never fire for this case, since the mutation happens on its *parent*). Observing
+ *  `document.body` with `subtree: true` and re-querying `[data-rp-mount]` fresh on every
+ *  mutation handles both: a same-node wipe still resolves to the same element with 0 children;
+ *  a full replacement resolves to the new element, which also starts with 0 children.
+ *  This is a distinct concern from `waitForMount()`'s observer, which only watches for the
+ *  mount *appearing* for the first time. On detecting a wipe, re-applies whatever was showing
+ *  before: a fresh iframe (re-running the same load/error/timeout race) if the portal was up,
+ *  or the same message otherwise — into whichever element is actually in the document now. */
+// Module-scoped so a second `syncReturnPrimePage()` run (there's only ever one per real page
+// load in production, but tests re-invoke it repeatedly against a reused module instance)
+// disconnects the previous observer instead of piling up — without this, a stale observer
+// from an earlier run reacts to unrelated later DOM resets and re-inserts stale content.
+let activeWipeObserver: MutationObserver | null = null;
+
+function watchForExternalWipe(restore: (mount: HTMLElement) => void): void {
+  activeWipeObserver?.disconnect();
   let selfWriting = false;
 
   const observer = new MutationObserver(() => {
     if (selfWriting) return;
-    if (mount.children.length > 0) return; // still has content — not a wipe.
+    const current = document.querySelector<HTMLElement>('[data-rp-mount]');
+    if (!current || current.children.length > 0) return; // gone, or already has content — not an actionable wipe.
 
     selfWriting = true;
     try {
-      restore();
+      restore(current);
     } finally {
       selfWriting = false;
     }
   });
-  observer.observe(mount, { childList: true });
+  activeWipeObserver = observer;
+  observer.observe(document.body, { childList: true, subtree: true });
+}
+
+/** Test-only: disconnects any live wipe-observer. There's exactly one real page load in
+ *  production (nothing to reset), but a test file reruns `syncReturnPrimePage()` repeatedly
+ *  against the same long-lived jsdom `document` — without disconnecting between runs, a
+ *  stale observer keeps firing (and eventually throws once that test's environment tears
+ *  down), fires on unrelated later tests' DOM resets, and reinserts stale content. */
+export function __disconnectWipeObserverForTests(): void {
+  activeWipeObserver?.disconnect();
+  activeWipeObserver = null;
 }
 
 export async function syncReturnPrimePage(): Promise<void> {
@@ -123,14 +149,14 @@ export async function syncReturnPrimePage(): Promise<void> {
   const { adapterUrl, store } = scriptConfig;
   if (!adapterUrl || !store) {
     renderMessage(mount, FALLBACK_MESSAGE);
-    watchForExternalWipe(mount, () => renderMessage(mount, FALLBACK_MESSAGE));
+    watchForExternalWipe((freshMount) => renderMessage(freshMount, FALLBACK_MESSAGE));
     return;
   }
 
   const enabled = await fetchEnabled(adapterUrl, store);
   if (!enabled) {
     renderMessage(mount, UNAVAILABLE_MESSAGE);
-    watchForExternalWipe(mount, () => renderMessage(mount, UNAVAILABLE_MESSAGE));
+    watchForExternalWipe((freshMount) => renderMessage(freshMount, UNAVAILABLE_MESSAGE));
     return;
   }
 
@@ -143,7 +169,7 @@ export async function syncReturnPrimePage(): Promise<void> {
   const portalUrl = `${adapterUrl.replace(/\/$/, '')}/rp/customer/portal?${params.toString()}`;
 
   await mountPortalIframe(mount, portalUrl);
-  watchForExternalWipe(mount, () => {
-    void mountPortalIframe(mount, portalUrl);
+  watchForExternalWipe((freshMount) => {
+    void mountPortalIframe(freshMount, portalUrl);
   });
 }

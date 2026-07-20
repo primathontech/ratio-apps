@@ -33,9 +33,11 @@ describe('syncReturnPrimePage', () => {
     fetchEnabled.mockReset();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+    const { __disconnectWipeObserverForTests } = await import('./return-prime-page');
+    __disconnectWipeObserverForTests();
   });
 
   it('shows the unavailable message when fetchEnabled resolves false', async () => {
@@ -183,5 +185,39 @@ describe('syncReturnPrimePage', () => {
     }
 
     expect(mount.querySelectorAll('iframe').length).toBe(1);
+  });
+
+  it('recovers when the whole mount node is replaced (not just its children cleared) — e.g. React swapping in a fresh node from its own vdom during a hydration correction', async () => {
+    fetchEnabled.mockResolvedValue(true);
+    const { syncReturnPrimePage } = await import('./return-prime-page');
+
+    const syncPromise = syncReturnPrimePage();
+    const originalMount = document.querySelector('[data-rp-mount]') as HTMLElement;
+    let iframe: HTMLIFrameElement | null = null;
+    for (let i = 0; i < 10 && !iframe; i++) {
+      await Promise.resolve();
+      iframe = originalMount.querySelector('iframe');
+    }
+    expect(iframe).not.toBeNull();
+    const firstSrc = iframe?.src;
+    iframe?.dispatchEvent(new Event('load'));
+    await syncPromise;
+
+    // Simulate React discarding the entire node (not clearing its children) and
+    // replacing it with a fresh, empty one of its own — the node identity changes.
+    const freshMount = document.createElement('div');
+    freshMount.setAttribute('data-rp-mount', '');
+    originalMount.replaceWith(freshMount);
+    expect(document.body.contains(originalMount)).toBe(false);
+    expect(freshMount.querySelector('iframe')).toBeNull();
+
+    let recovered: HTMLIFrameElement | null = null;
+    for (let i = 0; i < 20 && !recovered; i++) {
+      await Promise.resolve();
+      recovered = document.querySelector('[data-rp-mount] iframe');
+    }
+    expect(recovered).not.toBeNull();
+    expect(recovered?.src).toBe(firstSrc);
+    expect(document.querySelectorAll('[data-rp-mount]').length).toBe(1);
   });
 });
