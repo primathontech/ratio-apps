@@ -96,7 +96,11 @@ export class RpPortalController {
         reply.type('text/html').send(UNAVAILABLE_HTML);
         return;
       }
-      reply.redirect(prefillQs ? `${target}?${prefillQs}` : target);
+      // Explicit 302: Fastify's reply.redirect() only defaults to 302 when no status has been
+      // set on the reply yet — NestJS's Fastify adapter already touches the reply's status
+      // before a @Res()-injected handler runs, so the implicit default silently becomes
+      // whatever that leftover status is (200) instead of a real redirect the browser follows.
+      reply.redirect(prefillQs ? `${target}?${prefillQs}` : target, 302);
       return;
     }
     const baseUrl = this.config.get('RP_BASE_URL', { infer: true }) as string;
@@ -107,6 +111,6 @@ export class RpPortalController {
       return;
     }
     const params = [shop ? `shop=${encodeURIComponent(shop)}` : '', prefillQs].filter(Boolean).join('&');
-    reply.redirect(`${baseUrl}/os/v1/customer-portal${params ? `?${params}` : ''}`);
+    reply.redirect(`${baseUrl}/os/v1/customer-portal${params ? `?${params}` : ''}`, 302);
   }
 }
