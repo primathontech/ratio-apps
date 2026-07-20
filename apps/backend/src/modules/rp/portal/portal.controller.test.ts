@@ -61,7 +61,7 @@ describe('RpPortalController.portal', () => {
       await controller.portal(reply, 'sandbox.dev.gokwik.io');
 
       expect(portalHealth.checkHealthy).toHaveBeenCalledWith('https://dev-rp.example/sandbox.dev.gokwik.io');
-      expect(reply.redirect).toHaveBeenCalledWith('https://dev-rp.example/sandbox.dev.gokwik.io');
+      expect(reply.redirect).toHaveBeenCalledWith('https://dev-rp.example/sandbox.dev.gokwik.io', 302);
       expect(reply.send).not.toHaveBeenCalled();
     });
 
@@ -76,6 +76,7 @@ describe('RpPortalController.portal', () => {
       );
       expect(reply.redirect).toHaveBeenCalledWith(
         'https://api.returnprime.co/os/v1/customer-portal?shop=sandbox.dev.gokwik.io',
+        302,
       );
       expect(reply.send).not.toHaveBeenCalled();
     });
@@ -97,6 +98,7 @@ describe('RpPortalController.portal', () => {
       expect(getOrder).toHaveBeenCalledWith('m1', 'ordr_XXXX');
       expect(reply.redirect).toHaveBeenCalledWith(
         'https://api.returnprime.co/os/v1/customer-portal?shop=sandbox.dev.gokwik.io&order=%231234',
+        302,
       );
     });
   });
