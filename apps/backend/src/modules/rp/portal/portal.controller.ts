@@ -88,10 +88,13 @@ export class RpPortalController {
     if (portalUrl) {
       const base = portalUrl.replace(/\/$/, '');
       const target = shop ? `${base}/${encodeURIComponent(shop)}` : base;
-      // Health-check the raw target (pre-prefillQs — order/email don't affect whether the
-      // portal shell or its assets are reachable). Fails open on any inconclusive signal, so
-      // this only ever suppresses the redirect on a definitive negative.
-      const healthy = await this.portalHealth.checkHealthy(target);
+      // TEMPORARILY DISABLED: health check was in a real, observed race with the client-side
+      // self-heal MutationObserver (packages/rp-sdk) — a hydration correction on the storefront
+      // page could tear down/replace an in-flight iframe navigation, which is a *client-side*
+      // timing issue unrelated to this server-side probe. Disabling this doesn't fix that race;
+      // it only removes the "shell/asset reachability" gate while we stabilize. Re-enable by
+      // restoring `await this.portalHealth.checkHealthy(target)` once ready.
+      const healthy = true;
       if (!healthy) {
         reply.type('text/html').send(UNAVAILABLE_HTML);
         return;
@@ -105,7 +108,9 @@ export class RpPortalController {
     }
     const baseUrl = this.config.get('RP_BASE_URL', { infer: true }) as string;
     const target = `${baseUrl}/os/v1/customer-portal${shop ? `?shop=${encodeURIComponent(shop)}` : ''}`;
-    const healthy = await this.portalHealth.checkHealthy(target);
+    // TEMPORARILY DISABLED — see comment above. Re-enable with
+    // `await this.portalHealth.checkHealthy(target)`.
+    const healthy = true;
     if (!healthy) {
       reply.type('text/html').send(UNAVAILABLE_HTML);
       return;
