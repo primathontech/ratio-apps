@@ -18,6 +18,18 @@ export interface RestockItem {
 }
 
 /**
+ * One page of the platform order list. The API's `pagination.total` counts
+ * RAW paid+unfulfilled orders (cancelled/already-shipped included), so only
+ * the has-next/has-prev cursors are surfaced, never a total.
+ */
+export interface OrdersPage {
+  orders: Rec[];
+  page: number;
+  hasNext: boolean;
+  hasPrev: boolean;
+}
+
+/**
  * The platform-orders seam the shipment/tracking services depend on. Injected
  * via `DELHIVERY_ORDERS` so unit tests swap a fake without touching the
  * network. All calls authenticate with the merchant's Ratio access token
@@ -25,11 +37,11 @@ export interface RestockItem {
  */
 export interface RatioOrdersPort {
   getOrder(merchantId: string, orderId: string): Promise<Rec | null>;
-  /** Single-`v1` `GET /api/v1/orders` list, optionally filtered by status. */
+  /** Single-`v1` `GET /api/v1/orders` page, optionally filtered by status. */
   listOrders(
     merchantId: string,
-    opts: { financialStatus?: string; fulfillmentStatus?: string },
-  ): Promise<Rec[]>;
+    opts: { financialStatus?: string; fulfillmentStatus?: string; limit?: number; page?: number },
+  ): Promise<OrdersPage>;
   getProduct(merchantId: string, productId: string): Promise<Rec | null>;
   /** `PATCH /orders/{id}` — mirror fulfillment_status + tracking summary. */
   patchOrder(merchantId: string, orderId: string, patch: Rec): Promise<void>;
@@ -88,11 +100,13 @@ export class RatioOrdersService implements RatioOrdersPort {
 
   async listOrders(
     merchantId: string,
-    opts: { financialStatus?: string; fulfillmentStatus?: string },
-  ): Promise<Rec[]> {
+    opts: { financialStatus?: string; fulfillmentStatus?: string; limit?: number; page?: number },
+  ): Promise<OrdersPage> {
     const qs = new URLSearchParams({ sort_field: 'created_at', sort_direction: 'desc' });
     if (opts.financialStatus) qs.set('financial_status', opts.financialStatus);
     if (opts.fulfillmentStatus) qs.set('fulfillment_status', opts.fulfillmentStatus);
+    if (opts.limit !== undefined) qs.set('limit', String(opts.limit));
+    if (opts.page !== undefined) qs.set('page', String(opts.page));
     try {
       const env = await this.ratio.request(
         `/api/v1/orders?${qs.toString()}`,
@@ -100,9 +114,17 @@ export class RatioOrdersService implements RatioOrdersPort {
         await this.authOpts(merchantId),
       );
       const list = (env as Rec).orders ?? (env as Rec).data ?? env;
-      return Array.isArray(list) ? (list as Rec[]) : [];
+      const pagination = ((env as Rec).pagination ?? {}) as Rec;
+      return {
+        orders: Array.isArray(list) ? (list as Rec[]) : [],
+        page: typeof pagination.page === 'number' ? pagination.page : (opts.page ?? 1),
+        hasNext: pagination.hasNextPage === true,
+        hasPrev: pagination.hasPreviousPage === true,
+      };
     } catch (err) {
-      if (isUpstreamNotFound(err)) return [];
+      if (isUpstreamNotFound(err)) {
+        return { orders: [], page: opts.page ?? 1, hasNext: false, hasPrev: false };
+      }
       throw err;
     }
   }

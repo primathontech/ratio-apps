@@ -4,5 +4,5 @@ export const queryKeys = {
   config: () => ['delhivery', 'config'] as const,
   shipmentsRoot: () => ['delhivery', 'shipments'] as const,
   shipments: (page: number, status: string) => ['delhivery', 'shipments', page, status] as const,
-  pendingOrders: () => ['delhivery', 'shipments', 'pending'] as const,
+  pendingOrders: (page: number) => ['delhivery', 'shipments', 'pending', page] as const,
 } as const;

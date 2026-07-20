@@ -287,9 +287,12 @@ function ShipmentsTable({ items }: { items: ShipmentRow[] }) {
 }
 
 function PendingOrdersCard() {
-  const pending = usePendingOrders();
+  const [page, setPage] = useState(1);
+  const pending = usePendingOrders(page);
   const create = useCreateShipment();
   const items = pending.data?.items ?? [];
+  const hasNext = pending.data?.hasNext ?? false;
+  const hasPrev = pending.data?.hasPrev ?? false;
 
   const columns = [
     {
@@ -358,14 +361,28 @@ function PendingOrdersCard() {
         ) : pending.isLoading ? (
           <Typography.Text type="secondary">Loading orders…</Typography.Text>
         ) : (
-          <Table
-            rowKey="orderId"
-            columns={columns}
-            dataSource={items}
-            pagination={false}
-            scroll={{ x: 'max-content' }}
-            locale={{ emptyText: <Empty description="No orders awaiting AWB" /> }}
-          />
+          <>
+            <Table
+              rowKey="orderId"
+              columns={columns}
+              dataSource={items}
+              pagination={false}
+              scroll={{ x: 'max-content' }}
+              locale={{ emptyText: <Empty description="No orders awaiting AWB" /> }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <Button disabled={!hasPrev} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+                Previous
+              </Button>
+              <Typography.Text type="secondary" style={{ alignSelf: 'center' }}>
+                Page {page}
+              </Typography.Text>
+              {/* No usable total upstream (it counts filtered-out orders); trust hasNext. */}
+              <Button disabled={!hasNext} onClick={() => setPage((p) => p + 1)}>
+                Next
+              </Button>
+            </div>
+          </>
         )}
       </Space>
     </Card>

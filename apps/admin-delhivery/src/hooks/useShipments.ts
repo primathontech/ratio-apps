@@ -64,12 +64,20 @@ export function useShipments(page: number, status?: string) {
   });
 }
 
+/** One page of the pending worklist. No total upstream, so hasNext/hasPrev only. */
+export interface PendingOrdersResponse {
+  items: PendingOrder[];
+  page: number;
+  hasNext: boolean;
+  hasPrev: boolean;
+}
+
 /** Paid + unfulfilled orders awaiting a manual AWB, GET /api/shipments/pending. */
-export function usePendingOrders() {
+export function usePendingOrders(page: number) {
   const token = useMerchantStore((s) => s.token);
   return useQuery({
-    queryKey: queryKeys.pendingOrders(),
-    queryFn: () => api<{ items: PendingOrder[] }>('GET', '/api/shipments/pending'),
+    queryKey: queryKeys.pendingOrders(page),
+    queryFn: () => api<PendingOrdersResponse>('GET', `/api/shipments/pending?page=${page}`),
     enabled: !!token,
     retry: (count, err) => {
       const s = (err as { status?: number }).status;

@@ -19,13 +19,18 @@ import type { DelhiveryShipmentRow, DelhiveryTrackingEventRow } from '../db/type
 import { DelhiveryMerchantTokenGuard } from '../guards';
 import { PickupCron } from '../pickup/pickup.cron';
 import { DelhiverySdkService } from '../sdk/sdk.service';
-import { DelhiveryShipmentService, type PendingOrder } from './shipment.service';
+import { DelhiveryShipmentService, type PendingOrdersPage } from './shipment.service';
 
 const listQuerySchema = z.object({
   page: z.coerce.number().int().positive().optional(),
   status: z.string().max(32).optional(),
 });
 type ListQuery = z.infer<typeof listQuerySchema>;
+
+const pendingQuerySchema = z.object({
+  page: z.coerce.number().int().positive().optional(),
+});
+type PendingQuery = z.infer<typeof pendingQuerySchema>;
 
 const manualCreateSchema = z.object({
   order_id: z.string().min(1).max(128),
@@ -95,8 +100,12 @@ export class DelhiveryShipmentsController {
    */
   /** Paid + unfulfilled orders awaiting a manual AWB (manual trigger mode). */
   @Get('shipments/pending')
-  async pending(@CurrentMerchant() merchant: Merchant): Promise<{ items: PendingOrder[] }> {
-    return { items: await this.shipments.listPendingOrders(merchant.id) };
+  async pending(
+    @CurrentMerchant() merchant: Merchant,
+    @Query(new ZodValidationPipe(pendingQuerySchema as unknown as ZodType<PendingQuery>))
+    query: PendingQuery,
+  ): Promise<PendingOrdersPage> {
+    return this.shipments.listPendingOrders(merchant.id, query.page);
   }
 
   @Get('shipments/:awb/label')

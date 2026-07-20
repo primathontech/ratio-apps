@@ -104,6 +104,7 @@ function makeService(opts: {
   order?: Record<string, unknown> | null;
   createShipment?: unknown;
   pendingOrders?: Record<string, unknown>[];
+  ordersPage?: { page?: number; hasNext?: boolean; hasPrev?: boolean };
 } = {}) {
   const { handle, holder, recorder } = fakeHandle(
     opts.shipmentRow !== undefined ? { shipmentRow: opts.shipmentRow } : {},
@@ -117,7 +118,12 @@ function makeService(opts: {
   } as unknown as DelhiverySdkService;
   const orders = {
     getOrder: vi.fn(async () => (opts.order === undefined ? paidOrder : opts.order)),
-    listOrders: vi.fn(async () => opts.pendingOrders ?? []),
+    listOrders: vi.fn(async () => ({
+      orders: opts.pendingOrders ?? [],
+      page: opts.ordersPage?.page ?? 1,
+      hasNext: opts.ordersPage?.hasNext ?? false,
+      hasPrev: opts.ordersPage?.hasPrev ?? false,
+    })),
     getProduct: vi.fn(async () => product),
     patchOrder: vi.fn(async () => undefined),
     setExternalOrderId: vi.fn(async () => undefined),
@@ -291,11 +297,13 @@ describe('DelhiveryShipmentService.listPendingOrders', () => {
       shipmentRow: existingActive,
       pendingOrders: [alreadyShipped, awaiting],
     });
-    const items = await service.listPendingOrders('mer_1');
+    const result = await service.listPendingOrders('mer_1');
 
     expect(orders.listOrders).toHaveBeenCalledWith('mer_1', {
       financialStatus: 'paid',
       fulfillmentStatus: 'unfulfilled',
+      limit: 20,
+      page: 1,
     });
     // The batch SELECT is scoped to the merchant, the exact order numbers, and
     // only live shipments — a cancelled row must not exclude its order.
@@ -304,7 +312,7 @@ describe('DelhiveryShipmentService.listPendingOrders', () => {
       ['orderNumber', 'in', ['1001', '2002']],
       ['active', '=', true],
     ]);
-    expect(items).toEqual([
+    expect(result.items).toEqual([
       {
         orderId: 'ord_2',
         orderNumber: '2002',
@@ -329,9 +337,9 @@ describe('DelhiveryShipmentService.listPendingOrders', () => {
         },
       ],
     });
-    const items = await service.listPendingOrders('mer_1');
+    const result = await service.listPendingOrders('mer_1');
 
-    expect(items[0].customerName).toBe('Meera P');
+    expect(result.items[0].customerName).toBe('Meera P');
   });
 
   it('excludes cancelled orders even when still paid + unfulfilled', async () => {
@@ -342,8 +350,26 @@ describe('DelhiveryShipmentService.listPendingOrders', () => {
         awaiting,
       ],
     });
-    const items = await service.listPendingOrders('mer_1');
+    const result = await service.listPendingOrders('mer_1');
 
-    expect(items.map((i) => i.orderNumber)).toEqual(['2002']);
+    expect(result.items.map((i) => i.orderNumber)).toEqual(['2002']);
+  });
+
+  it('passes the requested page through and mirrors hasNext/hasPrev/page', async () => {
+    const { service, orders } = makeService({
+      pendingOrders: [awaiting],
+      ordersPage: { page: 3, hasNext: true, hasPrev: true },
+    });
+    const result = await service.listPendingOrders('mer_1', 3);
+
+    expect(orders.listOrders).toHaveBeenCalledWith('mer_1', {
+      financialStatus: 'paid',
+      fulfillmentStatus: 'unfulfilled',
+      limit: 20,
+      page: 3,
+    });
+    expect(result.page).toBe(3);
+    expect(result.hasNext).toBe(true);
+    expect(result.hasPrev).toBe(true);
   });
 });

@@ -57,17 +57,28 @@ function routeShipments(items: ShipmentRow[]) {
 /**
  * Manual mode: awbTrigger=manual config + the pending-orders worklist. Pending
  * is checked before the list path since both start with `/api/shipments`.
+ * `pagesByNumber` serves per-page worklists; page 1 defaults to `pending`.
  */
-function routeManual(pending: PendingOrder[], shipments: ShipmentRow[] = []) {
+function routeManual(
+  pending: PendingOrder[],
+  opts: {
+    shipments?: ShipmentRow[];
+    hasNext?: boolean;
+    pagesByNumber?: Record<number, { items: PendingOrder[]; hasNext: boolean; hasPrev: boolean }>;
+  } = {},
+) {
   mockedApi.mockImplementation((method: string, path: string) => {
     if (method === 'GET' && path === '/api/delhivery-config') {
       return Promise.resolve({ awbTrigger: 'manual', enabled: true, hasApiToken: true });
     }
-    if (method === 'GET' && path === '/api/shipments/pending') {
-      return Promise.resolve({ items: pending });
+    if (method === 'GET' && path.startsWith('/api/shipments/pending')) {
+      const page = Number(new URLSearchParams(path.split('?')[1]).get('page') ?? '1');
+      const override = opts.pagesByNumber?.[page];
+      if (override) return Promise.resolve({ page, ...override });
+      return Promise.resolve({ items: pending, page, hasNext: opts.hasNext ?? false, hasPrev: page > 1 });
     }
     if (method === 'GET' && path.startsWith('/api/shipments')) {
-      return Promise.resolve({ items: shipments, page: 1, pageSize: 20 });
+      return Promise.resolve({ items: opts.shipments ?? [], page: 1, pageSize: 20 });
     }
     if (method === 'POST' && path === '/api/shipments') {
       return Promise.resolve(makeShipment());
@@ -211,10 +222,48 @@ describe('ShipmentsPage', () => {
 
     await waitFor(() => {
       const gets = mockedApi.mock.calls.filter(
-        (c) => c[0] === 'GET' && c[1] === '/api/shipments/pending',
+        (c) => c[0] === 'GET' && c[1] === '/api/shipments/pending?page=1',
       );
       expect(gets.length).toBeGreaterThanOrEqual(2);
     });
+  });
+
+  // Manual mode, hasNext/hasPrev-driven pagination (no usable upstream total).
+  it('paginates the pending worklist via hasNext/hasPrev', async () => {
+    routeManual([makePendingOrder({ orderNumber: '2002' })], {
+      hasNext: true,
+      pagesByNumber: {
+        2: {
+          items: [makePendingOrder({ orderId: 'ordr_43', orderNumber: '3003' })],
+          hasNext: false,
+          hasPrev: true,
+        },
+      },
+    });
+    renderWithProviders(<ShipmentsPage />);
+    expect(await screen.findByText('2002')).toBeInTheDocument();
+
+    // The shipments card renders its own pager first; the worklist's is last.
+    const pendingPager = () => ({
+      prev: screen.getAllByRole('button', { name: 'Previous' }).at(-1) as HTMLElement,
+      next: screen.getAllByRole('button', { name: 'Next' }).at(-1) as HTMLElement,
+    });
+    expect(pendingPager().prev).toBeDisabled();
+    expect(pendingPager().next).toBeEnabled();
+
+    fireEvent.click(pendingPager().next);
+    expect(await screen.findByText('3003')).toBeInTheDocument();
+    expect(mockedApi).toHaveBeenCalledWith('GET', '/api/shipments/pending?page=2');
+    expect(pendingPager().prev).toBeEnabled();
+    expect(pendingPager().next).toBeDisabled();
+  });
+
+  it('disables Next on the pending worklist when hasNext is false', async () => {
+    routeManual([makePendingOrder({ orderNumber: '2002' })]);
+    renderWithProviders(<ShipmentsPage />);
+    expect(await screen.findByText('2002')).toBeInTheDocument();
+
+    expect(screen.getAllByRole('button', { name: 'Next' }).at(-1)).toBeDisabled();
   });
 
   // Manual mode, empty worklist shows the empty state.
@@ -231,7 +280,7 @@ describe('ShipmentsPage', () => {
       if (method === 'GET' && path === '/api/delhivery-config') {
         return Promise.resolve({ awbTrigger: 'manual', enabled: true, hasApiToken: true });
       }
-      if (method === 'GET' && path === '/api/shipments/pending') {
+      if (method === 'GET' && path.startsWith('/api/shipments/pending')) {
         return new Promise(() => {});
       }
       if (method === 'GET' && path.startsWith('/api/shipments')) {
@@ -251,7 +300,7 @@ describe('ShipmentsPage', () => {
       if (method === 'GET' && path === '/api/delhivery-config') {
         return Promise.resolve({ awbTrigger: 'manual', enabled: true, hasApiToken: true });
       }
-      if (method === 'GET' && path === '/api/shipments/pending') {
+      if (method === 'GET' && path.startsWith('/api/shipments/pending')) {
         return Promise.reject(Object.assign(new Error('pending unavailable'), { status: 403 }));
       }
       if (method === 'GET' && path.startsWith('/api/shipments')) {
@@ -263,7 +312,7 @@ describe('ShipmentsPage', () => {
 
     expect(await screen.findByText('Could not load orders')).toBeInTheDocument();
     const pendingGets = () =>
-      mockedApi.mock.calls.filter((c) => c[0] === 'GET' && c[1] === '/api/shipments/pending');
+      mockedApi.mock.calls.filter((c) => c[0] === 'GET' && c[1] === '/api/shipments/pending?page=1');
     expect(pendingGets()).toHaveLength(1);
 
     fireEvent.click(screen.getByRole('button', { name: /Retry/ }));
@@ -276,7 +325,7 @@ describe('ShipmentsPage', () => {
       if (method === 'GET' && path === '/api/delhivery-config') {
         return Promise.resolve({ awbTrigger: 'manual', enabled: true, hasApiToken: true });
       }
-      if (method === 'GET' && path === '/api/shipments/pending') {
+      if (method === 'GET' && path.startsWith('/api/shipments/pending')) {
         return Promise.reject(Object.assign(new Error('pending upstream'), { status: 502 }));
       }
       if (method === 'GET' && path.startsWith('/api/shipments')) {
@@ -289,7 +338,7 @@ describe('ShipmentsPage', () => {
     expect(await screen.findByText('Could not load orders')).toBeInTheDocument();
     await waitFor(() => {
       const gets = mockedApi.mock.calls.filter(
-        (c) => c[0] === 'GET' && c[1] === '/api/shipments/pending',
+        (c) => c[0] === 'GET' && c[1] === '/api/shipments/pending?page=1',
       );
       // initial + 2 retries (predicate caps at count < 2).
       expect(gets).toHaveLength(3);

@@ -19,9 +19,11 @@ const pendingOrder: PendingOrder = {
   createdAt: '2026-07-02T00:00:00.000Z',
 };
 
+const pendingPage = { items: [pendingOrder], page: 2, hasNext: true, hasPrev: true };
+
 function makeController() {
   const shipments = {
-    listPendingOrders: vi.fn(async () => [pendingOrder]),
+    listPendingOrders: vi.fn(async () => pendingPage),
     findByAwb: vi.fn(),
     createForOrder: vi.fn(),
     list: vi.fn(),
@@ -33,9 +35,15 @@ function makeController() {
 }
 
 describe('GET /delhivery/api/shipments/pending', () => {
-  it('returns the pending orders in an { items } envelope', async () => {
+  it('returns the { items, page, hasNext, hasPrev } page and forwards ?page', async () => {
     const { controller, shipments } = makeController();
-    await expect(controller.pending(merchant)).resolves.toEqual({ items: [pendingOrder] });
-    expect(shipments.listPendingOrders).toHaveBeenCalledWith('mer_1');
+    await expect(controller.pending(merchant, { page: 2 })).resolves.toEqual(pendingPage);
+    expect(shipments.listPendingOrders).toHaveBeenCalledWith('mer_1', 2);
+  });
+
+  it('defaults to no page when the query omits it', async () => {
+    const { controller, shipments } = makeController();
+    await expect(controller.pending(merchant, {})).resolves.toEqual(pendingPage);
+    expect(shipments.listPendingOrders).toHaveBeenCalledWith('mer_1', undefined);
   });
 });

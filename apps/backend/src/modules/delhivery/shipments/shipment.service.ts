@@ -29,6 +29,17 @@ export interface PendingOrder {
   createdAt: string;
 }
 
+/**
+ * One worklist page. No total: the upstream count includes cancelled and
+ * already-shipped orders we filter out, so navigation is hasNext/hasPrev only.
+ */
+export interface PendingOrdersPage {
+  items: PendingOrder[];
+  page: number;
+  hasNext: boolean;
+  hasPrev: boolean;
+}
+
 const PAGE_SIZE = 20;
 
 function str(v: unknown, fallback = ''): string {
@@ -274,15 +285,17 @@ export class DelhiveryShipmentService {
 
   /**
    * Paid + unfulfilled orders with no shipment row yet; the manual "Create
-   * AWB" worklist. Excludes already-shipped orders in one batch SELECT keyed
-   * on the UNIQUE order_number.
+   * AWB" worklist, one upstream page at a time. Excludes already-shipped
+   * orders in one batch SELECT keyed on the UNIQUE order_number.
    */
-  async listPendingOrders(merchantId: string): Promise<PendingOrder[]> {
-    const orders = await this.orders.listOrders(merchantId, {
+  async listPendingOrders(merchantId: string, page = 1): Promise<PendingOrdersPage> {
+    const result = await this.orders.listOrders(merchantId, {
       financialStatus: 'paid',
       fulfillmentStatus: 'unfulfilled',
+      limit: PAGE_SIZE,
+      page,
     });
-    const withNumbers = orders
+    const withNumbers = result.orders
       .filter((order) => !isCancelled(order))
       .map((order) => ({
         order,
@@ -302,7 +315,7 @@ export class DelhiveryShipmentService {
       for (const r of rows) taken.add(r.orderNumber);
     }
 
-    return withNumbers
+    const items = withNumbers
       .filter((o) => !taken.has(o.orderNumber))
       .map(({ order, orderNumber }) => {
         const address = (order.shipping_address ?? order.shippingAddress ?? {}) as Rec;
@@ -317,6 +330,7 @@ export class DelhiveryShipmentService {
           createdAt: str(order.created_at ?? order.createdAt),
         };
       });
+    return { items, page: result.page, hasNext: result.hasNext, hasPrev: result.hasPrev };
   }
 
   /** Shipment + its tracking timeline (for the admin detail view). */
