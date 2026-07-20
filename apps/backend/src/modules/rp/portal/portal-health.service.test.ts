@@ -67,6 +67,38 @@ describe('RpPortalHealthService.checkHealthy', () => {
     await expect(service.checkHealthy('https://rp.example/os/v1/customer-portal')).resolves.toBe(false);
   });
 
+  it('is healthy on a 404 shell that still returns the real app body with a reachable external asset (SPA host tags deep links 404 but serves the working bundle anyway)', async () => {
+    const html = htmlWithAsset('https://rp-web-assets.returnprime.co/proxyV2/prod/v1/assets/app.js');
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(makeResponse(404, html))
+      .mockResolvedValueOnce(makeResponse(200));
+    vi.stubGlobal('fetch', fetchMock);
+    const service = new RpPortalHealthService();
+
+    await expect(service.checkHealthy('https://rp.example/sandbox-momsco.dev.gokwik.io')).resolves.toBe(true);
+  });
+
+  it('is unhealthy on a 404 shell whose asset also fails (the 404-tagged body was not actually a working app)', async () => {
+    const html = htmlWithAsset('https://rp-web-assets.returnprime.co/proxyV2/prod/v1/assets/app.js');
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(makeResponse(404, html))
+      .mockResolvedValueOnce(makeResponse(403));
+    vi.stubGlobal('fetch', fetchMock);
+    const service = new RpPortalHealthService();
+
+    await expect(service.checkHealthy('https://rp.example/sandbox-momsco.dev.gokwik.io')).resolves.toBe(false);
+  });
+
+  it('is unhealthy on a 404 shell with no discoverable app content at all (a genuine not-found page)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(makeResponse(404, '<html><body>Not Found</body></html>'));
+    vi.stubGlobal('fetch', fetchMock);
+    const service = new RpPortalHealthService();
+
+    await expect(service.checkHealthy('https://rp.example/sandbox-momsco.dev.gokwik.io')).resolves.toBe(false);
+  });
+
   it('is unhealthy when the shell is 2xx but its external asset 403s (the real production bug)', async () => {
     const html = htmlWithAsset('https://rp-web-assets.returnprime.co/proxyV2/prod/v1/assets/app.js');
     const fetchMock = vi

@@ -39,7 +39,11 @@ const LINK_STYLESHEET_HREF_FIRST_RE =
  * Fails OPEN (returns healthy) on any inconclusive signal — network error, timeout, or an
  * asset probe that itself errors — since an ambiguous result from our own flaky probe must
  * never block a customer from a portal that might be fine. Only a definitive negative (a
- * non-2xx status from the shell or from an external asset) suppresses the redirect.
+ * non-2xx status from the shell with no real app content, or a non-2xx external asset)
+ * suppresses the redirect. A non-2xx shell that still has an external asset reference in its
+ * body is not treated as definitive on its own — some static hosts (observed: RP's own
+ * dev.returnprime.co) tag a deep-linked SPA route 404 while still serving the full working
+ * bundle, so the asset probe is what actually decides health in that case.
  */
 @Injectable()
 export class RpPortalHealthService {
@@ -66,10 +70,6 @@ export class RpPortalHealthService {
       return true;
     }
 
-    if (!(res.status >= 200 && res.status < 300)) {
-      return false;
-    }
-
     let body: string;
     try {
       body = await res.text();
@@ -79,6 +79,16 @@ export class RpPortalHealthService {
     }
 
     const assetUrl = this.findFirstExternalAsset(body, targetUrl);
+
+    // A non-2xx shell is only a definitive failure when it has no real app content to back it
+    // up. Observed in the wild: some static hosts (RP's own dev.returnprime.co) tag a
+    // deep-linked SPA route 404 while still serving the full, working bundle — the status
+    // code lies, the body doesn't. An asset reference in the body means there's something
+    // real to verify, so let the asset probe below be the actual health signal instead.
+    if (!(res.status >= 200 && res.status < 300) && !assetUrl) {
+      return false;
+    }
+
     if (!assetUrl) {
       return true;
     }
