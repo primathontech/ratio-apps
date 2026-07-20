@@ -51,6 +51,68 @@ const UNAVAILABLE_MESSAGE =
 const FALLBACK_MESSAGE =
   'Returns & Exchanges is temporarily unavailable. Please contact our support team for help with your order.';
 
+function createPortalIframe(portalUrl: string): HTMLIFrameElement {
+  const iframe = document.createElement('iframe');
+  iframe.src = portalUrl;
+  iframe.title = 'Returns & Exchanges';
+  // local-network-access: required since Chrome 142 — without it, the iframe (a
+  // cross-origin subframe) can't reach RP even if the user grants the top-level
+  // page's own Local Network Access permission prompt; the grant doesn't delegate
+  // to iframes without this attribute.
+  iframe.setAttribute('allow', 'clipboard-write; local-network-access');
+  iframe.style.cssText = 'width:100%;min-height:85vh;border:0;display:block';
+  return iframe;
+}
+
+/** Inserts a fresh iframe pointed at `portalUrl` into `mount` and races its `load`/`error`
+ *  events against `IFRAME_LOAD_TIMEOUT_MS`. Resolves `true` on success, `false` on failure
+ *  (in which case the fallback message has already been rendered in place of the iframe). */
+function mountPortalIframe(mount: HTMLElement, portalUrl: string): Promise<boolean> {
+  const iframe = createPortalIframe(portalUrl);
+  mount.replaceChildren(iframe);
+
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const finish = (failed: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      iframe.removeEventListener('load', onLoad);
+      iframe.removeEventListener('error', onError);
+      if (failed) renderMessage(mount, FALLBACK_MESSAGE);
+      resolve(!failed);
+    };
+    const onLoad = () => finish(false);
+    const onError = () => finish(true);
+    const timeout = setTimeout(() => finish(true), IFRAME_LOAD_TIMEOUT_MS);
+    iframe.addEventListener('load', onLoad);
+    iframe.addEventListener('error', onError);
+  });
+}
+
+/** Watches `mount` for its content being wiped out from under the SDK after it was already
+ *  populated (e.g. a Next.js hydration correction reconciling `[data-rp-mount]` back to its
+ *  own empty virtual-DOM version, discarding the iframe we just inserted). This is a distinct
+ *  concern from `waitForMount()`'s observer, which only watches for the mount *appearing*.
+ *  On detecting a wipe, re-applies whatever was showing before: a fresh iframe (re-running the
+ *  same load/error/timeout race) if the portal was up, or the same message otherwise. */
+function watchForExternalWipe(mount: HTMLElement, restore: () => void): void {
+  let selfWriting = false;
+
+  const observer = new MutationObserver(() => {
+    if (selfWriting) return;
+    if (mount.children.length > 0) return; // still has content — not a wipe.
+
+    selfWriting = true;
+    try {
+      restore();
+    } finally {
+      selfWriting = false;
+    }
+  });
+  observer.observe(mount, { childList: true });
+}
+
 export async function syncReturnPrimePage(): Promise<void> {
   if (location.pathname.replace(/\/$/, '') !== scriptConfig.returnPrimePath.replace(/\/$/, '')) {
     return;
@@ -61,12 +123,14 @@ export async function syncReturnPrimePage(): Promise<void> {
   const { adapterUrl, store } = scriptConfig;
   if (!adapterUrl || !store) {
     renderMessage(mount, FALLBACK_MESSAGE);
+    watchForExternalWipe(mount, () => renderMessage(mount, FALLBACK_MESSAGE));
     return;
   }
 
   const enabled = await fetchEnabled(adapterUrl, store);
   if (!enabled) {
     renderMessage(mount, UNAVAILABLE_MESSAGE);
+    watchForExternalWipe(mount, () => renderMessage(mount, UNAVAILABLE_MESSAGE));
     return;
   }
 
@@ -78,32 +142,8 @@ export async function syncReturnPrimePage(): Promise<void> {
   }
   const portalUrl = `${adapterUrl.replace(/\/$/, '')}/rp/customer/portal?${params.toString()}`;
 
-  const iframe = document.createElement('iframe');
-  iframe.src = portalUrl;
-  iframe.title = 'Returns & Exchanges';
-  // local-network-access: required since Chrome 142 — without it, the iframe (a
-  // cross-origin subframe) can't reach RP even if the user grants the top-level
-  // page's own Local Network Access permission prompt; the grant doesn't delegate
-  // to iframes without this attribute.
-  iframe.setAttribute('allow', 'clipboard-write; local-network-access');
-  iframe.style.cssText = 'width:100%;min-height:85vh;border:0;display:block';
-  mount.replaceChildren(iframe);
-
-  await new Promise<void>((resolve) => {
-    let settled = false;
-    const finish = (failed: boolean) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      iframe.removeEventListener('load', onLoad);
-      iframe.removeEventListener('error', onError);
-      if (failed) renderMessage(mount, FALLBACK_MESSAGE);
-      resolve();
-    };
-    const onLoad = () => finish(false);
-    const onError = () => finish(true);
-    const timeout = setTimeout(() => finish(true), IFRAME_LOAD_TIMEOUT_MS);
-    iframe.addEventListener('load', onLoad);
-    iframe.addEventListener('error', onError);
+  await mountPortalIframe(mount, portalUrl);
+  watchForExternalWipe(mount, () => {
+    void mountPortalIframe(mount, portalUrl);
   });
 }

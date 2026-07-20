@@ -99,4 +99,89 @@ describe('syncReturnPrimePage', () => {
     expect(mountAfter?.querySelector('iframe')).not.toBeNull();
     expect(mountAfter?.textContent).not.toContain('temporarily unavailable');
   });
+
+  it('re-inserts a fresh iframe when an external actor wipes the mount after a successful load (e.g. a hydration correction)', async () => {
+    fetchEnabled.mockResolvedValue(true);
+    const { syncReturnPrimePage } = await import('./return-prime-page');
+
+    const syncPromise = syncReturnPrimePage();
+    const mount = document.querySelector('[data-rp-mount]') as HTMLElement;
+    let iframe: HTMLIFrameElement | null = null;
+    for (let i = 0; i < 10 && !iframe; i++) {
+      await Promise.resolve();
+      iframe = mount.querySelector('iframe');
+    }
+    expect(iframe).not.toBeNull();
+    const firstSrc = iframe?.src;
+    iframe?.dispatchEvent(new Event('load'));
+    await syncPromise;
+
+    // Simulate an external actor (e.g. React reconciling its own empty vdom) wiping
+    // the mount's content out from under the SDK.
+    mount.innerHTML = '';
+    expect(mount.querySelector('iframe')).toBeNull();
+
+    // The MutationObserver should react promptly (via microtask/macrotask queue),
+    // not require waiting out the full 8s load timeout again.
+    let newIframe: HTMLIFrameElement | null = null;
+    for (let i = 0; i < 10 && !newIframe; i++) {
+      await Promise.resolve();
+      newIframe = mount.querySelector('iframe');
+    }
+    expect(newIframe).not.toBeNull();
+    expect(newIframe?.src).toBe(firstSrc);
+  });
+
+  it('re-renders the same fallback message when an external actor wipes the mount after a message was shown', async () => {
+    fetchEnabled.mockResolvedValue(false);
+    const { syncReturnPrimePage } = await import('./return-prime-page');
+
+    await syncReturnPrimePage();
+
+    const mount = document.querySelector('[data-rp-mount]') as HTMLElement;
+    expect(mount.textContent).toContain('Returns and exchanges are currently unavailable');
+
+    mount.innerHTML = '';
+    expect(mount.textContent).not.toContain('unavailable');
+
+    let restored = false;
+    for (let i = 0; i < 10 && !restored; i++) {
+      await Promise.resolve();
+      restored =
+        mount.textContent?.includes('Returns and exchanges are currently unavailable') ?? false;
+    }
+    expect(restored).toBe(true);
+  });
+
+  it('does not runaway re-insert: after one wipe, exactly one re-insertion happens and content stays stable', async () => {
+    fetchEnabled.mockResolvedValue(true);
+    const { syncReturnPrimePage } = await import('./return-prime-page');
+
+    const syncPromise = syncReturnPrimePage();
+    const mount = document.querySelector('[data-rp-mount]') as HTMLElement;
+    let iframe: HTMLIFrameElement | null = null;
+    for (let i = 0; i < 10 && !iframe; i++) {
+      await Promise.resolve();
+      iframe = mount.querySelector('iframe');
+    }
+    iframe?.dispatchEvent(new Event('load'));
+    await syncPromise;
+
+    mount.innerHTML = '';
+
+    let newIframe: HTMLIFrameElement | null = null;
+    for (let i = 0; i < 10 && !newIframe; i++) {
+      await Promise.resolve();
+      newIframe = mount.querySelector('iframe');
+    }
+    expect(newIframe).not.toBeNull();
+    // Fire the new iframe's load so it settles, then let microtasks flush further
+    // to make sure nothing keeps re-inserting on its own.
+    newIframe?.dispatchEvent(new Event('load'));
+    for (let i = 0; i < 10; i++) {
+      await Promise.resolve();
+    }
+
+    expect(mount.querySelectorAll('iframe').length).toBe(1);
+  });
 });
