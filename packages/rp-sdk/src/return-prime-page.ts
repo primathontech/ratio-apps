@@ -168,8 +168,14 @@ export async function syncReturnPrimePage(): Promise<void> {
   }
   const portalUrl = `${adapterUrl.replace(/\/$/, '')}/rp/customer/portal?${params.toString()}`;
 
-  await mountPortalIframe(mount, portalUrl);
+  // Installed BEFORE the initial mount, not after: a hydration correction can wipe the
+  // mount while this first iframe is still loading, and a torn-out iframe never fires
+  // load/error (its navigation is just silently abandoned) — so without an observer
+  // already watching, mountPortalIframe() would sit stuck until its 8s timeout and then
+  // write the fallback message into a detached node nobody can see, leaving the real,
+  // currently-attached mount permanently empty.
   watchForExternalWipe((freshMount) => {
     void mountPortalIframe(freshMount, portalUrl);
   });
+  await mountPortalIframe(mount, portalUrl);
 }

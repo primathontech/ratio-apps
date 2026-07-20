@@ -187,6 +187,44 @@ describe('syncReturnPrimePage', () => {
     expect(mount.querySelectorAll('iframe').length).toBe(1);
   });
 
+  it('recovers when the mount is wiped WHILE the initial iframe is still loading (before its load/error ever fires) — e.g. a hydration correction that lands mid-navigation', async () => {
+    vi.useFakeTimers();
+    fetchEnabled.mockResolvedValue(true);
+    const { syncReturnPrimePage } = await import('./return-prime-page');
+
+    const syncPromise = syncReturnPrimePage();
+    const mount = document.querySelector('[data-rp-mount]') as HTMLElement;
+    let iframe: HTMLIFrameElement | null = null;
+    for (let i = 0; i < 10 && !iframe; i++) {
+      await vi.advanceTimersByTimeAsync(0);
+      iframe = mount.querySelector('iframe');
+    }
+    expect(iframe).not.toBeNull();
+    const firstSrc = iframe?.src;
+
+    // Simulate a hydration correction landing before the first iframe ever fires
+    // load/error — it just gets torn out, same as a disconnected iframe silently
+    // aborting its in-flight navigation.
+    mount.innerHTML = '';
+
+    let newIframe: HTMLIFrameElement | null = null;
+    for (let i = 0; i < 10 && !newIframe; i++) {
+      await vi.advanceTimersByTimeAsync(0);
+      newIframe = mount.querySelector('iframe');
+    }
+    // Recovers well before the original (now-abandoned) iframe's 8s timeout would
+    // have elapsed — proving the observer was already watching, not installed late.
+    expect(newIframe).not.toBeNull();
+    expect(newIframe?.src).toBe(firstSrc);
+
+    newIframe?.dispatchEvent(new Event('load'));
+    // The original awaited mountPortalIframe() call (on the now-detached first iframe)
+    // only settles via its own 8s timeout — harmless (it writes into a node nobody
+    // sees), but syncReturnPrimePage() doesn't resolve until it does.
+    await vi.advanceTimersByTimeAsync(8000);
+    await syncPromise;
+  });
+
   it('recovers when the whole mount node is replaced (not just its children cleared) — e.g. React swapping in a fresh node from its own vdom during a hydration correction', async () => {
     fetchEnabled.mockResolvedValue(true);
     const { syncReturnPrimePage } = await import('./return-prime-page');
