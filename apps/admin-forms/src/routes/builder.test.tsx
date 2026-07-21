@@ -83,9 +83,10 @@ describe('BuilderScreen', () => {
     await waitFor(() => expect(screen.getByText('Full name')).toBeInTheDocument());
     expect(screen.getByText(/full_name/)).toBeInTheDocument();
     expect(screen.getByTestId('canvas-field-email')).toBeInTheDocument();
-    // The palette offers all 8 field types.
+    // The grouped palette offers every input and layout-block type.
     expect(screen.getByRole('button', { name: 'Paragraph' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'File upload' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Text block' })).toBeInTheDocument();
   });
 
   it('Save PUTs a payload that parses with formInputSchema', async () => {
@@ -131,24 +132,27 @@ describe('BuilderScreen', () => {
     );
   });
 
-  it('Preview toggles a mobile (375px) + desktop split render of the current schema', async () => {
+  it('shows a persistent live preview beside the editor with a device toggle', async () => {
     routeApi(makeForm());
     renderWithProviders(<BuilderScreen formId="form_1" />);
     await screen.findByText('Full name');
-    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    // The editor (palette + canvas) stays mounted while the preview is open.
+    fireEvent.click(screen.getByRole('button', { name: 'Show preview' }));
+    const desktop = await screen.findByTestId('preview-desktop');
+    expect(desktop).toBeInTheDocument();
+    expect(screen.getByTestId('canvas-field-full_name')).toBeInTheDocument();
+    // The panel embeds the real storefront element; the current schema renders
+    // inside its shadow root (no hand-rolled duplicate markup).
+    const el = document.querySelector('ratio-form');
+    expect(el).not.toBeNull();
+    await waitFor(() => expect(el?.shadowRoot?.textContent).toContain('Full name'));
+    // The device toggle swaps the desktop frame for the 375px mobile frame.
+    const mobileToggle = screen.getByText('Mobile').closest('label')?.querySelector('input');
+    if (!mobileToggle) throw new Error('no mobile device toggle');
+    fireEvent.click(mobileToggle);
     const mobile = await screen.findByTestId('preview-mobile');
     expect(mobile).toHaveStyle({ width: '375px' });
-    expect(screen.getByTestId('preview-desktop')).toBeInTheDocument();
-    // Both panes embed the real storefront element; the current schema renders
-    // inside each element's shadow root (no hand-rolled duplicate markup).
-    const elements = document.querySelectorAll('ratio-form');
-    expect(elements.length).toBeGreaterThanOrEqual(2);
-    await waitFor(() =>
-      expect(
-        Array.from(elements).every((el) => el.shadowRoot?.textContent?.includes('Full name')),
-      ).toBe(true),
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Close preview' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Hide preview' }));
     await waitFor(() => expect(screen.queryByTestId('preview-mobile')).not.toBeInTheDocument());
   });
 

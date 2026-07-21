@@ -2,7 +2,7 @@ import { Divider, Input } from '@primathonos/orion';
 import { FORM_TEXTAREA_HARD_MAX_LENGTH, type FormField } from '@shared/schemas/form-schema';
 import type { Dispatch } from 'react';
 import type { BuilderAction } from '@/lib/builder-state';
-import { parseIntOr, SettingRow } from '../_shared/controls';
+import { parseIntOr, SettingRow, SettingRowGroup } from '../_shared/controls';
 
 export function TextareaValidationSettings({
   field,
@@ -17,8 +17,8 @@ export function TextareaValidationSettings({
   return (
     <>
       <Divider style={{ margin: '4px 0' }}>Validation</Divider>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <SettingRow label="Min length">
+      <SettingRowGroup>
+        <SettingRow label="Min length" style={{ flex: 1 }}>
           <Input
             aria-label="Min length"
             type="number"
@@ -27,7 +27,7 @@ export function TextareaValidationSettings({
             onChange={(e) => set({ ...validation, minLength: parseIntOr(e.target.value) })}
           />
         </SettingRow>
-        <SettingRow label={`Max length (≤ ${FORM_TEXTAREA_HARD_MAX_LENGTH})`}>
+        <SettingRow label={`Max length (≤ ${FORM_TEXTAREA_HARD_MAX_LENGTH})`} style={{ flex: 1 }}>
           <Input
             aria-label="Max length"
             type="number"
@@ -46,7 +46,7 @@ export function TextareaValidationSettings({
             }}
           />
         </SettingRow>
-      </div>
+      </SettingRowGroup>
     </>
   );
 }

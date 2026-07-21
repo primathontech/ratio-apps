@@ -2,7 +2,7 @@ import { Divider, Input } from '@primathonos/orion';
 import type { FormField } from '@shared/schemas/form-schema';
 import type { Dispatch } from 'react';
 import type { BuilderAction } from '@/lib/builder-state';
-import { parseIntOr, SettingRow } from '../_shared/controls';
+import { parseIntOr, SettingRow, SettingRowGroup } from '../_shared/controls';
 
 export function TextValidationSettings({
   field,
@@ -17,8 +17,8 @@ export function TextValidationSettings({
   return (
     <>
       <Divider style={{ margin: '4px 0' }}>Validation</Divider>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <SettingRow label="Min length">
+      <SettingRowGroup>
+        <SettingRow label="Min length" style={{ flex: 1 }}>
           <Input
             aria-label="Min length"
             type="number"
@@ -27,7 +27,7 @@ export function TextValidationSettings({
             onChange={(e) => set({ ...validation, minLength: parseIntOr(e.target.value) })}
           />
         </SettingRow>
-        <SettingRow label="Max length">
+        <SettingRow label="Max length" style={{ flex: 1 }}>
           <Input
             aria-label="Max length"
             type="number"
@@ -36,7 +36,7 @@ export function TextValidationSettings({
             onChange={(e) => set({ ...validation, maxLength: parseIntOr(e.target.value) })}
           />
         </SettingRow>
-      </div>
+      </SettingRowGroup>
       <SettingRow label="Pattern (regex)">
         <Input
           aria-label="Pattern"

@@ -173,6 +173,7 @@ function SubmissionsTable({ formId }: { formId: string }) {
       <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
         <Table
           rowKey="id"
+          size="middle"
           columns={columns}
           dataSource={rows}
           loading={submissions.isLoading}
@@ -316,6 +317,7 @@ function DeliveriesTable({ formId }: { formId: string }) {
         )}
         <Table
           rowKey="id"
+          size="middle"
           columns={columns}
           dataSource={rows}
           loading={deliveries.isLoading}

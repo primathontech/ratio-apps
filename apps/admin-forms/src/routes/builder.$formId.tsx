@@ -3,13 +3,11 @@ import {
   DndContext,
   type DragEndEvent,
   PointerSensor,
-  useDraggable,
   useDroppable,
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
-import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import {
   Alert,
   ArrowLeftOutlined,
@@ -17,9 +15,7 @@ import {
   Card,
   Collapse,
   ColorPicker,
-  DeleteOutlined,
   Divider,
-  HolderOutlined,
   Input,
   message,
   PrimaryButton,
@@ -34,7 +30,6 @@ import {
   Typography,
 } from '@primathonos/orion';
 import {
-  FORM_FIELD_TYPES,
   FORM_FIELD_WIDTHS,
   FORM_INPUT_VARIANTS,
   type FormField,
@@ -46,8 +41,10 @@ import {
 } from '@shared/schemas/form-schema';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { type Dispatch, useEffect, useReducer, useState } from 'react';
+import { CanvasField } from '@/components/CanvasField';
 import { DesignSettings } from '@/components/DesignSettings';
-import { FormPreview } from '@/components/FormPreview';
+import { FieldPalette, PALETTE_PREFIX } from '@/components/FieldPalette';
+import { LivePreview } from '@/components/LivePreview';
 // Per-field settings panels (Phase 0 refactor): TypeSpecificSettings dispatches
 // through this registry; each panel lives in @/fields/<type>/settings.tsx.
 import { SettingRow } from '@/fields/_shared/controls';
@@ -72,8 +69,6 @@ function BuilderRoute() {
   const { formId } = Route.useParams();
   return <BuilderScreen formId={formId} />;
 }
-
-const PALETTE_PREFIX = 'palette:';
 
 /** The three-pane form builder (PRD "Form builder", TRD §2, TDD §4). */
 export function BuilderScreen({ formId }: { formId: string }) {
@@ -174,7 +169,7 @@ export function BuilderScreen({ formId }: { formId: string }) {
             <Button>Submissions</Button>
           </Link>
           <Button onClick={() => setPreviewOpen((v) => !v)}>
-            {previewOpen ? 'Close preview' : 'Preview'}
+            {previewOpen ? 'Hide preview' : 'Show preview'}
           </Button>
           <Button
             loading={toggle.isPending}
@@ -204,128 +199,66 @@ export function BuilderScreen({ formId }: { formId: string }) {
       )}
       {update.error && <Alert type="error" showIcon message={(update.error as Error).message} />}
 
-      {previewOpen ? (
-        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-          <Card title="Mobile (375px)" style={{ flex: '0 0 auto', maxWidth: '100%' }}>
-            <FormPreview
-              name={state.meta.name}
-              fields={state.fields}
-              submitLabel={state.meta.submitLabel}
-              successMessage={state.meta.successMessage}
-              description={state.meta.description}
-              appearance={state.meta.appearance}
-              mode="mobile"
-            />
-          </Card>
-          <Card title="Desktop" style={{ flex: 1, minWidth: 320 }}>
-            <FormPreview
-              name={state.meta.name}
-              fields={state.fields}
-              submitLabel={state.meta.submitLabel}
-              successMessage={state.meta.successMessage}
-              description={state.meta.description}
-              appearance={state.meta.appearance}
-              mode="desktop"
-            />
-          </Card>
-        </div>
-      ) : (
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-          <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-            <FieldPalette dispatch={dispatch} />
-            <Canvas state={state} dispatch={dispatch} />
-            <div style={{ flex: '1 1 280px', minWidth: 280 }}>
-              {selected ? (
-                <FieldSettings field={selected} dispatch={dispatch} />
-              ) : (
-                <Tabs
-                  items={[
-                    {
-                      key: 'content',
-                      label: 'Content',
-                      children: (
-                        <FormSettings
-                          state={state}
-                          dispatch={dispatch}
-                          onWebhookTest={() =>
-                            webhookTest.mutate(undefined, {
-                              onSuccess: (result) =>
-                                void message.info(
-                                  result.statusCode === null
-                                    ? 'Webhook test sent, no response (network error)'
-                                    : `Webhook responded with status ${result.statusCode}`,
-                                ),
-                              onError: (err) => void message.error((err as Error).message),
-                            })
-                          }
-                          webhookTestPending={webhookTest.isPending}
-                          webhookTestResult={webhookTest.data ?? null}
-                        />
-                      ),
-                    },
-                    {
-                      key: 'design',
-                      label: 'Design',
-                      children: (
-                        <DesignSettings
-                          appearance={state.meta.appearance ?? DEFAULT_APPEARANCE}
-                          dispatch={dispatch}
-                        />
-                      ),
-                    },
-                  ]}
-                />
-              )}
-            </div>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          <FieldPalette dispatch={dispatch} />
+          <Canvas state={state} dispatch={dispatch} />
+          <div style={{ flex: '1 1 280px', minWidth: 280 }}>
+            {selected ? (
+              <FieldSettings field={selected} dispatch={dispatch} />
+            ) : (
+              <Tabs
+                items={[
+                  {
+                    key: 'content',
+                    label: 'Content',
+                    children: (
+                      <FormSettings
+                        state={state}
+                        dispatch={dispatch}
+                        onWebhookTest={() =>
+                          webhookTest.mutate(undefined, {
+                            onSuccess: (result) =>
+                              void message.info(
+                                result.statusCode === null
+                                  ? 'Webhook test sent, no response (network error)'
+                                  : `Webhook responded with status ${result.statusCode}`,
+                              ),
+                            onError: (err) => void message.error((err as Error).message),
+                          })
+                        }
+                        webhookTestPending={webhookTest.isPending}
+                        webhookTestResult={webhookTest.data ?? null}
+                      />
+                    ),
+                  },
+                  {
+                    key: 'design',
+                    label: 'Design',
+                    children: (
+                      <DesignSettings
+                        appearance={state.meta.appearance ?? DEFAULT_APPEARANCE}
+                        dispatch={dispatch}
+                      />
+                    ),
+                  },
+                ]}
+              />
+            )}
           </div>
-        </DndContext>
-      )}
+          {previewOpen && (
+            <LivePreview
+              name={state.meta.name}
+              fields={state.fields}
+              submitLabel={state.meta.submitLabel}
+              successMessage={state.meta.successMessage}
+              description={state.meta.description}
+              appearance={state.meta.appearance}
+            />
+          )}
+        </div>
+      </DndContext>
     </Space>
-  );
-}
-
-function FieldPalette({ dispatch }: { dispatch: Dispatch<BuilderAction> }) {
-  return (
-    <Card title="Fields" style={{ flex: '0 0 180px' }} styles={{ body: { padding: 12 } }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {FORM_FIELD_TYPES.map((fieldType) => (
-          <PaletteItem key={fieldType} fieldType={fieldType} dispatch={dispatch} />
-        ))}
-      </div>
-    </Card>
-  );
-}
-
-function PaletteItem({
-  fieldType,
-  dispatch,
-}: {
-  fieldType: FormFieldType;
-  dispatch: Dispatch<BuilderAction>;
-}) {
-  const { attributes, listeners, setNodeRef, transform } = useDraggable({
-    id: `${PALETTE_PREFIX}${fieldType}`,
-  });
-  return (
-    <button
-      ref={setNodeRef}
-      type="button"
-      {...attributes}
-      {...listeners}
-      onClick={() => dispatch({ type: 'addField', fieldType })}
-      style={{
-        transform: CSS.Translate.toString(transform),
-        textAlign: 'left',
-        padding: '8px 10px',
-        border: '1px solid #e5e5e5',
-        borderRadius: 6,
-        background: '#fff',
-        cursor: 'grab',
-        fontSize: 13,
-      }}
-    >
-      {FIELD_TYPE_LABELS[fieldType]}
-    </button>
   );
 }
 
@@ -354,74 +287,6 @@ function Canvas({ state, dispatch }: { state: BuilderState; dispatch: Dispatch<B
         </SortableContext>
       </div>
     </Card>
-  );
-}
-
-function CanvasField({
-  field,
-  selected,
-  dispatch,
-}: {
-  field: FormField;
-  selected: boolean;
-  dispatch: Dispatch<BuilderAction>;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
-    id: field.key,
-  });
-  // Content blocks (§1.3) carry no label/required; fall back to the type name.
-  const displayLabel = 'label' in field ? field.label : FIELD_TYPE_LABELS[field.type];
-  const required = 'required' in field ? field.required : false;
-  return (
-    // biome-ignore lint/a11y/useKeyWithClickEvents: selection also works via the settings panel
-    // biome-ignore lint/a11y/noStaticElementInteractions: canvas row click is a pointer affordance; keyboard users select via the settings panel
-    <div
-      ref={setNodeRef}
-      data-testid={`canvas-field-${field.key}`}
-      onClick={() => dispatch({ type: 'selectField', key: field.key })}
-      style={{
-        transform: CSS.Transform.toString(transform),
-        transition: transition ?? undefined,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        padding: '10px 12px',
-        border: selected ? '1px solid #1677ff' : '1px solid #e5e5e5',
-        borderRadius: 6,
-        background: selected ? '#f0f7ff' : '#fff',
-        cursor: 'pointer',
-      }}
-    >
-      {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: dnd-kit's spread attributes include role="button" */}
-      <span
-        {...attributes}
-        {...listeners}
-        aria-label={`Reorder ${displayLabel}`}
-        style={{ cursor: 'grab', color: '#999', display: 'inline-flex' }}
-      >
-        <HolderOutlined />
-      </span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <Typography.Text strong style={{ display: 'block' }}>
-          {displayLabel}
-          {required && <span style={{ color: '#cf1322' }}> *</span>}
-        </Typography.Text>
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          {FIELD_TYPE_LABELS[field.type]} ({field.key})
-        </Typography.Text>
-      </div>
-      <Button
-        type="text"
-        size="small"
-        danger
-        aria-label={`Delete ${displayLabel}`}
-        icon={<DeleteOutlined />}
-        onClick={(e) => {
-          e.stopPropagation();
-          dispatch({ type: 'removeField', key: field.key });
-        }}
-      />
-    </div>
   );
 }
 

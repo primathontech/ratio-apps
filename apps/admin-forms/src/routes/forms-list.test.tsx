@@ -72,6 +72,8 @@ describe('FormsListPage', () => {
     expect(screen.getByText('active')).toBeInTheDocument();
     expect(screen.getByText('inactive')).toBeInTheDocument();
     expect(screen.getByText('4')).toBeInTheDocument();
+    // Denser table rows (G2).
+    expect(document.querySelector('.ant-table-middle')).not.toBeNull();
   });
 
   it('shows the empty state with a CTA when there are no forms', async () => {

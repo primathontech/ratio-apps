@@ -12,6 +12,17 @@
  */
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
 
+:root {
+  /*
+   * Muted/secondary text token. Orion's secondary Typography resolves via
+   * antd's colorTextDescription (~#9b9b9c on white, roughly 3:1) which fails
+   * WCAG AA. This pins secondary text to Orion's colorTextSecondary (#5f6368,
+   * ~6:1 on white / ~5.8:1 on the #f8f8f8 table header) so every muted string
+   * shares one readable token instead of ad-hoc light grays.
+   */
+  --admin-text-muted: #5f6368;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -24,6 +35,12 @@ body,
   height: 100%;
   font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
   background: #fafafa;
+}
+
+/* Darken secondary Typography to the readable muted token (WCAG AA).
+   !important overrides Ant Design's CSS-in-JS color. */
+.ant-typography.ant-typography-secondary {
+  color: var(--admin-text-muted) !important;
 }
 
 .container {

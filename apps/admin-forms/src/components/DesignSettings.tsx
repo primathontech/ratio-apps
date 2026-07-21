@@ -558,33 +558,98 @@ function PresetRow({ onApply }: { onApply: (preset: AppearancePreset) => void })
               display: 'flex',
               flexDirection: 'column',
               gap: 6,
-              padding: 8,
+              padding: 6,
               border: '1px solid #e5e5e5',
               borderRadius: 8,
               background: '#fff',
               cursor: 'pointer',
             }}
           >
-            <span style={{ display: 'flex', gap: 4 }}>
-              {(['primary', 'background', 'text'] as const).map((token) => (
-                <span
-                  key={token}
-                  style={{
-                    width: 14,
-                    height: 14,
-                    borderRadius: '50%',
-                    background: preset.appearance.colors[token],
-                    border: '1px solid #d9d9d9',
-                  }}
-                />
-              ))}
-            </span>
+            <PresetThumbnail id={preset.id} appearance={preset.appearance} />
             <span style={{ fontSize: 12 }}>{preset.name}</span>
           </button>
         ))}
       </div>
     </div>
   );
+}
+
+/**
+ * A compact mini form thumbnail so each preset communicates its look at a
+ * glance: a fake heading, input and button styled with the preset's colours,
+ * radius and button shape. Decorative — the accessible label lives on the
+ * wrapping button.
+ */
+function PresetThumbnail({ id, appearance }: { id: string; appearance: FormAppearance }) {
+  const { colors, layout } = appearance;
+  const cardRadius = Math.min(layout.radius, 10);
+  const inputRadius = Math.min(layout.radius, 6);
+  const buttonRadius =
+    layout.buttonShape === 'sharp' ? 0 : layout.buttonShape === 'pill' ? 999 : Math.min(layout.radius, 10);
+
+  return (
+    <span
+      aria-hidden
+      data-testid={`preset-thumb-${id}`}
+      style={{
+        display: 'block',
+        width: 96,
+        height: 64,
+        borderRadius: 6,
+        overflow: 'hidden',
+        boxSizing: 'border-box',
+        padding: 8,
+        background: pageBackgroundCss(appearance),
+      }}
+    >
+      <span
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 5,
+          padding: 6,
+          borderRadius: cardRadius,
+          boxSizing: 'border-box',
+          background: colors.background,
+          border: layout.cardBorder ? `1px solid ${colors.border}` : 'none',
+        }}
+      >
+        {/* heading */}
+        <span style={{ height: 5, width: '70%', borderRadius: 2, background: colors.text }} />
+        {/* input */}
+        <span
+          style={{
+            height: 8,
+            borderRadius: inputRadius,
+            background: colors.surface,
+            border: `1px solid ${colors.border}`,
+          }}
+        />
+        {/* button */}
+        <span
+          style={{
+            height: 10,
+            borderRadius: buttonRadius,
+            background: colors.primary,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <span style={{ height: 3, width: '40%', borderRadius: 2, background: colors.buttonText }} />
+        </span>
+      </span>
+    </span>
+  );
+}
+
+/** Page backdrop behind a preset's mini card — its gradient when set, else the flat page colour. */
+function pageBackgroundCss(appearance: FormAppearance): string {
+  const { colors, background } = appearance;
+  if (background.type === 'gradient' && background.gradientFrom && background.gradientTo) {
+    return `linear-gradient(${background.gradientDir ?? 'to bottom'}, ${background.gradientFrom}, ${background.gradientTo})`;
+  }
+  return colors.pageBackground;
 }
 
 function AssetInput({

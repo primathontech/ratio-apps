@@ -60,6 +60,13 @@ describe('DesignSettings', () => {
     });
   });
 
+  it('renders a mini form thumbnail per preset', () => {
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={vi.fn()} />);
+    for (const preset of FORM_APPEARANCE_PRESETS) {
+      expect(screen.getByTestId(`preset-thumb-${preset.id}`)).toBeInTheDocument();
+    }
+  });
+
   it('applies a preset wholesale (colors + typography + layout + background), leaving assets alone', () => {
     const dispatch = vi.fn();
     renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />);

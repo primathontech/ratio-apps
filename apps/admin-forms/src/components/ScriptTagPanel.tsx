@@ -22,7 +22,7 @@ export function ScriptTagPanel({ merchantId, forms }: Props) {
   return (
     <Card
       title="Install on your storefront"
-      extra={<Typography.Text type="secondary">2 steps per page</Typography.Text>}
+      extra={<Typography.Text type="secondary">2 steps</Typography.Text>}
     >
       <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
         <div>
