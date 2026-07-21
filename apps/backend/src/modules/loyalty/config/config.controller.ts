@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Put, UseGuards } from '@nestjs/common';
 import {
   type LoyaltyConfig,
+  type LoyaltyConfigResponse,
   loyaltyConfigInputSchema,
 } from '@ratio-app/shared/schemas/loyalty-config';
 import type { Merchant } from '@ratio-app/shared/schemas/merchant';
@@ -23,7 +24,7 @@ export class LoyaltyConfigController {
 
   @Get('loyalty-config')
   @UseGuards(LoyaltyMerchantTokenGuard)
-  async get(@CurrentMerchant() merchant: Merchant): Promise<LoyaltyConfig> {
+  async get(@CurrentMerchant() merchant: Merchant): Promise<LoyaltyConfigResponse> {
     return this.config.getByMerchantId(merchant.id);
   }
 
@@ -35,5 +36,19 @@ export class LoyaltyConfigController {
     body: UpdateConfigDto,
   ): Promise<LoyaltyConfig> {
     return this.config.upsert(merchant.id, body);
+  }
+
+  /** Reveal the merchant's claim-signing secret — paste into the storefront's server env. */
+  @Get('loyalty-config/claim-secret')
+  @UseGuards(LoyaltyMerchantTokenGuard)
+  async claimSecret(@CurrentMerchant() merchant: Merchant): Promise<{ secret: string }> {
+    return this.config.getClaimSecret(merchant.id);
+  }
+
+  /** Regenerate + persist a new claim-signing secret for the merchant. */
+  @Post('loyalty-config/claim-secret/rotate')
+  @UseGuards(LoyaltyMerchantTokenGuard)
+  async rotateClaimSecret(@CurrentMerchant() merchant: Merchant): Promise<{ secret: string }> {
+    return this.config.rotateClaimSecret(merchant.id);
   }
 }

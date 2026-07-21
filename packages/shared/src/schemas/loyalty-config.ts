@@ -32,3 +32,16 @@ export type LoyaltyConfig = z.infer<typeof loyaltyConfigSchema>;
 export const loyaltyConfigInputSchema = loyaltyConfigSchema;
 
 export type LoyaltyConfigInput = z.input<typeof loyaltyConfigInputSchema>;
+
+/**
+ * GET /loyalty-config RESPONSE shape only — adds a presence flag for the
+ * per-merchant claim-signing secret used by the QR-claim v2 storefront
+ * integration. NEVER extend the input schema with this: the raw secret is
+ * revealed/rotated via its own guarded endpoints, never accepted as input.
+ */
+export const loyaltyConfigResponseSchema = loyaltyConfigSchema.extend({
+  /** Whether a claim-signing secret has been generated for this merchant. */
+  claimSecretSet: z.boolean(),
+});
+
+export type LoyaltyConfigResponse = z.infer<typeof loyaltyConfigResponseSchema>;

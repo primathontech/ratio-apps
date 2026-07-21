@@ -21,10 +21,19 @@ function makeConfig(overrides: Partial<LoyaltyConfig> = {}): LoyaltyConfig {
   };
 }
 
-function routeApi(config: LoyaltyConfig) {
+function routeApi(
+  config: LoyaltyConfig,
+  opts: { claimSecret?: string; rotatedSecret?: string } = {},
+) {
+  const claimSecret = opts.claimSecret ?? 'claim-secret-value';
+  const rotatedSecret = opts.rotatedSecret ?? 'rotated-secret-value';
   mockedApi.mockImplementation((method: string, path: string) => {
     if (path === '/api/loyalty-config' && method === 'GET') return Promise.resolve(config);
     if (path === '/api/loyalty-config' && method === 'PUT') return Promise.resolve(config);
+    if (path === '/api/loyalty-config/claim-secret' && method === 'GET')
+      return Promise.resolve({ secret: claimSecret });
+    if (path === '/api/loyalty-config/claim-secret/rotate' && method === 'POST')
+      return Promise.resolve({ secret: rotatedSecret });
     return Promise.resolve({});
   });
 }
@@ -81,5 +90,41 @@ describe('ConfigPage', () => {
     await screen.findByPlaceholderText('Coins');
     fireEvent.click(screen.getByRole('button', { name: /Save settings/ }));
     await waitFor(() => expect(screen.getByText('Saved.')).toBeInTheDocument());
+  });
+});
+
+describe('ConfigPage — storefront claim secret', () => {
+  it('is masked until "Reveal secret" is clicked, then shows the copy block', async () => {
+    routeApi(makeConfig());
+    renderWithProviders(<ConfigPage />);
+    await screen.findByPlaceholderText('Coins');
+
+    expect(screen.queryByText(/LOYALTY_CLAIM_SECRET=/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Reveal secret/ }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/LOYALTY_CLAIM_SECRET=claim-secret-value/)).toBeInTheDocument();
+    });
+    const getCall = mockedApi.mock.calls.find(
+      (c) => c[0] === 'GET' && c[1] === '/api/loyalty-config/claim-secret',
+    );
+    expect(getCall).toBeDefined();
+  });
+
+  it('calls rotate and shows the newly rotated secret', async () => {
+    routeApi(makeConfig());
+    renderWithProviders(<ConfigPage />);
+    await screen.findByPlaceholderText('Coins');
+
+    fireEvent.click(screen.getByRole('button', { name: /Rotate secret/ }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/LOYALTY_CLAIM_SECRET=rotated-secret-value/)).toBeInTheDocument();
+    });
+    const postCall = mockedApi.mock.calls.find(
+      (c) => c[0] === 'POST' && c[1] === '/api/loyalty-config/claim-secret/rotate',
+    );
+    expect(postCall).toBeDefined();
   });
 });
