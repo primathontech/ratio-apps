@@ -4,8 +4,17 @@
 > approved PRD, then human-approved at **GATE 2** before the test plan is written.
 
 **Source PRD:** `docs/agent/apps/loyalty/PRD.md`
-**Status:** draft (rev 3 — claim UI = storefront widget SDK `packages/loyalty-sdk`;
+**Status:** draft (rev 4 — claim UI = storefront widget SDK `packages/loyalty-sdk`;
 exports = S3 + presigned links + email > 10k rows; rules = AND/OR condition trees)
+
+> **v2 claim-identity amendment (2026-07-21).** The QR-claim identity flow below
+> (rev 3) had the *backend* verify the KwikPass `gk-access-token` against the
+> GoKwik customer-profile API to resolve the phone. That is **superseded**: the
+> storefront BFF now owns KwikPass/GoKwik, resolves the verified phone itself,
+> and forwards a **per-merchant HMAC-signed** request; our backend holds only the
+> signing secret and verifies the signature (zero KwikPass/GoKwik). §2b and the
+> `/qr/:code/claim` endpoint row are updated in place below; the authoritative,
+> step-by-step v2 record is **`docs/agent/changes/loyalty-qr-claim-v2/PLAN.md`**.
 
 Grounded against the live UAT spec (`https://uat-os-ecosystem.dev.gokwik.io/api/docs-json`):
 Core Loyalty = `POST /api/v1/loyalty/points/credit`, `POST …/debit` (both require
@@ -14,13 +23,15 @@ Core Loyalty = `POST /api/v1/loyalty/points/credit`, `POST …/debit` (both requ
 JWT)** — the app calls them with the merchant's stored OAuth access token.
 
 QR claim identity is grounded against the Wellversed storefront
-(`wellversed-2.0`, Next.js App Router + Shopkit + **KwikPass** phone/OTP login):
-the KwikPass SDK issues a `gk-access-token`; the GoKwik customer-profile API
-(`GET {customerApiBase}/v1/storefront/customers/profile`, headers
-`gk-access-token` + `gk-merchant-id`) returns the verified customer incl. phone.
-Claim-UI delivery follows the widget-SDK model (cf. `osapp-freq-bought`) using
-this repo's native third pillar: `packages/_template-sdk` → `packages/loyalty-sdk`,
-reference `packages/wizzy-sdk`.
+(`wellversed-2.0`, Next.js App Router + Shopkit + **KwikPass** phone/OTP login).
+**v2 (see the amendment banner above):** the KwikPass SDK issues a
+`gk-access-token`; the *storefront BFF* — not our backend — calls the GoKwik
+customer-profile API (`GET {customerApiBase}/v1/storefront/customers/profile`,
+headers `gk-access-token` + `gk-merchant-id`) to resolve the verified phone, then
+HMAC-signs it per-merchant and forwards it to our backend. Our backend verifies
+the signature only and imports no KwikPass/GoKwik. Claim-UI delivery follows the
+widget-SDK model (cf. `osapp-freq-bought`) using this repo's native third pillar:
+`packages/_template-sdk` → `packages/loyalty-sdk`, reference `packages/wizzy-sdk`.
 
 ## 1. Module shape
 
@@ -43,8 +54,8 @@ modules/loyalty/
                                #   4 Core endpoints; merchant JWT bearer; Zod response
                                #   schemas; timeout 5s; retry(2) with backoff on 429/5xx;
                                #   on 401 → one token refresh via shared OAuthService → retry
-    gokwik-identity.client.ts  # verifies a KwikPass gk-access-token → { phone, name, email }
-                               #   via GET {RATIO_API_BASE_URL}/v1/storefront/customers/profile
+    claim-signature.service.ts # v2: verify(${merchantId}.${qr}.${phone}.${ts}, sig, secret)
+                               #   HMAC-SHA256 hex, constant-time, ±5-min window (no GoKwik)
   merchants/merchants.controller.ts    # template merchant reads
   webhooks/
     topics.ts                  # 'app/uninstalled' | 'orders/create' | 'orders/cancelled'
@@ -153,7 +164,7 @@ origin, `/sdk/*` is CORS `*` like wizzy's).
 | GET | `/api/qr-codes/:id/poster.png?size=300\|600\|1200` | MT | printable QR PNG — encodes `{storefront_base_url}/?loyalty_qr={code}` |
 | GET | `/api/qr-codes/:id/poster.pdf` | MT | print-ready PDF poster (event name + coins + QR) |
 | GET | `/qr/:code/status` | PUB | claim-widget render data: `{eventName, points, programName, state}` (60/IP/min) |
-| POST | `/qr/:code/claim` | PUB | `{gkAccessToken}` → GoKwik verify → verified phone → window/max-scan/one-per-phone checks → Core credit (`qr:{qrId}:{phone}`) → `{status:'credited', points, newBalance}` \| `{status:'already_claimed', balance}` \| terminal (10/IP/min; generic errors) |
+| POST | `/qr/:code/claim` | PUB | **v2:** `{merchantId, phone, ts, sig}` → verify per-merchant HMAC `${merchantId}.${qr}.${phone}.${ts}` (constant-time, ±5-min window) + `merchantId==qr.merchantId` → window/max-scan/one-per-phone `(qr_code_id,phone)` checks → Core credit (`qr:{qrId}:{phone}`) → `{status:'credited', points, newBalance}` \| `{status:'already_claimed', balance}` \| terminal `invalid_signature`/etc. (10/IP/min; generic errors). No GoKwik — the storefront BFF resolved+signed the phone. |
 | GET | `/sdk/loyalty-loader.js` · `/sdk/loyalty-claim.js` | PUB | built SDK bundles from `packages/loyalty-sdk/dist` (memoized; CORS `*`) |
 | GET | `/sdk/config/:merchantId` | PUB | redacted public config `{programName, enabled}` |
 | GET | `/api/customers` | MT | mirror query: filters (balance/earned/redeemed/spend/orders/last-order/in-rule/scanned-QR) + sort + pagination — export preview, leaderboard, search |
@@ -189,18 +200,21 @@ pattern (Lit 3 + Vite library mode, Shadow DOM, size-limit):
   `location.search` has `loyalty_qr` and no wrapper has claimed init — so a
   plain `<script src="{backend}/loyalty/sdk/loyalty-loader.js?store={merchantId}">`
   include works for any non-Shopkit storefront. Zero cost when the param is absent.
-- **`loyalty-claim.js`** (ESM, ≤ 12 KB, lazy-injected by the loader on init) —
-  a Lit web component:
-  1. `GET /loyalty/qr/{code}/status` → renders event name, coins, program name
-     (or terminal state), mobile-first, Shadow DOM.
+- **`loyalty-claim.js`** (IIFE, ≤ 12 KB, lazy-injected by the loader on init) —
+  a Lit web component. **v2:** every API call the widget makes is **same-origin**
+  to the merchant storefront's own BFF (`/api/loyalty/*`), never to our backend:
+  1. `GET {origin}/api/loyalty/status?qr={code}` → renders event name, coins,
+     program name (or terminal state), mobile-first, Shadow DOM.
   2. No KwikPass session → CTA dispatches **`loyalty:login:request`**
      (CustomEvent) and falls back to calling `window.handleCustomLogin(false)`
      directly; resumes on the **`user-loggedin`** window event; reads the token
      from the KwikPass storage keys (`KWIKUSERTOKEN` variants — the same keys
      `KwikpassLoginCustom.tsx` uses, centralized in one SDK module).
-  3. `POST /loyalty/qr/{code}/claim {gkAccessToken}` → renders credited /
-     already-claimed / terminal state with the returned balance; dispatches
-     **`loyalty:claim:success` / `loyalty:claim:error`** for storefront analytics.
+  3. `POST {origin}/api/loyalty/claim {qr, gkAccessToken}` → the storefront BFF
+     resolves the verified phone and signs the request to our backend; renders
+     credited / already-claimed / terminal state with the returned balance;
+     dispatches **`loyalty:claim:success` / `loyalty:claim:error`**. A phone is
+     never sent from the browser.
   4. Type-only imports from `@ratio-app/shared` — no Zod in the browser bundle.
 
 **Part 2 — storefront wrapper widget (wellversed-2.0, IN SCOPE as a build
@@ -211,20 +225,34 @@ deliverable; separate repo PR).** Mirrors `src/widgets/common/FBT/` exactly:
   (returns `null` when absent — zero cost, FBT's `sourceId` gating), lazy-loads
   the SDK once via a module-level `loadSdkOnce()` promise from
   **`NEXT_PUBLIC_LOYALTY_SDK_URL`**, then calls
-  `window.RatioLoyalty.initClaim(null, { merchantId: NEXT_PUBLIC_MERCHANT_ID_SDK,
-  apiBaseUrl: NEXT_PUBLIC_LOYALTY_API_BASE_URL })` and keeps the returned cleanup.
+  `window.RatioLoyalty.initClaim(null)` and keeps the returned cleanup. The widget
+  targets its own page origin; no backend URL is passed from the browser.
 - Listens for `loyalty:login:request` → calls the storefront's
   `window.handleCustomLogin(false)` (KwikPass modal), same bridge style as FBT's
   `cart:*` / `fbtAddToHandler` events.
+- **BFF routes (server-side, this repo's identity boundary):**
+  `src/app/api/loyalty/status/route.ts` proxies status; `src/app/api/loyalty/claim/route.ts`
+  resolves the verified phone from the KwikPass token via the GoKwik
+  customer-profile API (`gk-access-token` + `gk-merchant-id`), then signs
+  `sig = HMAC_SHA256(`${merchantId}.${qr}.${phone}.${ts}`, LOYALTY_CLAIM_SECRET)`
+  (hex) and `POST`s `{merchantId, phone, ts, sig}` to our backend
+  `/loyalty/qr/{code}/claim`. `runtime = "nodejs"`; the phone is masked in logs.
 - Registered in `src/editor-integration/widget-registry.ts`
   (`WIDGET_TYPES.LoyaltyClaim`, minimal settings schema) and added to the
   **layout-level/root template** so it is present on every page (the QR can land
   anywhere); renders nothing without the query param.
-- Env additions to wellversed-2.0: `NEXT_PUBLIC_LOYALTY_SDK_URL`,
-  `NEXT_PUBLIC_LOYALTY_API_BASE_URL`.
+- Env additions to wellversed-2.0: `NEXT_PUBLIC_LOYALTY_SDK_URL` (loader src),
+  `LOYALTY_API_BASE_URL` (our backend base, server-only), `LOYALTY_CLAIM_SECRET`
+  (per-merchant signing secret, server-only), `LOYALTY_MERCHANT_ID` (loyalty
+  merchant id used in the signature), `GK_MERCHANT_ID` (GoKwik profile header).
 
-The backend — never the browser — resolves the phone by calling the GoKwik
-profile API with the token. A client-supplied phone is never accepted.
+**v2 trust boundary.** The *storefront BFF* — never the browser, never our
+backend — resolves the phone. Our backend accepts a phone only inside a valid
+per-merchant HMAC signature (constant-time compare, ±5-min timestamp window);
+`body.merchantId` must equal the QR's `merchantId`. Uniqueness is still
+`(qr_code_id, phone)` — the same phone may claim different QRs, only the same QR
+twice is blocked. The backend imports no KwikPass/GoKwik code (see the v2
+amendment banner at the top and `docs/agent/changes/loyalty-qr-claim-v2/PLAN.md`).
 
 ### 2c. Export flow (S3 + email)
 
