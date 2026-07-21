@@ -100,6 +100,33 @@ describe('RpRatioClientService.patchOrder', () => {
     expect(result).toEqual(okBody);
   });
 
+  it('resolves an order_number (e.g. "500", what RP actually sends) to the real OS order id before PATCHing — reproduces a live 404 ("Order with ID 500 not found") seen when this resolution was missing', async () => {
+    const searchBody = { data: { orders: [{ id: 'ordr_17846309512358540', order_number: 500 }] } };
+    const okBody = { data: { order: { id: 'ordr_17846309512358540', tags: 'Returned' } } };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve(searchBody) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve(okBody) });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const svc = makeService();
+    const result = await svc.patchOrder('gk-merchant', '500', {
+      order: { tags: 'Returned', fulfillment_status: 'fulfilled' },
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'http://os-order.test/api/v1/admin/orders?search=500',
+      expect.anything(),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'http://os-order.test/api/v1/admin/orders/ordr_17846309512358540',
+      expect.objectContaining({ method: 'PATCH' }),
+    );
+    expect(result).toEqual(okBody);
+  });
+
   it('surfaces a non-ok OS response as an HttpException (never masks a failure as success)', async () => {
     const errorBody = { code: 'ORDER_NOT_FOUND', message: 'no such order' };
     vi.stubGlobal(
