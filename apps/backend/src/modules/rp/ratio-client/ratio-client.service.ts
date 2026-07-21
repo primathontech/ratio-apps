@@ -76,15 +76,19 @@ export class RpRatioClientService {
   async patchOrder(merchantId: string, orderId: string, body: unknown): Promise<unknown> {
     const base = this.config.get('OS_ORDER_BASE_URL', { infer: true }) as string;
     if (!base) throw new Error('OS_ORDER_BASE_URL is not configured');
+    // RP sends back whatever id it was shown (often the order_number, e.g. "500"), not
+    // necessarily OS's real "ordr_..." id — same resolution createRefund/calculateRefund
+    // already do. Without it, OS 404s on the literal order_number string.
+    const osId = await this.resolveOsOrderId(merchantId, orderId);
     const order = ((body as Record<string, unknown>)?.order ?? body) as unknown;
-    const res = await fetch(`${base}/api/v1/admin/orders/${encodeURIComponent(orderId)}`, {
+    const res = await fetch(`${base}/api/v1/admin/orders/${encodeURIComponent(osId)}`, {
       method: 'PATCH',
       headers: { 'gk-merchant-id': merchantId, 'Content-Type': 'application/json' },
       body: JSON.stringify(order),
     });
     if (!res.ok) {
       const errBody = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      this.logger.error({ merchantId, orderId, status: res.status, body: errBody }, 'OS order service error (patch)');
+      this.logger.error({ merchantId, orderId, osId, status: res.status, body: errBody }, 'OS order service error (patch)');
       throw new HttpException(
         { message: `OS order service patch failed`, os: errBody },
         res.status,
