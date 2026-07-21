@@ -111,10 +111,12 @@ export function DesignSettings({ appearance, dispatch }: Props) {
     <Card title="Design">
       <PresetRow onApply={applyPreset} />
       <Collapse
-        defaultActiveKey={['colors', 'typography', 'layout', 'inputs', 'buttons', 'background']}
+        accordion
+        defaultActiveKey={['colors']}
         items={[
           {
             key: 'colors',
+            forceRender: true,
             label: 'Colors',
             children: (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -135,6 +137,7 @@ export function DesignSettings({ appearance, dispatch }: Props) {
           },
           {
             key: 'typography',
+            forceRender: true,
             label: 'Typography',
             children: (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -167,6 +170,7 @@ export function DesignSettings({ appearance, dispatch }: Props) {
           },
           {
             key: 'layout',
+            forceRender: true,
             label: 'Layout',
             children: (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -278,6 +282,7 @@ export function DesignSettings({ appearance, dispatch }: Props) {
           },
           {
             key: 'inputs',
+            forceRender: true,
             label: 'Inputs',
             children: (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -335,6 +340,7 @@ export function DesignSettings({ appearance, dispatch }: Props) {
           },
           {
             key: 'buttons',
+            forceRender: true,
             label: 'Buttons',
             children: (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -405,6 +411,7 @@ export function DesignSettings({ appearance, dispatch }: Props) {
           },
           {
             key: 'background',
+            forceRender: true,
             label: 'Background',
             children: (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -509,6 +516,7 @@ export function DesignSettings({ appearance, dispatch }: Props) {
           },
           {
             key: 'assets',
+            forceRender: true,
             label: 'Brand assets',
             children: (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>

@@ -49,6 +49,8 @@ describe('DesignSettings', () => {
   it('dispatches a font-family change scoped to the typography group', () => {
     const dispatch = vi.fn();
     renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />);
+    // Design sections are an accordion; expand Typography before touching its Select.
+    fireEvent.click(screen.getByText('Typography'));
     // antd Select renders the value; open it and pick another family.
     fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Font family' }));
     fireEvent.click(screen.getByText('Inter'));
