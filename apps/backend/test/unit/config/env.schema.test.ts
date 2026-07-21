@@ -53,6 +53,13 @@ const validEnv = {
   RATIO_RP_CLIENT_SECRET: 'rp_secret',
   RATIO_RP_CALLBACK_URL: 'http://localhost:3000/rp/api/v1/oauth/callback',
   RATIO_RP_ADMIN_BASE_URL: 'http://localhost:5174',
+
+  RATIO_LOYALTY_DATABASE_URL: 'mysql://app:app@localhost:3306/loyalty_app',
+  RATIO_LOYALTY_DATA_ENCRYPTION_KEY: Buffer.alloc(32).toString('base64'),
+  RATIO_LOYALTY_CLIENT_ID: 'loyalty_id',
+  RATIO_LOYALTY_CLIENT_SECRET: 'loyalty_secret',
+  RATIO_LOYALTY_CALLBACK_URL: 'http://localhost:3000/loyalty/api/v1/oauth/callback',
+  RATIO_LOYALTY_ADMIN_BASE_URL: 'http://localhost:5174',
 };
 
 describe('envSchema', () => {

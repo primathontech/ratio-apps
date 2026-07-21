@@ -157,7 +157,11 @@ forms, `@primathonos/orion` for UI components.
 ## Storefront SDK patterns
 
 **Only for apps with `hasStorefrontSdk: true`** (opt-in; Google, Meta, PostHog,
-and MoEngage do not ship one, while Wizzy is the first that does). The SDK is a
+and MoEngage do not ship one, while Wizzy is the first that does). When the SDK
+renders UI **on a merchant storefront** (widget/overlay), also consult the
+`storefront-widget` skill — it defines the window-global `init` API contract,
+the CustomEvent bridge, and the Shopkit wrapper-widget anatomy for the
+wellversed-2.0 storefront repo (FBT-style), so you never re-explore that repo. The SDK is a
 third pillar: a **Lit 3 + Vite 6 library-mode** package at
 `packages/<slug>-sdk`, served by the vendor backend at `/<slug>/sdk/*`.
 Canonical reference: **`packages/wizzy-sdk`** (golden copy-source:

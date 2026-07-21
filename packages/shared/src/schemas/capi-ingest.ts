@@ -16,7 +16,20 @@ const rawCapiEventSchema = z.object({
   event_id: z.string().min(1).max(100).optional(),
   event_time: z.number().int().positive().optional(),
   event_source_url: z.string().max(2048).optional(),
-  action_source: z.enum(['website', 'app', 'offline', 'email', 'phone_call', 'chat', 'physical_store', 'system_generated', 'business_messaging', 'other']).optional(),
+  action_source: z
+    .enum([
+      'website',
+      'app',
+      'offline',
+      'email',
+      'phone_call',
+      'chat',
+      'physical_store',
+      'system_generated',
+      'business_messaging',
+      'other',
+    ])
+    .optional(),
   user_data: z.record(z.string().max(64), z.unknown()).optional(),
   custom_data: z.record(z.string().max(64), z.unknown()).optional(),
 });

@@ -1,316 +1,278 @@
-# PRD — Loyalty (Merchant Loyalty Admin)
+# PRD — Loyalty
 
-> Structured from the source "Wellversed Loyalty App" PRD (AMJ-2026, P0). A **1P
-> vendor app** built on top of Ratio's **Core Loyalty Service**. Core handles the
-> loyalty primitives (earning on orders, redemption at checkout, balance, history,
-> expiry, customer-facing display). This app adds the merchant-facing power tools
-> Core does not have: **bulk coin credit/debit via CSV**, **cohort-based earning
-> rules** (uploaded customer lists and dynamic segments), **QR codes for offline
-> events**, **filtered data export**, **analytics dashboard**, and **customer
-> search / leaderboard**.
->
-> Wellversed is the first client, but the app is **generic** — any merchant on
-> Ratio can install it. Per user decision the app is named **Loyalty** (not
-> Wellversed). Coin naming ("coins" / "stars" / "points") comes from Core's
-> `program_name` setting.
->
-> **Build scope (decided GATE-0):** Phase 1 **and** Phase 2 of the source PRD —
-> bulk CSV credit/debit, customer-list AND segment-based earning rules, QR
-> create/scan flow, filtered export, customer search, dashboard, rule performance
-> analytics, QR→order conversion tracking, and the customer leaderboard.
-> Phase 3 (rule templates, branded QR, cohort analysis, bulk-op webhooks) is out
-> of scope. API-based programmatic bulk credit and bulk-op scheduling from
-> Phase 2 are deferred too (CSV-upload only in this build).
+> Structured from the "Wellversed Loyalty App" source PRD (v1.0, 2026-04-22) and
+> grounded against the **live UAT OS-ecosystem OpenAPI spec**
+> (`https://uat-os-ecosystem.dev.gokwik.io/api/docs-json`, fetched 2026-07-20).
+> Wellversed is the first client; the app is generic — any merchant can install it.
 
 ## Vendor name & slug
 
 - **Display name:** Loyalty
 - **Slug:** `loyalty`
-- **Storefront SDK?** `no` — the QR scan landing page is a lightweight,
-  mobile-optimized **public page served by the backend module** (like the OAuth
-  callback), NOT a storefront widget. `hasStorefrontSdk: false`. (Decided GATE-0,
-  resolving the source PRD's conflict between §4.3 "hosted by the app" and Open
-  Question #1's storefront-redirect resolution.)
+- **Storefront SDK?** `yes` — the QR claim UI ships as a storefront widget
+  (`packages/loyalty-sdk`, golden path `packages/_template-sdk` / reference
+  `packages/wizzy-sdk`): a tiny loader script the merchant storefront includes
+  once; when the QR query param is present the widget renders the claim overlay
+  (Shadow DOM), drives KwikPass login, and calls the app's public claim API.
+  Same delivery model as the osapp-freq-bought widget SDK, but on this repo's
+  native `/loyalty/sdk/*` serving path.
+- **API placement:** `shared`
+- **Worker placement:** `shared-api`
+- **Placement rationale:** Admin CRUD traffic is low; QR scan bursts at offline
+  events are hundreds/day. Bulk CSV processing (≤ 50,000 rows) and async exports
+  run through core SQS with a lightweight module-local consumer gated by
+  `LOYALTY_WORKER_ENABLED`, running in the shared API pods — same pattern as the
+  Wizzy sync worker. No isolation, secret, or latency need justifies dedicated pods.
 
-The slug drives every derived name: backend module
-(`apps/backend/src/modules/loyalty/`), admin app (`apps/admin-loyalty/`), URL
-prefix (`/loyalty/*`), and `RATIO_LOYALTY_*` env keys. Validated `^[a-z0-9-]+$`,
-not present in the `APPS` tuple, and `apps/admin-loyalty/` does not exist — slug
-is free.
+## Build scope decision (human-approved)
 
-### Dependency flag (carried to TRD / GATE 2)
+This build targets **source-PRD Phase 1 + Phase 2**: bulk CSV credit/debit,
+earning rules (CUSTOMER_LIST **and** SEGMENT), QR offline events, filtered
+export, customer search, leaderboard, analytics dashboard, rule performance,
+QR→order conversion tracking. Phase 3 (rule templates, branded QR, webhook
+notifications, cohort ROI analytics) is out of scope.
 
-Everything this app does runs through the **OS Loyalty & Membership Core
-Service** (status: **in QA**) and the **Loyalty APIs** from the API-Parity PRD
-(status: **draft**): points credit/debit, bulk-credit, balance, history,
-customer filtering/export, and the **Points Multiplier Hook** extension point.
-Scope names and endpoint shapes below come from the source PRD and could not be
-validated against the platform docs at PRD time (doc lookup declined; APIs are
-draft) — **the TRD must pin the real endpoint/scope names or record them as
-pending**.
+## Core API surface — ground truth (drives the whole design)
 
-**Resolution for this build (mirrors the `wizzy`/`google` pattern):** all Core
-Loyalty calls are isolated in a single guarded API client. Features degrade to a
-clear `pending_api` status (no crash) when a Core endpoint is unavailable, so
-the app ships now and lights up as Core lands. The app's own data (bulk-op
-tracking, rules, QR codes, scans, exports, event log) lives in its own tables
-and is buildable/testable unconditionally.
+The live UAT spec exposes exactly **four** Core Loyalty endpoints:
 
-### Architecture decision — who owns earning rules
+| Endpoint | Notes |
+|---|---|
+| `POST /api/v1/loyalty/points/credit` | phone-keyed; `points` 1–100,000/txn; **`idempotency_key` required**; `description` + `metadata` |
+| `POST /api/v1/loyalty/points/debit` | same shape; idempotent |
+| `GET /api/v1/loyalty/points/{phone}/balance` | balance + lifetime earned / redeemed / expired / adjusted |
+| `GET /api/v1/loyalty/points/{phone}/history` | paginated ledger |
 
-The source PRD both lists Core rules APIs (`POST /loyalty/rules` …) and
-describes the app evaluating rules itself when Core fires the points-earning
-pre-hook (§4.2). For this build: **the app is the source of truth for rule
-definitions and customer lists** (own tables, own evaluation), and exposes a
-**hook endpoint** that Core calls at earning time
-(`POST /loyalty/hooks/points-earning` → returns multiplier/bonus). Registration
-of that hook with Core goes through the guarded client (`pending_api` until the
-extension point exists).
+The source PRD assumed Core APIs that **do not exist** in UAT: bulk-credit,
+rules CRUD, points-multiplier hook, QR API, loyalty customer list/export,
+customer create/search-by-phone, loyalty events. There is also **no loyalty
+scope** in the platform's 147-scope catalog and **no loyalty webhook topics**
+(available topics: `orders/*`, `products/*`, `app/uninstalled`).
+
+Consequences — the app owns all of these itself:
+
+1. **Bulk ops** = app iterates Core credit/debit row-by-row from an SQS-driven
+   worker, with deterministic idempotency keys (`bulk:{opId}:{rowNo}`) so retries
+   and resume-after-crash never double-apply.
+2. **Earning rules** = app-owned tables + evaluation. With no Core hook, the app
+   listens to the `orders/create` webhook, computes the **extra** coins a
+   matching rule grants (multiplier delta over the configured base earn rate, or
+   flat bonus) and credits that delta via Core with
+   `metadata: { rule_id, order_id }`. Core keeps crediting the base earn
+   independently; the app never double-credits base.
+   **Rule evaluation reads from Redis, not MySQL**: the per-merchant active rule
+   set (definitions + CUSTOMER_LIST membership) is cached via the core
+   `RedisService` (`core/cache/redis.service.ts`) and invalidated on every rule
+   create/update/pause/delete/list-append, so per-order evaluation does not hit
+   the DB. MySQL remains the source of truth; per the core Redis contract the
+   evaluator falls back to a DB read when Redis is unavailable.
+3. **QR codes** = app owns the campaign entity, scan ledger, one-scan-per-phone
+   enforcement, and a **downloadable printable poster** (PNG/PDF with the QR).
+   The QR encodes `{storefront_base_url}/?loyalty_qr={code}` — any storefront
+   page. The **loyalty claim widget** (`packages/loyalty-sdk`, loaded once via
+   script tag in the storefront) detects the param, fetches campaign status,
+   renders a mobile-first claim overlay, and drives the existing **KwikPass
+   phone+OTP** login (`window.handleCustomLogin` + `user-loggedin` event). It
+   then calls the app's public claim API with the KwikPass `gk-access-token`;
+   the app verifies the token against the GoKwik customer-profile API to resolve
+   the **verified** phone, then credits via Core with
+   `metadata: { qr_code_id, event_name }`. Loyalty is phone-keyed, so a scan by
+   an unknown phone still earns coins — "new accounts" is reframed as
+   "new-to-loyalty phones." The app hosts **no page and no OTP infrastructure**.
+   Storefront integration follows the **FBT (SDK) widget flow** already live in
+   wellversed-2.0: a `LoyaltyClaim` Shopkit widget wrapper (registry entry +
+   root-template placement) lazy-loads the SDK and bridges KwikPass login —
+   **this wrapper PR is in scope** as a build deliverable (separate repo).
+4. **Export / search / leaderboard / dashboard** = app maintains a per-merchant
+   **local customer mirror** (`loyalty_customers`) built from order webhooks, bulk
+   uploads, and QR scans, with balances/lifetime stats refreshed from the Core
+   balance endpoint by a periodic worker sweep + on-demand refresh. All filtering
+   runs on the mirror; per-customer live data is fetched from Core at view time.
+   Export CSVs are generated in the background, **uploaded to S3**, and served to
+   the admin via short-lived presigned download links; when the row count exceeds
+   **10,000**, the export dialog requires an email address (pre-filled from
+   config) and the download link is **emailed** on completion.
+5. **Dashboard trends** = daily snapshots into `loyalty_daily_stats` (deltas of
+   the mirror's lifetime counters + the app's own credit/debit activity). No Core
+   event stream exists, so trends have snapshot granularity, not real-time.
+6. **QR claim identity** = KwikPass (already live on the Wellversed storefront)
+   performs phone+OTP verification. The app's claim endpoint accepts the
+   customer's KwikPass `gk-access-token` and resolves the verified phone by
+   calling the GoKwik customer-profile API server-side — client-supplied phone
+   numbers are never trusted, and the app needs **no SMS/OTP provider at all**.
 
 ## Problem
 
-Merchants on Ratio get loyalty primitives from Core, but no operating tools:
-
-- No bulk coin operations — gifting 500 coins to 2,000 customers for a Diwali
-  campaign means one-at-a-time admin edits or an engineering request.
-- No differentiated earning — an influencer driving 50 referrals earns at the
-  same rate as a first-time buyer; no way to reward cohorts with multipliers.
-- Offline events (sampling booths, pop-ups, health expos — a core India D2C
-  motion) generate zero loyalty data and zero offline-to-online attribution.
-- No export/filtering — marketing can't pull "customers with 1,000+ coins" for
-  a WhatsApp campaign.
-- No analytics on the coins economy, rule performance, or QR effectiveness.
-
-**Users:** merchant admins (marketing/ops teams — Wellversed first) in the admin
-SPA; end customers only touch the public QR scan page. **Outcome:** merchant
-installs the app → uploads a CSV to credit thousands of customers in one action
-→ creates 3x-multiplier rules for influencer lists or dynamic segments →
-prints QR codes for events whose scans credit coins (creating accounts for new
-customers) → exports filtered customer lists → watches it all on a dashboard.
+Merchants running loyalty on Ratio Core can earn/redeem/expire points, but have
+no admin tooling on top: no bulk credit/debit for campaigns (Diwali bonus to
+2,000 customers = 2,000 manual edits), no differentiated earning for influencer
+or VIP cohorts, no way to bring offline events (sampling booths, expos, pop-ups)
+into the loyalty funnel, no export of "customers with 1,000+ coins" for WhatsApp
+campaigns, and no analytics on what's working. Users are merchant marketing/ops
+admins (Wellversed first); offline-event customers interact only with the public
+QR scan page.
 
 ## Data model (tables / fields)
 
-Beyond the standard `merchants`, `oauth_tokens` (Ratio OAuth), and `webhook_log`
-tables every module already has. Phone numbers are stored E.164-normalized.
-No vendor API secrets — Core is called with the app's Ratio OAuth token.
+Beyond the standard `merchants`, `oauth_tokens`, `webhook_log`:
 
 | Table | Column | Type | Notes |
 |---|---|---|---|
 | `loyalty_configs` | `merchant_id` | varchar(128) PK | FK → `merchants.id` |
-| | `loyalty_enabled` | tinyint(1) default 0 | per-merchant kill switch |
-| | `program_name` | varchar(64) NULL | cached from Core (display: "coins"/"stars") |
-| | `coin_value_paise` | int NULL | cached from Core — liability calc (1 coin = ₹0.10 → 10) |
-| | `hook_status` | enum(`active`,`pending_api`,`error`,`disabled`) default `disabled` | Points Multiplier Hook registration state (guarded) |
-| | `created_at` / `updated_at` | datetime | |
-| `loyalty_bulk_operations` | `id` | bigint PK auto | one CSV upload |
-| | `merchant_id` | varchar(128) | FK → `merchants.id` |
-| | `operation_type` | enum(`credit`,`debit`) | |
-| | `status` | enum(`validating`,`awaiting_confirm`,`processing`,`completed`,`failed`,`cancelled`) | |
-| | `file_name` | varchar(255) | uploaded CSV name |
-| | `total_rows` / `valid_rows` / `invalid_rows` | int | preview counts |
-| | `processed_rows` / `success_rows` / `failed_rows` | int | progress counters (resume support) |
-| | `total_coins` | bigint | sum of valid amounts |
-| | `created_at` / `completed_at` | datetime / NULL | |
-| `loyalty_bulk_operation_rows` | `id` | bigint PK auto | per-row state → crash-safe resume + error CSV |
-| | `operation_id` | bigint | FK → `loyalty_bulk_operations.id` |
-| | `row_number` | int | position in the source CSV |
-| | `phone_e164` | varchar(20) | normalized phone |
-| | `amount` | int | coins (positive; sign comes from operation_type) |
-| | `reason` | varchar(255) NULL | shown in Core coin history |
-| | `status` | enum(`pending`,`success`,`failed`,`skipped`) | |
-| | `error_reason` | varchar(255) NULL | "Customer not found", "Insufficient balance", … |
-| | `customer_id` | varchar(128) NULL | resolved Ratio customer |
-| | `processed_at` | datetime NULL | UNIQUE(`operation_id`,`row_number`) |
-| `loyalty_rules` | `id` | bigint PK auto | earning rule |
-| | `merchant_id` | varchar(128) | FK → `merchants.id` |
-| | `name` | varchar(128) | display name |
-| | `rule_type` | enum(`MULTIPLIER`,`BONUS`) | |
-| | `value` | decimal(10,2) | multiplier (3.00) or bonus coins (200) |
-| | `target_type` | enum(`SEGMENT`,`CUSTOMER_LIST`) | |
-| | `conditions` | json NULL | SEGMENT: AND-joined condition array |
-| | `event_trigger` | enum(`ORDER_COMPLETED`,`ALL_ORDERS`) default `ALL_ORDERS` | |
-| | `starts_at` / `ends_at` | datetime / NULL | schedule window |
-| | `active` | tinyint(1) default 1 | master toggle (pause) |
-| | `priority` | int default 0 | highest priority wins per type |
-| | `created_at` / `updated_at` | datetime | |
-| `loyalty_rule_customers` | `id` | bigint PK auto | CUSTOMER_LIST membership (append-able) |
-| | `rule_id` | bigint | FK → `loyalty_rules.id` |
-| | `phone_e164` | varchar(20) | |
-| | `customer_id` | varchar(128) NULL | resolved at upload time |
-| | `added_at` | datetime | UNIQUE(`rule_id`,`phone_e164`) |
-| `loyalty_rule_matches` | `id` | bigint PK auto | rule-performance analytics (Phase 2) |
-| | `rule_id` | bigint | FK → `loyalty_rules.id` |
-| | `merchant_id` | varchar(128) | |
-| | `customer_id` | varchar(128) | |
-| | `order_id` | varchar(128) NULL | |
-| | `base_points` / `extra_points` | int | coins above base rate attributed to the rule |
-| | `matched_at` | datetime | |
-| `loyalty_qr_codes` | `id` | bigint PK auto | offline-event QR |
-| | `merchant_id` | varchar(128) | FK → `merchants.id` |
-| | `unique_code` | varchar(64) | random URL token — UNIQUE |
-| | `event_name` | varchar(128) | |
-| | `coins_per_scan` | int | |
-| | `max_scans` | int default 0 | 0 = unlimited |
-| | `starts_at` / `expires_at` | datetime | active window |
-| | `landing_message` | varchar(255) NULL | custom scan-page copy |
-| | `status` | enum(`DRAFT`,`ACTIVE`,`PAUSED`,`EXPIRED`) | |
-| | `scan_count` / `new_account_count` | int default 0 | denormalized counters |
-| | `created_at` / `updated_at` | datetime | |
-| `loyalty_qr_scans` | `id` | bigint PK auto | one successful claim |
-| | `qr_code_id` | bigint | FK → `loyalty_qr_codes.id` |
-| | `merchant_id` | varchar(128) | |
-| | `customer_id` | varchar(128) | |
-| | `phone_e164` | varchar(20) | |
-| | `is_new_account` | tinyint(1) | account created by this scan |
-| | `converted_order_id` | varchar(128) NULL | first order ≤30d after scan (Phase 2 conversion) |
-| | `scanned_at` | datetime | UNIQUE(`qr_code_id`,`customer_id`) — one scan per customer |
-| `loyalty_exports` | `id` | bigint PK auto | export job history |
-| | `merchant_id` | varchar(128) | FK → `merchants.id` |
-| | `filters` | json | applied filter set |
-| | `status` | enum(`processing`,`ready`,`failed`) | |
-| | `row_count` | int NULL | |
-| | `file_path` | varchar(512) NULL | generated CSV location |
-| | `created_at` / `completed_at` | datetime / NULL | |
-| `loyalty_event_log` | `id` | bigint PK auto | Core loyalty events cache → dashboard trends |
-| | `merchant_id` | varchar(128) | |
-| | `event_type` | enum(`points_earned`,`points_redeemed`,`points_expired`) | |
-| | `customer_id` | varchar(128) | |
-| | `points` | int | |
-| | `source` | varchar(64) NULL | `order`, `bulk_upload`, `qr_scan`, … |
-| | `occurred_at` | datetime | INDEX(`merchant_id`,`event_type`,`occurred_at`) |
+| | `program_name` | varchar(64) | display name for points ("Wellversed Coins") |
+| | `base_earn_rate` | decimal(10,4) | coins per ₹1 — needed to compute multiplier deltas |
+| | `coin_value_inr` | decimal(10,4) | ₹ per coin — liability metric |
+| | `storefront_base_url` | varchar(255) | QR claim URLs are minted against this (e.g. `https://wellversed.in`) |
+| | `export_email` | varchar(255) | default recipient for large-export links |
+| `loyalty_customers` | `merchant_id`+`phone` | varchar PK (composite) | E.164-normalized phone |
+| | `name`, `email` | varchar | from order webhooks |
+| | `points_balance` | int | cached from Core |
+| | `lifetime_earned` / `lifetime_redeemed` / `lifetime_expired` / `lifetime_adjusted` | int | cached Core lifetime stats |
+| | `lifetime_spend` | decimal(14,2) | accumulated from order webhooks |
+| | `lifetime_orders` | int | accumulated from order webhooks |
+| | `last_order_at` | datetime | |
+| | `first_seen_source` | varchar(16) | `order` \| `bulk` \| `qr` |
+| | `balance_synced_at` | datetime | staleness marker for sweep |
+| `loyalty_bulk_operations` | `id` | char(26) PK (ULID) | |
+| | `merchant_id`, `type` (`credit`\|`debit`), `status` (`validating`\|`awaiting_confirm`\|`processing`\|`done`\|`failed`), `file_name`, `total_rows`, `valid_rows`, `invalid_rows`, `processed_rows`, `success_count`, `failure_count`, `total_points` | | progress + summary |
+| `loyalty_bulk_operation_rows` | `id` bigint PK; `operation_id` FK, `row_number`, `phone`, `points`, `reason`, `status` (`pending`\|`success`\|`failed`\|`skipped`), `error_reason`, `core_transaction_id`, `processed_at` | | per-row resume + error CSV |
+| `loyalty_rules` | `id` | char(26) PK | |
+| | `merchant_id`, `name`, `rule_type` (`MULTIPLIER`\|`BONUS`), `value` decimal(10,2), `target_type` (`SEGMENT`\|`CUSTOMER_LIST`), `conditions` json (**condition tree**: nested AND/OR groups of `{field, operator, value}` leaves), `starts_at`, `ends_at` nullable, `active` bool, `priority` int | | dynamic engine — see "Earning Rules" screen |
+| `loyalty_rule_customers` | `rule_id`+`phone` PK, `added_at` | | appendable list (resolved Q6) |
+| `loyalty_rule_applications` | `id` bigint PK; `merchant_id`, `rule_id`, `order_id`, `phone`, `base_points`, `extra_points`, `applied_at` | | rule-performance analytics; unique (`rule_id`,`order_id`) |
+| `loyalty_qr_codes` | `id` | char(26) PK | |
+| | `merchant_id`, `code` varchar(32) unique, `event_name`, `points_per_scan`, `max_scans` (0 = ∞), `starts_at`, `expires_at`, `landing_message`, `status` (`DRAFT`\|`ACTIVE`\|`PAUSED`\|`EXPIRED`), `scan_count`, `new_phone_count` | | |
+| `loyalty_qr_scans` | `id` bigint PK; `qr_code_id`, `merchant_id`, `phone`, `is_new_phone` bool, `core_transaction_id`, `scanned_at` | | unique (`qr_code_id`,`phone`) enforces one scan/customer |
+| `loyalty_exports` | `id` char(26) PK; `merchant_id`, `filters` json, `status`, `row_count`, `s3_key`, `email` nullable, `emailed_at` nullable, `created_by`, `completed_at` | | async export jobs; CSV lives in S3, downloads via presigned URL |
+| `loyalty_daily_stats` | `merchant_id`+`stat_date` PK; `points_issued`, `points_redeemed`, `points_expired`, `bulk_credited`, `bulk_debited`, `qr_points`, `rule_extra_points`, `customers_with_balance`, `outstanding_points` | | daily snapshot for dashboard trends |
 
 ## Scopes / permissions
 
-Names follow the source PRD's intent mapped to Ratio's `read_*`/`write_*`
-convention; **exact names must be pinned against the platform in the TRD**
-(Loyalty APIs are draft):
+- `read_orders` — receive `orders/*` webhooks and read order data: builds the
+  customer mirror (spend, order counts), triggers rule evaluation, powers
+  QR→order conversion.
+- `read_customers` — enrich mirror entries (name/email) via
+  `GET /api/v1/customers/{id}` when order payloads carry a customer id.
 
-- `read_loyalty` — read balances, history, loyalty-filtered customers (export,
-  search, dashboard).
-- `write_loyalty` — credit/debit points (bulk ops, QR claims, manual
-  adjustments), register the points-earning hook.
-- `read_customers` — look up customers by phone/email (CSV matching, QR claim,
-  search).
-- `write_customers` — create accounts for new customers in the QR scan flow.
-- `read_orders` — QR→order conversion tracking (Phase 2 analytics).
+No loyalty scope exists in the platform catalog; the four Core Loyalty
+endpoints are called with the platform's API-key/merchant-header auth used by
+1P services (exact auth mechanics confirmed in the TRD). `write_customers` is
+**not** requested — no customer-create API exists and the QR flow doesn't need one.
 
 ## Webhook events
 
-- `app/uninstalled` — flip merchant inactive, disable rules/QR claims,
-  deregister the points-earning hook (guarded). (Default, wired by template.)
-- `loyalty/points_earned` — append to `loyalty_event_log` (dashboard: coins
-  issued, trends).
-- `loyalty/points_redeemed` — append to `loyalty_event_log` (redeemed,
-  redemption rate).
-- `loyalty/points_expired` — append to `loyalty_event_log` (expired).
-- `orders/create` — QR→order conversion: if the customer scanned a QR in the
-  prior 30 days, stamp `converted_order_id` on the scan row (Phase 2).
-
-Verification: HMAC-SHA256 over the raw body (template guard). The
-`loyalty/*` topic names are draft — same guarded/pending treatment as the APIs.
-
-**Inbound hook (not a webhook subscription):** `POST /loyalty/hooks/points-earning`
-— Core calls this synchronously at earning time; the app evaluates active rules
-(CUSTOMER_LIST membership, then SEGMENT conditions; highest priority wins per
-type; one MULTIPLIER + one BONUS may stack) and returns `{multiplier, bonus}`.
-Records a `loyalty_rule_matches` row for analytics.
-
-## Public (unauthenticated) surface
-
-- `GET /loyalty/qr/:unique_code` — mobile-optimized QR landing page
-  (backend-rendered, works on desktop too). Shows event name, coins on offer,
-  custom message; phone → OTP login.
-- `POST /loyalty/qr/:unique_code/otp` + `POST /loyalty/qr/:unique_code/claim` —
-  send/verify OTP (existing OS OTP service), enforce active-window / max-scans /
-  one-scan-per-customer, create the customer if new (`write_customers`), credit
-  coins via Core (`source: "qr_scan"`), record the scan. Rate-limited.
+- `app/uninstalled` — flip merchant inactive (default template wiring).
+- `orders/create` — (1) upsert `loyalty_customers` (phone, name, spend, order
+  count); (2) evaluate active earning rules and credit the extra coins via Core
+  (idempotency key `rule:{ruleId}:{orderId}`); (3) mark QR→order conversion if
+  the phone scanned a QR in the prior 30 days.
+- `orders/cancelled` — correct mirror spend/order counters (no coin clawback —
+  coins are permanent once credited, per source-PRD edge-case table).
 
 ## Admin screens
 
-- **Config** — enable toggle, cached program name / coin value display,
-  hook-registration status card (Active / **Pending API** / Error / Disabled).
-- **Dashboard (main)** — coins economy tiles (issued, redeemed, redemption rate,
-  expired, outstanding liability, customers with coins), issued-vs-redeemed
-  trend chart, rule-performance table, QR-performance table (scans, new
-  accounts, order conversion), bulk-operations summary. Period picker: 7/30/90
-  days + custom.
-- **Bulk Operations** — credit/debit selector, CSV upload (template download),
-  validation preview (total/valid/invalid rows, total coins, error CSV
-  download), confirm → background processing with progress, history table,
-  failed-rows CSV download.
-- **Earning Rules** — list (name, type, target, value, status), create/edit
-  form (MULTIPLIER/BONUS, value, SEGMENT condition builder or CUSTOMER_LIST CSV
-  upload with append support, schedule, priority), detail view with performance
-  (matches, extra coins, unique customers) and list management
-  (view/download/append), pause/delete.
-- **QR Codes** — list (event, coins, scans/max, status), create form (event
-  name, coins per scan, max scans, active window, landing message), detail
-  (QR image download PNG/PDF at 300/600/1200px, scan stats, new accounts,
-  recent scans), pause/edit.
+- **Dashboard** (landing) — coins economy tiles (issued, redeemed, redemption
+  rate, expired, outstanding liability ₹, customers with coins), 30-day
+  issued-vs-redeemed trend from daily snapshots, rule-performance table, QR
+  performance table, bulk-ops summary. Period picker: 7/30/90 days + custom.
+- **Bulk Operations** — credit/debit toggle, CSV upload (≤ 50k rows, ≤ 5 MB;
+  columns `phone_number, amount, reason?`), client-side validation preview
+  (valid/invalid counts, error-CSV download, total coins), confirm → background
+  processing with live progress, history table with per-run summary + failed-rows
+  CSV. Duplicate phones: last row wins with warning. Debit rows exceeding balance
+  fail with `Insufficient balance`.
+- **Earning Rules** — list + create/edit/pause/delete. Rule form: name,
+  MULTIPLIER/BONUS + value, target SEGMENT (**dynamic condition builder**:
+  nested AND/OR groups over an extensible field registry — customer fields
+  `lifetime_orders`, `lifetime_spend`, `points_balance`, `last_order_at`,
+  `first_seen_source` **and order fields** `order_total`, `item_count`,
+  `is_first_order` — e.g. "(spend > ₹50k OR orders ≥ 10) AND order_total >
+  ₹1,000") or CUSTOMER_LIST (CSV upload, append supported, view/download list),
+  schedule (start/end), priority. Detail view shows performance (matches, extra
+  coins, unique customers). Conflict resolution: highest priority wins per type;
+  one MULTIPLIER + one BONUS may stack (multiplier first).
+- **QR Codes** — list + create/edit/pause. Form: event name, coins/scan, max
+  scans, active window, claim message. Detail: **printable poster download**
+  (PNG 300/600/1200 px + print-ready PDF; QR encodes
+  `{storefront_base_url}/?loyalty_qr={code}`), scan counter, new-phone counter,
+  recent scans, and the copy-paste loader `<script>` snippet for the storefront.
+  The customer-facing claim UI is the `loyalty-sdk` widget (KwikPass login); the
+  app exposes a public `status` endpoint (event name/coins/state for the overlay)
+  and a public `claim` endpoint (KwikPass-token-verified) returning
+  success/already-claimed/expired/fully-claimed.
 - **Export** — filter builder (balance, lifetime earned/redeemed/spend/orders,
-  last order date, expiring coins, in-rule, QR-scanned; AND-joined), live match
-  count + preview rows, export CSV (async for large sets), export history with
-  downloads.
-- **Customers** — search by phone/email/name → profile (balance, lifetime
-  stats, active rules, QR scans, expiring coins, recent activity, manual
-  credit/debit); **Leaderboard** tab — top customers by balance / lifetime
+  last-order date, in-rule, scanned-QR; AND-joined), live match count + preview,
+  async CSV generation to S3, presigned download links + recent-exports history;
+  when the match count exceeds 10,000 the dialog asks for an email (pre-filled
+  from `export_email`) and the link is emailed on completion.
+- **Customers** — search by phone/email/name → profile (cached mirror + live
+  Core balance/history pull), active rules, QR scans, recent activity, manual
+  credit/debit with reason. Leaderboard tab: top customers by balance/lifetime
   earned, paginated.
+- **Settings (Config)** — program name, base earn rate, coin value, storefront
+  base URL (for QR claim links), export email (default recipient for large
+  exports).
 
 ## Acceptance criteria
 
-- [ ] Merchant can save config; enable toggle persists; hook registration
-      attempts against Core and records `pending_api` (no crash) when the
-      extension point is unavailable.
-- [ ] Bulk CSV upload validates format, normalizes phones to E.164, flags
-      invalid rows with a downloadable error CSV, previews totals, and on
-      confirm processes rows in the background via Core credit/debit calls —
-      per-row status tracked, resumable after interruption, duplicates
-      last-row-wins with warning, debit-below-zero and >100k amounts blocked.
-- [ ] Earning rules CRUD works for both MULTIPLIER and BONUS with SEGMENT
-      (AND-joined conditions) and CUSTOMER_LIST (CSV upload, append without
-      replace, download) targets, schedule window, pause, and priority.
-- [ ] The points-earning hook endpoint evaluates rules correctly: highest
-      priority wins per type, one MULTIPLIER + one BONUS stack (multiplier
-      first), inactive/out-of-window rules skipped, missing segment fields
-      evaluate false; each match recorded for analytics.
-- [ ] QR codes: create/pause/edit with window + max-scans; landing page serves
-      publicly at `/loyalty/qr/:code`; OTP claim credits coins exactly once per
-      customer, enforces window/limits with the specified messages, and creates
-      accounts for new phone numbers; PNG/PDF downloads work.
-- [ ] Export: AND-joined filters return a live count + preview; CSV downloads
-      with the specified columns; large exports run as background jobs with
-      history.
-- [ ] Customer search by phone/email/name shows the loyalty profile (balance,
-      history, rules, scans, expiring coins) with manual credit/debit;
-      leaderboard paginates top customers.
-- [ ] Dashboard shows coins economy, trends, rule performance, QR performance,
-      and bulk-op summary for 7/30/90-day + custom periods, fed by the
-      `loyalty/*` event log and app tables.
-- [ ] `loyalty/points_earned|redeemed|expired` and `orders/create` webhooks
-      (HMAC-verified) update the event log / conversion stamps; `app/uninstalled`
-      flips the merchant inactive and disables the public QR surface.
-- [ ] All Core Loyalty calls go through one guarded client that degrades to
-      `pending_api` statuses without crashing when Core endpoints are absent.
+- [ ] Merchant can save config (program name, base earn rate, coin value,
+  storefront base URL) and it persists and round-trips through the admin.
+- [ ] `app/uninstalled` flips the merchant inactive.
+- [ ] CSV bulk credit of N valid rows results in N Core credit calls with unique
+  deterministic idempotency keys; a re-run of the same operation id credits
+  nothing twice; progress/summary and failed-row CSV are downloadable.
+- [ ] Bulk debit pre-checks balance and marks shortfall rows failed with
+  `Insufficient balance` without calling Core for them.
+- [ ] A worker crash mid-operation resumes from unprocessed rows only.
+- [ ] Creating a MULTIPLIER 3.0 rule targeting an uploaded list, then receiving
+  an `orders/create` webhook for a listed phone, credits exactly
+  `(3.0 − 1) × base` extra coins with `rule:{ruleId}:{orderId}` idempotency;
+  duplicate webhook delivery credits nothing twice.
+- [ ] SEGMENT rules evaluate nested AND/OR condition trees against the mirror
+  row + order payload; highest priority wins per type; MULTIPLIER + BONUS stack
+  correctly.
+- [ ] Rule evaluation on `orders/create` reads the active rule set from the
+  Redis cache (no per-order MySQL rule query on cache hit); any rule mutation
+  invalidates the merchant's cache; with Redis down, evaluation still works via
+  DB fallback.
+- [ ] QR claim API: a valid KwikPass token resolves the verified phone via the
+  GoKwik profile API and credits once per phone per QR (`qr:{qrId}:{phone}`
+  idempotency); a second claim returns `already_claimed` with balance;
+  expired/paused/limit-reached QRs return the correct terminal states; a
+  client-supplied phone is never accepted; claims by unknown phones create
+  mirror entries flagged new-to-loyalty.
+- [ ] QR poster downloads render the storefront claim URL
+  (`{storefront_base_url}/?loyalty_qr={code}`) as PNG (300/600/1200) and PDF.
+- [ ] `packages/loyalty-sdk` builds within size budgets; the loader detects
+  `?loyalty_qr=`, lazy-loads the claim widget, and the widget completes the
+  status → KwikPass login → claim flow against a running backend.
+- [ ] Export with `points_balance > 1000` produces a CSV in S3 whose row set
+  matches the mirror filter, downloadable via a presigned link from the admin;
+  an export over 10,000 rows requires an email and the link is emailed on
+  completion (`emailed_at` stamped).
+- [ ] Dashboard tiles and 30-day trend render from `loyalty_daily_stats`; rule
+  and QR performance tables render from app data.
+- [ ] Customer search by phone shows cached mirror data plus live Core balance
+  and paginated history.
+- [ ] All Core Loyalty calls go through one client with retry + idempotency;
+  Core 4xx/5xx surface as per-row/user-visible errors, never silent drops.
 - [ ] `pnpm -r lint && pnpm -r typecheck && pnpm -r build` pass.
 
 ## Out of scope
 
-- **Loyalty primitives** — base earning on orders, redemption at checkout,
-  balance/history display, expiry, stackability: Core Loyalty owns all of it.
-- **Customer-facing storefront UI** — Core handles display; this app's only
-  customer surface is the backend-served QR landing page.
-- Tiers (Silver/Gold/Platinum) and paid membership programs — separate apps
-  (see PlixKids Membership App).
-- Phase 3 of the source PRD: rule templates, branded/custom QR designs, cohort
-  analysis / rule ROI / attribution funnels, webhook notifications on bulk-op
-  completion, custom rewards.
-- API-based programmatic bulk credit and scheduled bulk operations — CSV upload
-  via the admin only in this build.
-- Scheduled/recurring exports (resolved: manual export only).
-- OR logic in segment conditions (AND-only; OR = separate rules).
+- Tiers, paid memberships, referrals, gamification, custom rewards (sibling
+  apps / P2 per source PRD).
+- Customer-facing storefront UI (Core handles display; no storefront SDK).
+- Base points earning, redemption at checkout, expiry logic (Core).
+- Customer account creation (no platform API; loyalty is phone-keyed).
+- App-hosted QR landing page and any SMS/OTP infrastructure (identity =
+  storefront KwikPass; claim UI = the `loyalty-sdk` widget in this repo, plus
+  the in-scope `LoyaltyClaim` wrapper widget PR in wellversed-2.0 — FBT-style,
+  outside this monorepo's CI).
 - Multi-scan per customer per QR (product decision: never).
-- Gamification (badges, streaks), referral programs, UPI cashback redemption.
-- Hindi / regional-language QR pages (resolved: English only).
-- WhatsApp messaging — this app emits/records events; KwikEngage or another
-  communication app owns messaging.
-- Second-admin approval flow for bulk debits (resolved: single confirmation).
+- Scheduled/recurring exports; scheduled bulk operations.
+- Real-time coins-economy metrics (no Core event stream — snapshot granularity).
+- Phase 3: rule templates, branded QR, bulk-op webhooks, cohort ROI analytics.
+- UPI cashback redemption; non-English claim page.
+- `tags`-based segment conditions (no tag source exists in order webhooks/mirror
+  yet — revisit when a platform customer-tags API ships).

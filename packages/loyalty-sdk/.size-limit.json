@@ -1,0 +1,4 @@
+[
+  { "path": "dist/loyalty-loader.js", "limit": "4 KB" },
+  { "path": "dist/loyalty-claim.js", "limit": "12 KB" }
+]
