@@ -2,9 +2,13 @@ import { z } from 'zod';
 
 /**
  * Public QR-claim contract between the loyalty backend and the storefront
- * claim widget (`packages/loyalty-sdk`). Everything here is browser-visible —
- * no secrets, no client-supplied phone (identity comes from the KwikPass
- * token, verified server-side).
+ * claim widget (`packages/loyalty-sdk`). Identity is resolved by the
+ * storefront BFF (never by our backend): the BFF looks up the verified
+ * phone and signs `${merchantId}.${qr}.${phone}.${ts}` with the merchant's
+ * claim-signing secret (HMAC-SHA256, hex digest). Our backend never sees a
+ * KwikPass/GoKwik token — it only recomputes and constant-time-compares the
+ * signature against `loyalty_configs.claimSigningSecret`. Everything here is
+ * browser-visible — no secrets travel in the request/response bodies.
  */
 
 /** Redacted public config served at `GET /loyalty/sdk/config/:merchantId`. */
@@ -72,7 +76,7 @@ export const loyaltyClaimResponseSchema = z.discriminatedUnion('status', [
     status: z.literal('unavailable'),
     state: loyaltyQrStateSchema,
   }),
-  z.object({ status: z.literal('invalid_session') }),
+  z.object({ status: z.literal('invalid_signature') }),
 ]);
 
 export type LoyaltyClaimResponse = z.infer<typeof loyaltyClaimResponseSchema>;

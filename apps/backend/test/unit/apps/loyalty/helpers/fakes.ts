@@ -2,7 +2,6 @@ import type {
   CoreBalanceResponse,
   CorePointsResponse,
 } from '../../../../../src/modules/loyalty/core-client/core-loyalty.client';
-import type { VerifiedGkCustomer } from '../../../../../src/modules/loyalty/core-client/gokwik-identity.client';
 import type { LoyaltyCustomerRow } from '../../../../../src/modules/loyalty/db/types';
 
 /**
@@ -94,16 +93,6 @@ export class FakeCoreLoyalty {
     let total = 0;
     for (const b of this.balances.values()) total += b;
     return total;
-  }
-}
-
-// ── GoKwik identity fake ────────────────────────────────────────────────────
-
-export class FakeGokwikIdentity {
-  readonly tokens = new Map<string, VerifiedGkCustomer>();
-
-  verify(token: string, _merchantId: string): Promise<VerifiedGkCustomer | null> {
-    return Promise.resolve(this.tokens.get(token) ?? null);
   }
 }
 

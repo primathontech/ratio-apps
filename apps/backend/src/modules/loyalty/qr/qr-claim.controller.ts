@@ -23,10 +23,10 @@ import { ZodValidationPipe } from '../../../core/common/pipes/zod-validation.pip
 import type { KyselyClient } from '../../../core/db/kysely-factory';
 import { LoyaltyConfigService } from '../config/config.service';
 import type { CoreLoyaltyClient, CorePointsResponse } from '../core-client/core-loyalty.client';
-import type { GokwikIdentityClient } from '../core-client/gokwik-identity.client';
 import type { LoyaltyDatabase, LoyaltyQrCodeRow } from '../db/types';
 import { LOYALTY_DB_TOKEN } from '../kysely.module';
-import { LOYALTY_CORE_CLIENT, LOYALTY_GK_IDENTITY } from '../tokens';
+import { LOYALTY_CORE_CLIENT } from '../tokens';
+import { ClaimSignatureService } from './claim-signature.service';
 import { qrStateFor } from './qr.service';
 
 /** Status renders: 60/IP/min. Claims: 10/IP/min (TRD §2). */
@@ -36,9 +36,11 @@ const WINDOW_SECONDS = 60;
 
 /**
  * PUBLIC QR claim endpoints — no merchant guard; identity comes exclusively
- * from the KwikPass `gkAccessToken` verified server-side against the GoKwik
- * profile API. The request schema is `.strict()`, so a client-supplied
- * `phone` is rejected outright (never silently ignored).
+ * from a per-merchant HMAC signature. The storefront BFF resolves the
+ * verified phone and signs `${merchantId}.${qr}.${phone}.${ts}` with the
+ * merchant's `claimSigningSecret` (see {@link ClaimSignatureService}); our
+ * backend never sees a KwikPass/GoKwik token. The request schema is
+ * `.strict()`, so extra client-supplied keys are rejected outright.
  *
  * One-claim-per-phone is enforced by the DB unique index on
  * `(qr_code_id, phone)` via INSERT IGNORE — correctness never depends on
@@ -51,7 +53,7 @@ export class QrClaimController {
     @Inject(LOYALTY_DB_TOKEN) private readonly handle: KyselyClient<LoyaltyDatabase>,
     private readonly redis: RedisService,
     private readonly config: LoyaltyConfigService,
-    @Inject(LOYALTY_GK_IDENTITY) private readonly gk: GokwikIdentityClient,
+    private readonly sig: ClaimSignatureService,
     @Inject(LOYALTY_CORE_CLIENT) private readonly core: CoreLoyaltyClient,
   ) {}
 
@@ -83,16 +85,34 @@ export class QrClaimController {
     const state = qrStateFor(qr);
     if (state !== 'active') return { status: 'unavailable', state };
 
-    // The ONLY identity source — a non-verifiable token is a generic
-    // invalid_session (no oracle about why).
-    const customer = await this.gk.verify(body.gkAccessToken, qr.merchantId);
-    if (!customer) return { status: 'invalid_session' };
-    const { phone } = customer;
+    // The QR's true owner is authoritative — never the body's merchantId alone.
+    if (body.merchantId !== qr.merchantId) return { status: 'invalid_signature' };
 
+    const secretRow = await this.handle.db
+      .selectFrom('loyalty_configs')
+      .select('claimSigningSecret')
+      .where('merchantId', '=', qr.merchantId)
+      .limit(1)
+      .executeTakeFirst();
+    const secret = secretRow?.claimSigningSecret;
+    if (!secret) return { status: 'invalid_signature' };
+
+    const verdict = this.sig.verify({
+      merchantId: qr.merchantId,
+      qr: code,
+      phone: body.phone,
+      ts: body.ts,
+      sig: body.sig,
+      secret,
+    });
+    if (verdict !== 'ok') return { status: 'invalid_signature' };
+
+    const phone = body.phone;
     const programName = await this.programName(qr.merchantId);
     const db = this.handle.db;
 
     // New-to-loyalty mirror row (INSERT IGNORE keeps an existing row intact).
+    // Identity is signature-only now — no verified name/email to carry.
     const ensured = await db
       .insertInto('loyalty_customers')
       .ignore()
@@ -100,14 +120,11 @@ export class QrClaimController {
         merchantId: qr.merchantId,
         phone,
         firstSeenSource: 'qr',
-        name: customer.name ?? null,
-        email: customer.email ?? null,
+        name: null,
+        email: null,
       })
       .executeTakeFirst();
     const isNew = Number(ensured.numInsertedOrUpdatedRows ?? 0) > 0;
-    if (!isNew && (customer.name || customer.email)) {
-      await this.backfillProfile(qr.merchantId, phone, customer.name, customer.email);
-    }
 
     // One scan per phone — the unique index is the source of truth.
     const scanInsert = await db
@@ -210,32 +227,6 @@ export class QrClaimController {
     } catch {
       return 'Coins';
     }
-  }
-
-  /** Fill name/email only where the mirror still has NULL — never overwrite. */
-  private async backfillProfile(
-    merchantId: string,
-    phone: string,
-    name?: string,
-    email?: string,
-  ): Promise<void> {
-    const row = await this.handle.db
-      .selectFrom('loyalty_customers')
-      .select(['name', 'email'])
-      .where('merchantId', '=', merchantId)
-      .where('phone', '=', phone)
-      .executeTakeFirst();
-    if (!row) return;
-    const patch: { name?: string; email?: string } = {};
-    if (row.name === null && name) patch.name = name;
-    if (row.email === null && email) patch.email = email;
-    if (Object.keys(patch).length === 0) return;
-    await this.handle.db
-      .updateTable('loyalty_customers')
-      .set(patch)
-      .where('merchantId', '=', merchantId)
-      .where('phone', '=', phone)
-      .execute();
   }
 
   /** Undo an admitted-then-rejected scan: delete the row, restore counters. */

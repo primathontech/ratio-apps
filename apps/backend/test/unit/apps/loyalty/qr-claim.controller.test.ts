@@ -6,16 +6,33 @@ import type { RedisService } from '../../../../src/core/cache/redis.service';
 import type { LoyaltyConfigService } from '../../../../src/modules/loyalty/config/config.service';
 import type { CoreLoyaltyClient } from '../../../../src/modules/loyalty/core-client/core-loyalty.client';
 import { CoreLoyaltyError } from '../../../../src/modules/loyalty/core-client/core-loyalty.client';
-import type { GokwikIdentityClient } from '../../../../src/modules/loyalty/core-client/gokwik-identity.client';
+import { ClaimSignatureService } from '../../../../src/modules/loyalty/qr/claim-signature.service';
 import { QrClaimController } from '../../../../src/modules/loyalty/qr/qr-claim.controller';
 import { FakeQrDb, makeFakeQrHandle } from './helpers/fake-qr-db';
-import { FakeCoreLoyalty, FakeGokwikIdentity, FakeRedis, MERCHANT_ID } from './helpers/fakes';
+import { FakeCoreLoyalty, FakeRedis, MERCHANT_ID } from './helpers/fakes';
 
 const CODE = 'ABCDEFGH12345678';
 const QR_ID = 'qr-1';
 const PHONE = '+919876543210';
-const TOKEN = 'gk-token-1';
+const SECRET = 'sek';
 const req = { ip: '1.2.3.4' } as FastifyRequest;
+
+/** Mint a valid (or deliberately stale/mis-signed) claim body. */
+function signedBody(
+  merchantId: string,
+  qr: string,
+  phone: string,
+  opts: { ts?: number; secret?: string } = {},
+): { merchantId: string; phone: string; ts: number; sig: string } {
+  const ts = opts.ts ?? Date.now();
+  const secret = opts.secret ?? SECRET;
+  return {
+    merchantId,
+    phone,
+    ts,
+    sig: ClaimSignatureService.sign({ merchantId, qr, phone, ts }, secret),
+  };
+}
 
 function seedQr(fake: FakeQrDb, overrides: Record<string, unknown> = {}): void {
   fake.seed('loyalty_qr_codes', [
@@ -33,20 +50,27 @@ function seedQr(fake: FakeQrDb, overrides: Record<string, unknown> = {}): void {
   ]);
 }
 
+function seedConfig(
+  fake: FakeQrDb,
+  claimSigningSecret: string | null = SECRET,
+  merchantId = MERCHANT_ID,
+): void {
+  fake.seed('loyalty_configs', [{ merchantId, claimSigningSecret }]);
+}
+
 describe('QrClaimController', () => {
   let fake: FakeQrDb;
   let core: FakeCoreLoyalty;
-  let gk: FakeGokwikIdentity;
   let redis: FakeRedis;
+  let sig: ClaimSignatureService;
   let controller: QrClaimController;
 
   beforeEach(() => {
     const made = makeFakeQrHandle();
     fake = made.fake;
     core = new FakeCoreLoyalty();
-    gk = new FakeGokwikIdentity();
-    gk.tokens.set(TOKEN, { phone: PHONE, name: 'Priya', email: 'priya@example.com' });
     redis = new FakeRedis();
+    sig = new ClaimSignatureService();
     const config = {
       getByMerchantId: () =>
         Promise.resolve({ programName: 'Wellversed Coins', baseEarnRate: 1, coinValueInr: 0.1 }),
@@ -55,7 +79,7 @@ describe('QrClaimController', () => {
       made.handle,
       redis as unknown as RedisService,
       config,
-      gk as unknown as GokwikIdentityClient,
+      sig,
       core as unknown as CoreLoyaltyClient,
     );
   });
@@ -87,16 +111,19 @@ describe('QrClaimController', () => {
   });
 
   describe('POST :code/claim', () => {
-    it('#rejects-body-phone-field — strict schema refuses extra keys', () => {
+    it('#rejects-old-shape — strict schema refuses the retired gkAccessToken body', () => {
+      expect(loyaltyClaimRequestSchema.safeParse({ gkAccessToken: 't', phone: '123' }).success).toBe(
+        false,
+      );
       expect(
-        loyaltyClaimRequestSchema.safeParse({ gkAccessToken: 't', phone: '123' }).success,
-      ).toBe(false);
-      expect(loyaltyClaimRequestSchema.safeParse({ gkAccessToken: 't' }).success).toBe(true);
+        loyaltyClaimRequestSchema.safeParse(signedBody(MERCHANT_ID, CODE, PHONE)).success,
+      ).toBe(true);
     });
 
-    it('#claims-once-per-phone — credits with key qr:{id}:{phone}', async () => {
+    it('#credits-once — a valid signature credits with core key qr:{id}:{phone}', async () => {
       seedQr(fake);
-      const res = await controller.claim(CODE, { gkAccessToken: TOKEN }, req);
+      seedConfig(fake);
+      const res = await controller.claim(CODE, signedBody(MERCHANT_ID, CODE, PHONE), req);
 
       expect(res).toEqual({
         status: 'credited',
@@ -120,10 +147,11 @@ describe('QrClaimController', () => {
       expect(fake.table('loyalty_qr_codes')[0].scanCount).toBe(1);
     });
 
-    it('#second-claim-already-claimed — returns the live balance, credits nothing twice', async () => {
+    it('#second-claim-already-claimed — same phone+QR returns the live balance, credits nothing twice', async () => {
       seedQr(fake);
-      await controller.claim(CODE, { gkAccessToken: TOKEN }, req);
-      const res = await controller.claim(CODE, { gkAccessToken: TOKEN }, req);
+      seedConfig(fake);
+      await controller.claim(CODE, signedBody(MERCHANT_ID, CODE, PHONE), req);
+      const res = await controller.claim(CODE, signedBody(MERCHANT_ID, CODE, PHONE), req);
 
       expect(res).toEqual({
         status: 'already_claimed',
@@ -135,16 +163,61 @@ describe('QrClaimController', () => {
       expect(fake.table('loyalty_qr_codes')[0].scanCount).toBe(1);
     });
 
-    it('#invalid-token-invalid_session', async () => {
+    it('#bad-signature — a tampered sig is rejected, no Core call', async () => {
       seedQr(fake);
-      const res = await controller.claim(CODE, { gkAccessToken: 'bogus' }, req);
-      expect(res).toEqual({ status: 'invalid_session' });
+      seedConfig(fake);
+      const body = signedBody(MERCHANT_ID, CODE, PHONE);
+      const flipped = body.sig.endsWith('0') ? '1' : '0';
+      const res = await controller.claim(CODE, { ...body, sig: `${body.sig.slice(0, -1)}${flipped}` }, req);
+      expect(res).toEqual({ status: 'invalid_signature' });
       expect(core.calls).toHaveLength(0);
     });
 
-    it('#expired-paused-fully_claimed states — terminal QR never reaches Core', async () => {
+    it('#wrong-merchant-secret — a signature signed with another merchant’s secret is rejected', async () => {
+      seedQr(fake);
+      seedConfig(fake, 'the-real-secret');
+      const res = await controller.claim(
+        CODE,
+        signedBody(MERCHANT_ID, CODE, PHONE, { secret: 'attacker-guessed-secret' }),
+        req,
+      );
+      expect(res).toEqual({ status: 'invalid_signature' });
+      expect(core.calls).toHaveLength(0);
+    });
+
+    it('#stale-timestamp — a timestamp older than the freshness window is rejected', async () => {
+      seedQr(fake);
+      seedConfig(fake);
+      const staleTs = Date.now() - 6 * 60_000;
+      const res = await controller.claim(
+        CODE,
+        signedBody(MERCHANT_ID, CODE, PHONE, { ts: staleTs }),
+        req,
+      );
+      expect(res).toEqual({ status: 'invalid_signature' });
+      expect(core.calls).toHaveLength(0);
+    });
+
+    it('#wrong-merchant-id — body.merchantId mismatching the QR owner is rejected', async () => {
+      seedQr(fake);
+      seedConfig(fake);
+      const res = await controller.claim(CODE, signedBody('some-other-merchant', CODE, PHONE), req);
+      expect(res).toEqual({ status: 'invalid_signature' });
+      expect(core.calls).toHaveLength(0);
+    });
+
+    it('#no-secret-configured — a merchant with no claimSigningSecret is rejected', async () => {
+      seedQr(fake);
+      // No loyalty_configs row seeded at all.
+      const res = await controller.claim(CODE, signedBody(MERCHANT_ID, CODE, PHONE), req);
+      expect(res).toEqual({ status: 'invalid_signature' });
+      expect(core.calls).toHaveLength(0);
+    });
+
+    it('#terminal-state — paused/expired/fully_claimed QR never reaches signature verification', async () => {
       seedQr(fake, { maxScans: 1, scanCount: 1 });
-      const res = await controller.claim(CODE, { gkAccessToken: TOKEN }, req);
+      // No config row seeded either — proves verify is never reached.
+      const res = await controller.claim(CODE, signedBody(MERCHANT_ID, CODE, PHONE), req);
       expect(res).toEqual({ status: 'unavailable', state: 'fully_claimed' });
       expect(core.calls).toHaveLength(0);
       expect(fake.table('loyalty_qr_scans')).toHaveLength(0);
@@ -152,9 +225,10 @@ describe('QrClaimController', () => {
 
     it('429s past the per-IP claim limit', async () => {
       seedQr(fake);
+      seedConfig(fake);
       redis.counters.set(`loyalty:qrc:${req.ip}`, 10);
       const err = await controller
-        .claim(CODE, { gkAccessToken: TOKEN }, req)
+        .claim(CODE, signedBody(MERCHANT_ID, CODE, PHONE), req)
         .catch((e: unknown) => e);
       expect(err).toBeInstanceOf(HttpException);
       expect((err as HttpException).getStatus()).toBe(429);
@@ -163,7 +237,8 @@ describe('QrClaimController', () => {
 
     it('#new-phone-creates-mirror-row-flagged-qr', async () => {
       seedQr(fake);
-      await controller.claim(CODE, { gkAccessToken: TOKEN }, req);
+      seedConfig(fake);
+      await controller.claim(CODE, signedBody(MERCHANT_ID, CODE, PHONE), req);
 
       const customers = fake.table('loyalty_customers');
       expect(customers).toHaveLength(1);
@@ -179,26 +254,27 @@ describe('QrClaimController', () => {
 
     it('existing phone is not flagged new and keeps its firstSeenSource', async () => {
       seedQr(fake);
+      seedConfig(fake);
       fake.seed('loyalty_customers', [
-        { merchantId: MERCHANT_ID, phone: PHONE, firstSeenSource: 'order', name: null },
+        { merchantId: MERCHANT_ID, phone: PHONE, firstSeenSource: 'order' },
       ]);
-      await controller.claim(CODE, { gkAccessToken: TOKEN }, req);
+      await controller.claim(CODE, signedBody(MERCHANT_ID, CODE, PHONE), req);
 
       const customers = fake.table('loyalty_customers');
       expect(customers).toHaveLength(1);
       expect(customers[0].firstSeenSource).toBe('order');
-      expect(customers[0].name).toBe('Priya'); // null name backfilled from the verified profile
       expect(fake.table('loyalty_qr_scans')[0].isNewPhone).toBe(false);
       expect(fake.table('loyalty_qr_codes')[0].newPhoneCount).toBe(0);
     });
 
     it('core failure deletes the scan, restores counters, and rethrows', async () => {
       seedQr(fake);
+      seedConfig(fake);
       core.failOn.set(PHONE, new CoreLoyaltyError('upstream_error', 502, 'core loyalty 502'));
 
-      await expect(controller.claim(CODE, { gkAccessToken: TOKEN }, req)).rejects.toBeInstanceOf(
-        CoreLoyaltyError,
-      );
+      await expect(
+        controller.claim(CODE, signedBody(MERCHANT_ID, CODE, PHONE), req),
+      ).rejects.toBeInstanceOf(CoreLoyaltyError);
       expect(fake.table('loyalty_qr_scans')).toHaveLength(0);
       expect(fake.table('loyalty_qr_codes')[0].scanCount).toBe(0);
       expect(fake.table('loyalty_qr_codes')[0].newPhoneCount).toBe(0);
@@ -207,14 +283,17 @@ describe('QrClaimController', () => {
     it('max-scans race — over-admitted scan is compensated as fully_claimed', async () => {
       // State check sees scanCount 0 < maxScans 1 (active), then a concurrent
       // claim wins the last slot before ours lands: simulate by bumping the
-      // counter during token verification (which runs between the two reads).
+      // counter during signature verification (which runs between the two
+      // reads: the initial qr fetch and the post-update "fresh" read).
       seedQr(fake, { maxScans: 1, scanCount: 0 });
-      gk.verify = (token: string) => {
+      seedConfig(fake);
+      const realVerify = sig.verify.bind(sig);
+      sig.verify = (input) => {
         fake.table('loyalty_qr_codes')[0].scanCount = 1;
-        return Promise.resolve(gk.tokens.get(token) ?? null);
+        return realVerify(input);
       };
 
-      const res = await controller.claim(CODE, { gkAccessToken: TOKEN }, req);
+      const res = await controller.claim(CODE, signedBody(MERCHANT_ID, CODE, PHONE), req);
 
       expect(res).toEqual({ status: 'unavailable', state: 'fully_claimed' });
       expect(core.calls).toHaveLength(0); // never reached Core
@@ -223,9 +302,9 @@ describe('QrClaimController', () => {
     });
 
     it('404s an unknown code', async () => {
-      await expect(controller.claim('NOPE', { gkAccessToken: TOKEN }, req)).rejects.toBeInstanceOf(
-        NotFoundException,
-      );
+      await expect(
+        controller.claim('NOPE', signedBody(MERCHANT_ID, 'NOPE', PHONE), req),
+      ).rejects.toBeInstanceOf(NotFoundException);
     });
   });
 });

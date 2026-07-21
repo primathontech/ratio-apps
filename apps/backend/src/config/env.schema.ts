@@ -128,9 +128,6 @@ const baseEnv = z.object({
   // and the maintenance tick (balance sweep + daily snapshot). Consumers are
   // idempotent and the snapshot is Redis-locked, so >1 flagged replica is safe.
   LOYALTY_WORKER_ENABLED: z.enum(['true', 'false']).default('false'),
-  // Both the Core Loyalty client and the GoKwik customer-profile client (QR
-  // token verification) derive their base from RATIO_API_BASE_URL — no
-  // per-client base-URL env is needed.
   // S3 bucket for generated export CSVs (bucket owned by IaC). Optional in
   // baseEnv; the exports worker fails the job cleanly when unset.
   LOYALTY_EXPORT_S3_BUCKET: emptyAsUndefined(z.string().min(1)),

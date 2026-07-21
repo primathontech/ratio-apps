@@ -15,4 +15,3 @@ export const LOYALTY_WEBHOOKS = Symbol.for('ratio-app:loyalty:webhooks');
 export const LOYALTY_RATIO_OAUTH_HTTP = Symbol.for('ratio-app:loyalty:ratio-oauth-http');
 export const LOYALTY_RATIO_OAUTH_CREDS = Symbol.for('ratio-app:loyalty:ratio-oauth-creds');
 export const LOYALTY_CORE_CLIENT = Symbol.for('ratio-app:loyalty:core-client');
-export const LOYALTY_GK_IDENTITY = Symbol.for('ratio-app:loyalty:gk-identity');

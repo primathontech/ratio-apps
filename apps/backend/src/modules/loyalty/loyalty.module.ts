@@ -12,7 +12,6 @@ import { BulkWorker } from './bulk/bulk.worker';
 import { LoyaltyConfigController } from './config/config.controller';
 import { LoyaltyConfigService } from './config/config.service';
 import { CoreLoyaltyClient } from './core-client/core-loyalty.client';
-import { GokwikIdentityClient } from './core-client/gokwik-identity.client';
 import { LoyaltyCustomersController } from './customers/customers.controller';
 import { DailySnapshotJob } from './dashboard/daily-snapshot.job';
 import { LoyaltyDashboardController } from './dashboard/dashboard.controller';
@@ -31,6 +30,7 @@ import { CustomerQueryService } from './mirror/customer-query.service';
 import { LoyaltyOAuthController } from './oauth/oauth.controller';
 import { type RatioOAuthCreds, RatioOAuthHttp } from './oauth/ratio-oauth.http';
 import { RatioTokenProvider } from './oauth/ratio-token.provider';
+import { ClaimSignatureService } from './qr/claim-signature.service';
 import { QrController } from './qr/qr.controller';
 import { QrService } from './qr/qr.service';
 import { QrClaimController } from './qr/qr-claim.controller';
@@ -43,7 +43,6 @@ import { StorefrontConfigService } from './storefront/storefront-config.service'
 import {
   LOYALTY_CORE_CLIENT,
   LOYALTY_CRYPTO,
-  LOYALTY_GK_IDENTITY,
   LOYALTY_MERCHANTS,
   LOYALTY_OAUTH,
   LOYALTY_RATIO,
@@ -66,7 +65,6 @@ export { LoyaltyMerchantTokenGuard, LoyaltyWebhookSignatureGuard } from './guard
 export {
   LOYALTY_CORE_CLIENT,
   LOYALTY_CRYPTO,
-  LOYALTY_GK_IDENTITY,
   LOYALTY_MERCHANTS,
   LOYALTY_OAUTH,
   LOYALTY_RATIO,
@@ -120,6 +118,7 @@ export {
     ExportsService,
     ExportsWorker,
     QrService,
+    ClaimSignatureService,
     StatsService,
     DailySnapshotJob,
     MaintenanceWorker,
@@ -149,14 +148,6 @@ export {
       inject: [RatioTokenProvider, ConfigService],
       useFactory: (tokens: RatioTokenProvider, config: ConfigService<Env, true>) =>
         new CoreLoyaltyClient(tokens, {
-          baseUrl: config.get('RATIO_API_BASE_URL', { infer: true }) as string,
-        }),
-    },
-    {
-      provide: LOYALTY_GK_IDENTITY,
-      inject: [ConfigService],
-      useFactory: (config: ConfigService<Env, true>) =>
-        new GokwikIdentityClient({
           baseUrl: config.get('RATIO_API_BASE_URL', { infer: true }) as string,
         }),
     },
