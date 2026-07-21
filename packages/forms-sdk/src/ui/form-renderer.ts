@@ -21,27 +21,28 @@ import {
 import { customElement, property, state } from 'lit/decorators.js';
 import { getAnonId } from '../anon-id';
 import { FormsClient, FormsClientError, type PublicFormSchema } from '../client';
+// Per-field module registry (Phase 0 refactor): renderControl + validateField
+// dispatch through this map. Zod-free (only lit + type-only shared imports).
+import { fieldControls } from './fields/registry';
+import type {
+  ContentBlockField,
+  ControlField,
+  FieldControlModule,
+  FieldRenderCtx,
+  FieldValidateCtx,
+} from './fields/types';
 import { baseStyles, GOOGLE_FONT_HREF, themeVars } from './theme';
 
-/** Mirrors the backend SchemaValidatorService (client-side pre-validation). */
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /** Defensive hex re-check for the per-field accent (§2.2); the schema already
  * guarantees hex, so this only confines what reaches the inline style. */
 const HEX_COLOR_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
-const PHONE_RE = /^(\+91)?[0-9]{10}$/;
-const URL_RE = /^https?:\/\/[^\s.]+\.[^\s]+$/i;
-const TEXTAREA_DEFAULT_MAX = 5000;
 /** Delay before following a form's redirectUrl, so the success state is seen. */
 const REDIRECT_DELAY_MS = 1500;
 
 type Status = 'loading' | 'ready' | 'submitting' | 'success' | 'closed' | 'unavailable' | 'error';
 
-/** Content blocks (§1.3): display-only, submit no value, carry no label. */
-type ContentBlockField = Extract<
-  FormField,
-  { type: 'heading' | 'divider' | 'paragraph' | 'image' }
->;
-
+// Content blocks (§1.3): display-only, submit no value, carry no label. The
+// ContentBlockField type is owned by ./fields/types (shared with the registry).
 // Kept local (not imported from shared) so no Zod reaches the browser bundle;
 // mirrors the shared FORM_NON_COLLECTABLE_FIELD_TYPES contract.
 function isContentBlock(field: FormField): field is ContentBlockField {
@@ -739,105 +740,12 @@ export class RatioForm extends LitElement {
   private validateField(field: FormField): string | null {
     // Content blocks (§1.3) collect no value — never validated.
     if (isContentBlock(field)) return null;
-
-    if (field.type === 'file') {
-      const file = this.files[field.key] ?? null;
-      if (!file) return field.required ? 'a file is required' : null;
-      const allowed = field.validation?.allowedMimeTypes as readonly string[] | undefined;
-      if (allowed && !allowed.includes(file.type)) {
-        return `allowed types: ${allowed.join(', ')}`;
-      }
-      const maxBytes = field.validation?.maxBytes ?? 5 * 1024 * 1024;
-      if (file.size > maxBytes) return `file must be at most ${Math.floor(maxBytes / 1024)} KB`;
-      return null;
-    }
-
-    if (field.type === 'checkbox') {
-      // Single consent: a boolean, so the generic isEmpty check does not apply.
-      const checked = this.values[field.key] === true;
-      return field.required && !checked ? 'this field is required' : null;
-    }
-
-    // Hidden fields are populated from the URL, never shown; no user validation.
-    if (field.type === 'hidden') return null;
-
-    const value = this.values[field.key];
-    if (this.isEmpty(value)) {
-      return field.required ? 'this field is required' : null;
-    }
-
-    switch (field.type) {
-      case 'text': {
-        const v = String(value);
-        const rules = field.validation;
-        if (rules?.minLength !== undefined && v.length < rules.minLength) {
-          return `must be at least ${rules.minLength} characters`;
-        }
-        if (rules?.maxLength !== undefined && v.length > rules.maxLength) {
-          return `must be at most ${rules.maxLength} characters`;
-        }
-        if (rules?.pattern !== undefined && !new RegExp(rules.pattern).test(v)) {
-          return 'does not match the required pattern';
-        }
-        return null;
-      }
-      case 'textarea': {
-        const v = String(value);
-        const rules = field.validation;
-        const maxLength = rules?.maxLength ?? TEXTAREA_DEFAULT_MAX;
-        if (rules?.minLength !== undefined && v.length < rules.minLength) {
-          return `must be at least ${rules.minLength} characters`;
-        }
-        if (v.length > maxLength) return `must be at most ${maxLength} characters`;
-        return null;
-      }
-      case 'email':
-        return EMAIL_RE.test(String(value)) ? null : 'must be a valid email address';
-      case 'url':
-        return URL_RE.test(String(value)) ? null : 'must be a valid URL';
-      case 'rating': {
-        const n = Number(value);
-        return Number.isInteger(n) && n >= 1 && n <= field.max
-          ? null
-          : `must be a rating from 1 to ${field.max}`;
-      }
-      case 'phone': {
-        const compact = String(value).replace(/[\s-]/g, '');
-        return PHONE_RE.test(compact) ? null : 'must be a 10-digit Indian phone number';
-      }
-      case 'dropdown':
-        return field.options.includes(String(value))
-          ? null
-          : 'must be one of the configured options';
-      case 'multi_select': {
-        const list = Array.isArray(value) ? value : [];
-        return list.every((v) => field.options.includes(String(v)))
-          ? null
-          : 'every selection must be one of the configured options';
-      }
-      case 'radio':
-        return field.options.includes(String(value))
-          ? null
-          : 'must be one of the configured options';
-      case 'number': {
-        const n = Number(String(value));
-        if (Number.isNaN(n)) return 'must be a number';
-        const rules = field.validation;
-        if (rules?.integer && !Number.isInteger(n)) return 'must be a whole number';
-        if (rules?.min !== undefined && n < rules.min) return `must be at least ${rules.min}`;
-        if (rules?.max !== undefined && n > rules.max) return `must be at most ${rules.max}`;
-        if (rules?.step !== undefined && rules.step > 0) {
-          const base = rules.min ?? 0;
-          const steps = (n - base) / rules.step;
-          if (Math.abs(steps - Math.round(steps)) > 1e-9) {
-            return `must be a multiple of ${rules.step}`;
-          }
-        }
-        return null;
-      }
-      case 'date':
-        return Number.isNaN(Date.parse(String(value))) ? 'must be a valid date' : null;
-    }
+    // Dispatch to the per-field client validator (Phase 0 registry). Each
+    // module owns its own empty/required gate plus its value checks; the cast
+    // widens the per-member validator to the control-field union for dispatch.
+    const ctx: FieldValidateCtx = { values: this.values, files: this.files };
+    const mod = fieldControls[field.type] as FieldControlModule<ControlField['type']>;
+    return mod.validate(field, ctx);
   }
 
   private async onSubmit(event: Event): Promise<void> {
@@ -1241,7 +1149,7 @@ export class RatioForm extends LitElement {
     this.values = { ...this.values, [key]: value };
   }
 
-  private renderControl(field: Exclude<FormField, ContentBlockField>): TemplateResult {
+  private renderControl(field: ControlField): TemplateResult {
     const id = `rf-${field.key}`;
     // Wire the error state to assistive tech (aria-invalid + a pointer to the
     // error text) so the visual --wz-error ring has a semantic counterpart.
@@ -1255,218 +1163,23 @@ export class RatioForm extends LitElement {
     const onInput = (e: Event) =>
       this.setValue(field.key, (e.target as HTMLInputElement | HTMLTextAreaElement).value);
 
-    switch (field.type) {
-      case 'textarea':
-        return html`<textarea
-          id=${id}
-          name=${field.key}
-          rows="4"
-          placeholder=${this.ph(field, field.placeholder ?? '')}
-          aria-invalid=${invalid}
-          aria-describedby=${describedBy}
-          .value=${String(this.values[field.key] ?? '')}
-          @input=${onInput}
-        ></textarea>`;
-      case 'dropdown':
-        return html`<select
-          id=${id}
-          name=${field.key}
-          aria-invalid=${invalid}
-          aria-describedby=${describedBy}
-          @change=${(e: Event) => this.setValue(field.key, (e.target as HTMLSelectElement).value)}
-        >
-          <option value="">${field.placeholder ?? 'Select...'}</option>
-          ${field.options.map(
-            (opt) =>
-              html`<option value=${opt} ?selected=${this.values[field.key] === opt}>
-                ${opt}
-              </option>`,
-          )}
-        </select>`;
-      case 'multi_select':
-        return html`<div class="rf-checks" id=${id}>
-          ${field.options.map((opt) => {
-            const current = Array.isArray(this.values[field.key])
-              ? (this.values[field.key] as string[])
-              : [];
-            return html`<label class="rf-check">
-              <input
-                type="checkbox"
-                name=${field.key}
-                value=${opt}
-                .checked=${current.includes(opt)}
-                @change=${(e: Event) => {
-                  const checked = (e.target as HTMLInputElement).checked;
-                  const next = checked ? [...current, opt] : current.filter((v) => v !== opt);
-                  this.setValue(field.key, next);
-                }}
-              />
-              ${opt}
-            </label>`;
-          })}
-        </div>`;
-      case 'date':
-        return html`<input
-          id=${id}
-          name=${field.key}
-          type="date"
-          aria-invalid=${invalid}
-          aria-describedby=${describedBy}
-          .value=${String(this.values[field.key] ?? '')}
-          @input=${onInput}
-        />`;
-      case 'file':
-        return html`<input
-          id=${id}
-          name=${field.key}
-          type="file"
-          accept=${(field.validation?.allowedMimeTypes ?? []).join(',')}
-          @change=${(e: Event) => {
-            const input = e.target as HTMLInputElement;
-            this.files[field.key] = input.files?.[0] ?? null;
-            // Re-render so a previous error clears on reselect.
-            this.requestUpdate();
-          }}
-        />`;
-      case 'phone':
-        return html`<div class="rf-phone">
-          <span class="rf-phone-prefix">+91</span>
-          <input
-            id=${id}
-            name=${field.key}
-            type="tel"
-            inputmode="numeric"
-            maxlength="10"
-            placeholder=${this.ph(field, field.placeholder ?? '10-digit number')}
-            aria-invalid=${invalid}
-            aria-describedby=${describedBy}
-            .value=${String(this.values[field.key] ?? '')}
-            @input=${onInput}
-          />
-        </div>`;
-      case 'email':
-        return this.adorn(
-          field,
-          html`<input
-            id=${id}
-            name=${field.key}
-            type="email"
-            placeholder=${this.ph(field, field.placeholder ?? '')}
-            aria-invalid=${invalid}
-            aria-describedby=${describedBy}
-            .value=${String(this.values[field.key] ?? '')}
-            @input=${onInput}
-          />`,
-        );
-      case 'url':
-        return this.adorn(
-          field,
-          html`<input
-            id=${id}
-            name=${field.key}
-            type="url"
-            inputmode="url"
-            placeholder=${this.ph(field, field.placeholder ?? 'https://')}
-            aria-invalid=${invalid}
-            aria-describedby=${describedBy}
-            .value=${String(this.values[field.key] ?? '')}
-            @input=${onInput}
-          />`,
-        );
-      case 'rating': {
-        const glyph = field.icon === 'heart' ? '♥' : '★';
-        const current = Number(this.values[field.key] ?? 0);
-        return html`<div
-          class="rf-rating"
-          id=${id}
-          role="radiogroup"
-          aria-invalid=${invalid}
-          aria-describedby=${describedBy}
-        >
-          ${Array.from({ length: field.max }, (_, i) => i + 1).map(
-            (n) =>
-              html`<label class="rf-star" data-on=${n <= current}>
-                <input
-                  type="radio"
-                  name=${field.key}
-                  value=${n}
-                  .checked=${current === n}
-                  @change=${() => this.setValue(field.key, n)}
-                />
-                <span aria-hidden="true">${glyph}</span>
-                <span class="rf-sr">${field.label} ${n}</span>
-              </label>`,
-          )}
-        </div>`;
-      }
-      case 'radio':
-        return html`<div class="rf-checks" id=${id} role="radiogroup">
-          ${field.options.map(
-            (opt) =>
-              html`<label class="rf-check">
-                <input
-                  type="radio"
-                  name=${field.key}
-                  value=${opt}
-                  .checked=${this.values[field.key] === opt}
-                  @change=${(e: Event) =>
-                    this.setValue(field.key, (e.target as HTMLInputElement).value)}
-                />
-                ${opt}
-              </label>`,
-          )}
-        </div>`;
-      case 'checkbox':
-        return html`<label class="rf-check">
-          <input
-            id=${id}
-            type="checkbox"
-            name=${field.key}
-            .checked=${this.values[field.key] === true}
-            @change=${(e: Event) =>
-              this.setValue(field.key, (e.target as HTMLInputElement).checked)}
-          />
-          ${
-            field.linkUrl
-              ? html`<a href=${field.linkUrl} target="_blank" rel="noopener noreferrer"
-                >${field.linkText ?? field.linkUrl}</a
-              >`
-              : nothing
-          }
-        </label>`;
-      case 'number':
-        return this.adorn(
-          field,
-          html`<input
-            id=${id}
-            name=${field.key}
-            type="number"
-            inputmode=${field.validation?.integer ? 'numeric' : 'decimal'}
-            step=${field.validation?.step ?? (field.validation?.integer ? 1 : 'any')}
-            min=${field.validation?.min ?? nothing}
-            max=${field.validation?.max ?? nothing}
-            placeholder=${this.ph(field, field.placeholder ?? '')}
-            aria-invalid=${invalid}
-            aria-describedby=${describedBy}
-            .value=${String(this.values[field.key] ?? '')}
-            @input=${onInput}
-          />`,
-        );
-      default:
-        return this.adorn(
-          field,
-          html`<input
-            id=${id}
-            name=${field.key}
-            type="text"
-            placeholder=${this.ph(field, field.placeholder ?? '')}
-            aria-invalid=${invalid}
-            aria-describedby=${describedBy}
-            .value=${String(this.values[field.key] ?? '')}
-            @input=${onInput}
-          />`,
-        );
-    }
+    // Dispatch to the per-field render module (Phase 0 registry). The ctx
+    // carries the per-field locals + bound helpers each control needs; the cast
+    // widens the per-member render fn to the control-field union for dispatch.
+    const ctx: FieldRenderCtx = {
+      id,
+      invalid,
+      describedBy,
+      values: this.values,
+      files: this.files,
+      onInput,
+      setValue: (key, value) => this.setValue(key, value),
+      ph: (f, fallback) => this.ph(f, fallback),
+      adorn: (f, control) => this.adorn(f, control),
+      requestUpdate: () => this.requestUpdate(),
+    };
+    const mod = fieldControls[field.type] as FieldControlModule<ControlField['type']>;
+    return mod.render(field, ctx);
   }
 }
 
