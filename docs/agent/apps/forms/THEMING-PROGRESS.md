@@ -74,3 +74,17 @@ apps/backend/.env), delhivery on :3000 (main repo, untouched).
 
 ## STATUS: visual-control expansion COMPLETE (Tier 1 + Tier 2). Tier 3 deferred (security).
 Next optional: redeploy to dashboard (needs fresh tunnel after restart) or commit.
+
+## Enrichment PR build (per PRD-ENRICHMENT.md + FIELD-ENRICHMENT-PLAN.md + THEMING-SECTION-CATALOG.md)
+Committed baseline: a32fd2c (visual-control expansion). All build docs in this dir.
+- Exhaustive PRD: PRD-ENRICHMENT.md (1419 lines) — coverage cross-checked complete
+  (15/15 fields, 12/12 theming sections, migrations, tokens, a11y fixes). Fine-grained
+  LLM audit still owed (blocked by API 529 at time of writing).
+- Phase 0 module refactor: wf_e4ac7b7f-607 RUNNING (test-locked no-op → per-field modules
+  + registries). Resume: resumeFromRunId wf_e4ac7b7f-607.
+- NEXT after Phase 0 green: Phase 1 security/hardening pass; Phase 2 P0 enrichment field
+  batches (parallel per-field, now conflict-free thanks to modules); Phase 3 structural
+  (file multi-file reshape; hidden context_json = the ONE new migration); Phase 4 P1/P2.
+  Plus theming-section P0 wave (THEMING-SECTION-CATALOG.md).
+- NOTE: API 529 overload may throttle multi-agent waves; verify/fix loops + git baseline
+  absorb transient failures. Run migrate.ts forms only when a migration file is added.
