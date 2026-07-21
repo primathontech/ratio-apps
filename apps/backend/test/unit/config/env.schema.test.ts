@@ -46,6 +46,13 @@ const validEnv = {
   RATIO_WIZZY_CLIENT_SECRET: 'wizzy_secret',
   RATIO_WIZZY_CALLBACK_URL: 'http://localhost:3000/wizzy/api/v1/oauth/callback',
   RATIO_WIZZY_ADMIN_BASE_URL: 'http://localhost:5174',
+  // `rp` app keys (derived from the APPS tuple — required by the schema).
+  RATIO_RP_DATABASE_URL: 'mysql://app:app@localhost:3306/rp_app',
+  RATIO_RP_DATA_ENCRYPTION_KEY: Buffer.alloc(32).toString('base64'),
+  RATIO_RP_CLIENT_ID: 'rp_id',
+  RATIO_RP_CLIENT_SECRET: 'rp_secret',
+  RATIO_RP_CALLBACK_URL: 'http://localhost:3000/rp/api/v1/oauth/callback',
+  RATIO_RP_ADMIN_BASE_URL: 'http://localhost:5174',
 };
 
 describe('envSchema', () => {
