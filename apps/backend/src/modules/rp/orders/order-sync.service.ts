@@ -45,7 +45,11 @@ export class RpOrderSyncService implements OnModuleDestroy {
     }
   }
 
-  private async getDb(): Promise<Db | null> {
+  /**
+   * Get or establish connection to RP MongoDB.
+   * Used by order sync and products service to look up orders/line items.
+   */
+  async getDb(): Promise<Db | null> {
     if (this.db) return this.db;
 
     const url = (this.config.get as (key: string) => string | undefined)('RP_MONGO_URL');
