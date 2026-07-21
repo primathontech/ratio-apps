@@ -91,6 +91,10 @@ export function normalizeOrder(order: Record<string, unknown>): Record<string, u
           id: numericIdFromString(String(li.id ?? '')),
           variant_id: li.variant_id != null ? numericIdFromString(String(li.variant_id)) : null,
           product_id: li.product_id != null ? numericIdFromString(String(li.product_id)) : null,
+          // Preserve original OS product/variant IDs so the adapter can reverse-lookup
+          // the real OS ID when RP sends the hashed product_id back (e.g. fetchOriginalProduct).
+          os_product_id: li.product_id != null ? String(li.product_id) : null,
+          os_variant_id: li.variant_id != null ? String(li.variant_id) : null,
           name: (li.name as string) ?? (li.title as string) ?? '',
           price: String(paiseToRupee(li.price ?? 0)),
           price_set: normalizedPriceSet,
