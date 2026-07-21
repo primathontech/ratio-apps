@@ -19,9 +19,14 @@ export interface RatioRequestOptions {
  * that the pino redact list doesn't catch.
  */
 export class RatioClient {
-  private readonly logger = new Logger(RatioClient.name);
+  private readonly logger: Logger;
 
-  constructor(private readonly baseUrl: string) {}
+  constructor(
+    private readonly baseUrl: string,
+    loggerContext: string = RatioClient.name,
+  ) {
+    this.logger = new Logger(loggerContext);
+  }
 
   async request<T>(
     path: string,
