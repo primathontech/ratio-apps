@@ -2,9 +2,11 @@
 // `<script src=".../loyalty-loader.js?store=m1">` on a page whose URL carries
 // `?loyalty_qr=CODE`. Unlike the unit tests (loader OR widget in isolation),
 // this wires the REAL loader self-init to the REAL <loyalty-claim-widget>,
-// which builds its OWN LoyaltyClient from the `api-base` attribute and calls
-// the global `fetch` — the exact production flow. Only the network and the
-// KwikPass token are stubbed.
+// which builds its OWN LoyaltyClient targeting the PAGE ORIGIN (the merchant
+// storefront's same-origin BFF) and calls the global `fetch` — the exact
+// production flow. The loader script itself stays cross-origin (our
+// backend); only the widget's own status/claim calls are same-origin. Only
+// the network and the KwikPass token are stubbed.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // Static import registers the custom element ONCE (customElements.define is
 // global and must not be re-run; only the loader needs fresh module state).
@@ -37,19 +39,21 @@ function addLoaderScript(): void {
   document.head.appendChild(tag);
 }
 
-/** Route the widget's real fetch calls to canned backend responses. */
-function stubBackend(): ReturnType<typeof vi.fn> {
+/** Route the widget's real fetch calls to the same-origin storefront BFF stubs. */
+function stubStorefrontBff(): ReturnType<typeof vi.fn> {
   const impl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
-    if (url.endsWith(`/loyalty/qr/${CODE}/status`)) {
-      return new Response(JSON.stringify(ACTIVE_STATUS), { status: 200 });
+    // The storefront BFF returns CLEAN, non-enveloped JSON — never the
+    // backend's { status_code, message, data } wrapper.
+    const plain = (data: unknown) => new Response(JSON.stringify(data), { status: 200 });
+    if (url === `https://wellversed.in/api/loyalty/status?qr=${CODE}`) {
+      return plain(ACTIVE_STATUS);
     }
-    if (url.endsWith(`/loyalty/qr/${CODE}/claim`)) {
-      // Assert the browser sends ONLY the KwikPass token (never a phone).
+    if (url === 'https://wellversed.in/api/loyalty/claim') {
+      // Assert the browser sends ONLY the qr code + KwikPass token.
       const body = JSON.parse(String(init?.body ?? '{}'));
-      expect(Object.keys(body)).toEqual(['gkAccessToken']);
-      expect(body.gkAccessToken).toBe('gk-tok-123');
-      return new Response(JSON.stringify(CREDITED), { status: 200 });
+      expect(body).toEqual({ qr: CODE, gkAccessToken: 'gk-tok-123' });
+      return plain(CREDITED);
     }
     throw new Error(`unexpected fetch: ${url}`);
   });
@@ -85,7 +89,7 @@ describe('zero-code script-include flow', () => {
     setUrl(`https://wellversed.in/products/creatine?${new URLSearchParams({ loyalty_qr: CODE })}`);
     addLoaderScript();
     window.localStorage.setItem('KWIKUSERTOKEN', 'gk-tok-123'); // customer already logged in
-    const fetchMock = stubBackend();
+    const fetchMock = stubStorefrontBff();
     const onSuccess = vi.fn();
     window.addEventListener('loyalty:claim:success', onSuccess);
 
@@ -94,21 +98,26 @@ describe('zero-code script-include flow', () => {
     bootLoyaltyLoader();
     await settle();
 
-    // Self-init mounted the real widget as a body overlay, derived from the
-    // loader's own <script src> (api-base + store).
+    // Self-init mounted the real widget as a body overlay. Its own API base
+    // is the PAGE origin — never the loader's cross-origin backend host.
     const widget = document.querySelector('loyalty-claim-widget') as HTMLElement & {
       updateComplete: Promise<unknown>;
       onClaimClick: () => Promise<void>;
     };
     expect(widget).not.toBeNull();
-    expect(widget.getAttribute('api-base')).toBe('https://api.example.com');
-    expect(widget.getAttribute('merchant-id')).toBe('m1');
+    expect(widget.getAttribute('base-url')).toBe('https://wellversed.in');
 
-    // Status was fetched from the backend and the active CTA rendered.
+    // The claim BUNDLE is still fetched cross-origin from our backend.
+    expect(document.querySelector<HTMLScriptElement>('script[data-loyalty-claim]')?.src).toMatch(
+      /^https:\/\/api\.example\.com\/loyalty\/sdk\/loyalty-claim\.js\?v=/,
+    );
+
+    // Status was fetched from the same-origin storefront BFF and the active
+    // CTA rendered.
     await widget.updateComplete;
     const text = () => widget.shadowRoot?.textContent ?? '';
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://api.example.com/loyalty/qr/EXPO24/status',
+      `https://wellversed.in/api/loyalty/status?qr=${CODE}`,
       expect.anything(),
     );
     expect(text()).toContain('Health Expo');
@@ -128,7 +137,7 @@ describe('zero-code script-include flow', () => {
   it('is completely inert on a normal page (no ?loyalty_qr): no widget, no fetch', async () => {
     setUrl('https://wellversed.in/products/creatine');
     addLoaderScript();
-    const fetchMock = stubBackend();
+    const fetchMock = stubStorefrontBff();
 
     const { bootLoyaltyLoader } = await import('./loader');
     bootLoyaltyLoader();

@@ -1,14 +1,15 @@
-// The QR-claim API contract between the storefront widget and the loyalty
-// backend. Browser-safe: public endpoints only, no secrets, no Zod — response
-// types are imported TYPE-ONLY from `@ratio-app/shared`.
-import type { LoyaltyClaimResponse, LoyaltyPublicConfig, LoyaltyQrStatus } from '@ratio-app/shared';
+// The QR-claim API contract between the storefront widget and the merchant
+// STOREFRONT's own same-origin BFF routes. Browser-safe: public endpoints
+// only, no secrets, no Zod — response types are imported TYPE-ONLY from
+// `@ratio-app/shared`. The storefront BFF resolves identity (KwikPass token
+// → verified phone) and forwards a signed request to our backend; this
+// client never talks to our backend or ngrok directly.
+import type { LoyaltyClaimResponse, LoyaltyQrStatus } from '@ratio-app/shared';
 
 /** Config the {@link LoyaltyClient} is constructed with — public values only. */
 export interface LoyaltyClientConfig {
-  /** Backend base URL, e.g. `https://apps.example.com` (no trailing slash). */
-  apiBase: string;
-  /** Ratio merchant id (`?store=` on the loader script src). */
-  merchantId: string;
+  /** Same-origin base, i.e. `window.location.origin` (no trailing slash). */
+  baseUrl: string;
 }
 
 /** Thrown when a loyalty endpoint responds with a non-2xx status. */
@@ -26,8 +27,9 @@ export class LoyaltyClientError extends Error {
 const REQUEST_TIMEOUT_MS = 5000;
 
 /**
- * Typed `fetch` wrapper over the loyalty backend's **public** storefront
- * endpoints. Every request carries a {@link REQUEST_TIMEOUT_MS} abort timeout.
+ * Typed `fetch` wrapper over the storefront's **same-origin** loyalty BFF
+ * routes (`/api/loyalty/*`). Every request carries a {@link REQUEST_TIMEOUT_MS}
+ * abort timeout.
  */
 export class LoyaltyClient {
   constructor(
@@ -39,38 +41,33 @@ export class LoyaltyClient {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
-      const res = await this.fetchImpl(`${this.cfg.apiBase}${path}`, {
+      const res = await this.fetchImpl(`${this.cfg.baseUrl}${path}`, {
         ...init,
         signal: controller.signal,
       });
       if (!res.ok) throw new LoyaltyClientError(res.status, await res.text());
+      // The storefront BFF returns clean, non-enveloped JSON — no unwrap.
       return (await res.json()) as T;
     } finally {
       clearTimeout(timer);
     }
   }
 
-  /** Redacted public program config: `{programName, enabled, version}`. */
-  publicConfig(): Promise<LoyaltyPublicConfig> {
-    return this.request<LoyaltyPublicConfig>(
-      `/loyalty/sdk/config/${encodeURIComponent(this.cfg.merchantId)}`,
-    );
-  }
-
   /** Render data for a QR code: state, event name, points, program name. */
-  qrStatus(code: string): Promise<LoyaltyQrStatus> {
-    return this.request<LoyaltyQrStatus>(`/loyalty/qr/${encodeURIComponent(code)}/status`);
+  qrStatus(qr: string): Promise<LoyaltyQrStatus> {
+    return this.request<LoyaltyQrStatus>(`/api/loyalty/status?qr=${encodeURIComponent(qr)}`);
   }
 
   /**
-   * Claim the QR reward. The body carries ONLY the KwikPass token — the
-   * backend resolves the verified phone; a client phone is never sent.
+   * Claim the QR reward. The body carries the QR code and the KwikPass
+   * token — the storefront BFF resolves the verified phone and signs the
+   * request to our backend; a phone is never sent from the browser.
    */
-  claim(code: string, gkAccessToken: string): Promise<LoyaltyClaimResponse> {
-    return this.request<LoyaltyClaimResponse>(`/loyalty/qr/${encodeURIComponent(code)}/claim`, {
+  claim(qr: string, gkAccessToken: string): Promise<LoyaltyClaimResponse> {
+    return this.request<LoyaltyClaimResponse>('/api/loyalty/claim', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ gkAccessToken }),
+      body: JSON.stringify({ qr, gkAccessToken }),
     });
   }
 }

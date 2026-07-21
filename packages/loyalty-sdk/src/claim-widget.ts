@@ -28,10 +28,13 @@ type Phase = 'loading' | 'status' | 'waiting_login' | 'claiming' | 'result' | 'e
 export class LoyaltyClaimWidget extends LitElement {
   /** QR code being claimed (from `?loyalty_qr=`). */
   @property({ type: String }) code = '';
-  /** Backend base URL; used to build a client when none is injected. */
-  @property({ attribute: 'api-base' }) apiBase = '';
-  /** Ratio merchant id (public). */
-  @property({ attribute: 'merchant-id' }) merchantId = '';
+  /**
+   * Same-origin storefront base used to build a client when none is
+   * injected. Defaults to `window.location.origin` — the widget always
+   * talks to the merchant storefront's own BFF, never a cross-origin
+   * backend, so this rarely needs setting explicitly.
+   */
+  @property({ attribute: 'base-url' }) baseUrl = '';
   /** Overlay/modal mode (set by the loader when mounted with no container). */
   @property({ type: Boolean, reflect: true }) overlay = false;
   /** Injectable API client (tests / programmatic use). */
@@ -42,14 +45,14 @@ export class LoyaltyClaimWidget extends LitElement {
   @state() private result?: LoyaltyClaimResponse;
   @state() private errorMessage = '';
 
-  /** Only re-trigger the login CTA ONCE after an `invalid_session` claim. */
+  /** Only re-trigger the login CTA ONCE after an `invalid_signature` claim. */
   private retriedLogin = false;
   private loginUnsub: (() => void) | undefined;
 
   override connectedCallback(): void {
     super.connectedCallback();
-    if (!this.client && this.apiBase) {
-      this.client = new LoyaltyClient({ apiBase: this.apiBase, merchantId: this.merchantId });
+    if (!this.client) {
+      this.client = new LoyaltyClient({ baseUrl: this.baseUrl || window.location.origin });
     }
   }
 
@@ -115,10 +118,11 @@ export class LoyaltyClaimWidget extends LitElement {
     this.phase = 'claiming';
     try {
       const res = await this.client.claim(this.code, token);
-      if (res.status === 'invalid_session' && !this.retriedLogin) {
-        // Stale/foreign token: re-trigger the login CTA, but only once.
+      if (res.status === 'invalid_signature' && !this.retriedLogin) {
+        // Stale/foreign token (the BFF's re-signed request was rejected):
+        // re-trigger the login CTA, but only once.
         this.retriedLogin = true;
-        this.emitError('invalid_session');
+        this.emitError('invalid_signature');
         this.startLogin();
         return;
       }

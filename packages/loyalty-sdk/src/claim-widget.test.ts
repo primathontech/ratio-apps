@@ -32,7 +32,6 @@ function stubClient(
       if (claim instanceof Error) throw claim;
       return claim;
     }),
-    publicConfig: vi.fn(),
   };
 }
 
@@ -190,20 +189,20 @@ describe('<loyalty-claim-widget>', () => {
       window.removeEventListener('loyalty:claim:error', onError);
     });
 
-    it('invalid_session re-triggers the login CTA exactly once, then renders terminal', async () => {
+    it('invalid_signature re-triggers the login CTA exactly once, then renders terminal', async () => {
       setToken('stale-token');
       const onLoginRequest = vi.fn();
       window.addEventListener('loyalty:login:request', onLoginRequest);
-      const client = stubClient(activeStatus, { status: 'invalid_session' });
+      const client = stubClient(activeStatus, { status: 'invalid_signature' });
       const el = await mount(client);
 
-      // 1st invalid_session → re-trigger login once
+      // 1st invalid_signature → re-trigger login once
       await el.onClaimClick();
       await el.updateComplete;
       expect(onLoginRequest).toHaveBeenCalledTimes(1);
       expect(shadowText(el).toLowerCase()).toContain('log in');
 
-      // login completes but the claim is invalid_session AGAIN → terminal copy
+      // login completes but the claim is invalid_signature AGAIN → terminal copy
       window.dispatchEvent(new CustomEvent('user-loggedin'));
       await el.updateComplete;
       await Promise.resolve();

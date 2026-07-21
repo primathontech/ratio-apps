@@ -7,7 +7,16 @@
 // `<script src>` include works on any non-Shopkit storefront. Zero cost when
 // the param is absent: no claim bundle fetch, no API call.
 
-/** Overrides the Shopkit wrapper may pass to `initClaim`. */
+import { SDK_VERSION } from './version';
+
+/**
+ * Overrides the Shopkit wrapper may pass to `initClaim`. `apiBaseUrl` only
+ * affects where the CLAIM BUNDLE is fetched from (still cross-origin, our
+ * backend) — the widget's own API calls always target the page's own
+ * origin, never a configured backend. `merchantId` is accepted for
+ * backward-compatible callers but no longer consumed here: the storefront
+ * BFF resolves the merchant itself.
+ */
 export interface InitClaimConfig {
   merchantId?: string;
   apiBaseUrl?: string;
@@ -61,13 +70,22 @@ function qrCode(): string | null {
   return new URLSearchParams(window.location.search).get(QR_PARAM);
 }
 
-/** Inject the ESM claim bundle once (defines `<loyalty-claim-widget>`). */
+/**
+ * Inject the claim bundle once (defines `<loyalty-claim-widget>`). It is a
+ * CLASSIC script (no `type="module"`): a classic cross-origin script is fetched
+ * no-cors and executes without a CORS check, so it loads like this loader does
+ * and survives storefront service workers that mishandle cross-origin module
+ * (`type=module`) fetches. `async` keeps it non-blocking.
+ */
 function injectClaimBundle(apiBase: string): void {
   if (document.querySelector(`script[${CLAIM_BUNDLE_MARKER}]`)) return;
   const tag = document.createElement('script');
-  tag.type = 'module';
+  tag.async = true;
   tag.setAttribute(CLAIM_BUNDLE_MARKER, '');
-  tag.src = `${apiBase}/loyalty/sdk/loyalty-claim.js`;
+  // Version query-string cache-buster: a storefront service worker keys its
+  // cache by full URL, so bumping SDK_VERSION forces a fresh fetch of a new
+  // bundle instead of serving a stale cached one.
+  tag.src = `${apiBase}/loyalty/sdk/loyalty-claim.js?v=${SDK_VERSION}`;
   document.head.appendChild(tag);
 }
 
@@ -85,14 +103,16 @@ export function initClaim(containerId: string | null, config: InitClaimConfig = 
   const script = scriptRef ?? findScript();
   const fromScript = script?.src ? parseScriptSrc(script.src) : { apiBase: '', merchantId: null };
   const apiBase = (config.apiBaseUrl ?? fromScript.apiBase).replace(/\/+$/, '');
-  const merchantId = config.merchantId ?? fromScript.merchantId ?? '';
 
+  // The claim BUNDLE is still fetched cross-origin from our backend (apiBase,
+  // above). The widget's own API calls (status/claim) are a SEPARATE concern:
+  // they go same-origin to the merchant storefront's own BFF, so the widget
+  // gets the page origin, never the backend apiBase.
   injectClaimBundle(apiBase);
 
   const widget = document.createElement(WIDGET_TAG);
   widget.setAttribute('code', code);
-  widget.setAttribute('api-base', apiBase);
-  if (merchantId) widget.setAttribute('merchant-id', merchantId);
+  widget.setAttribute('base-url', window.location.origin);
 
   if (containerId !== null) {
     const container = document.getElementById(containerId);

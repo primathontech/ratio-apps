@@ -62,14 +62,17 @@ describe('loader', () => {
     await tick();
 
     const bundle = document.querySelector<HTMLScriptElement>('script[data-loyalty-claim]');
-    expect(bundle?.src).toBe('https://apps.example.com/loyalty/sdk/loyalty-claim.js');
+    expect(bundle?.src).toMatch(
+      /^https:\/\/apps\.example\.com\/loyalty\/sdk\/loyalty-claim\.js\?v=/,
+    );
     const widget = document.querySelector('loyalty-claim-widget');
     expect(widget).not.toBeNull();
     expect(widget?.parentElement).toBe(document.body);
     expect(widget?.hasAttribute('overlay')).toBe(true);
     expect(widget?.getAttribute('code')).toBe('CODE123');
-    expect(widget?.getAttribute('api-base')).toBe('https://apps.example.com');
-    expect(widget?.getAttribute('merchant-id')).toBe('m1');
+    // The widget's own API base is the PAGE origin, never the loader's
+    // script-src backend host.
+    expect(widget?.getAttribute('base-url')).toBe('https://shop.example.com');
   });
 
   it('injects the claim bundle only once across repeated inits', async () => {
@@ -99,10 +102,11 @@ describe('loader', () => {
     const widget = widgets[0] as Element;
     expect(widget.parentElement?.id).toBe('claim-mount');
     expect(widget.hasAttribute('overlay')).toBe(false);
-    expect(widget.getAttribute('api-base')).toBe('https://api.override.com');
-    expect(widget.getAttribute('merchant-id')).toBe('m2');
-    expect(document.querySelector<HTMLScriptElement>('script[data-loyalty-claim]')?.src).toBe(
-      'https://api.override.com/loyalty/sdk/loyalty-claim.js',
+    // apiBaseUrl only redirects the CLAIM BUNDLE fetch; the widget's own API
+    // base is always the page origin, regardless of the config override.
+    expect(widget.getAttribute('base-url')).toBe('https://shop.example.com');
+    expect(document.querySelector<HTMLScriptElement>('script[data-loyalty-claim]')?.src).toMatch(
+      /^https:\/\/api\.override\.com\/loyalty\/sdk\/loyalty-claim\.js\?v=/,
     );
     expect(typeof cleanup).toBe('function');
   });
