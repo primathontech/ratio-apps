@@ -88,3 +88,15 @@ Committed baseline: a32fd2c (visual-control expansion). All build docs in this d
   Plus theming-section P0 wave (THEMING-SECTION-CATALOG.md).
 - NOTE: API 529 overload may throttle multi-agent waves; verify/fix loops + git baseline
   absorb transient failures. Run migrate.ts forms only when a migration file is added.
+
+## PAUSED (API rate/529 limit) — resume when limit resets
+State: HEAD = 8cfb38a (module refactor, green baseline). Enrichment wave was
+STOPPED mid-run after only the Shared-primitives phase.
+- Partial shared-primitives work saved in: git stash@{0}
+  ("wip: field-enrichment-wave shared primitives"). It is a BACKUP only.
+- TO RESUME: re-run the wave FRESH (NOT resumeFromRunId — the tree was reset):
+  Workflow({scriptPath: ".../forms-field-enrichment-wave-wf_98d4e3e5-d58.js"})
+  It will rebuild shared primitives + all 15 fields from the clean baseline.
+- Then: theming-section P0 wave (THEMING-SECTION-CATALOG.md), then structural
+  (file multi-file reshape + hidden context_json = the one migration), then P1/P2.
+- Plan of record: PRD-ENRICHMENT.md, FIELD-ENRICHMENT-PLAN.md, THEMING-SECTION-CATALOG.md.
