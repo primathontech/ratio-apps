@@ -39,7 +39,18 @@ export class RpOrderSyncService implements OnModuleDestroy {
         { $set: { ...normalized, store: storeDomain, updated_at: new Date() } },
         { upsert: true },
       );
-      this.logger.log({ id: numericId, store: storeDomain }, 'order upserted into RP MongoDB');
+      // Diagnostic for the product-id-resolution fix: confirms whether this sync actually
+      // wrote os_product_id onto the order's line items — the field products.service.ts's
+      // resolveOsProductId() depends on. If this logs 0/N, the return/exchange flow's
+      // product lookup for this order will fall back to the (unresolvable) hashed id.
+      const lineItems = Array.isArray(normalized.line_items) ? normalized.line_items : [];
+      const withOsProductId = lineItems.filter(
+        (li) => (li as Record<string, unknown>)?.os_product_id != null,
+      ).length;
+      this.logger.log(
+        { id: numericId, store: storeDomain, lineItems: lineItems.length, withOsProductId },
+        'order upserted into RP MongoDB',
+      );
     } catch (err) {
       this.logger.error({ err, id: numericId, store: storeDomain }, 'failed to upsert order');
     }
