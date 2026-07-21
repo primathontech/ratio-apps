@@ -1,10 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { RpRatioClientService } from '../ratio-client/ratio-client.service';
 import { RpTransformerService } from '../transformer/transformer.service';
 import { RpOrderSyncService } from '../orders/order-sync.service';
 
 @Injectable()
 export class RpProductsService {
+  private readonly logger = new Logger(`RP:${RpProductsService.name}`);
+
   constructor(
     private readonly ratioClient: RpRatioClientService,
     private readonly transformer: RpTransformerService,
@@ -16,7 +18,14 @@ export class RpProductsService {
     // e.g. "17720223476919127" → 1107513967307445 (stored in RP MongoDB as product_id).
     // RP sends back the hashed id; we must resolve it to the real OS id before
     // calling OS Item Service (which only knows the original id).
+    // Diagnostic entry point: correlate the whole resolve→OS-lookup chain for one request
+    // by grepping this productId across logs.
+    this.logger.log({ merchantId, domain, productId }, 'product lookup requested (possibly hashed id)');
     const resolvedId = await this.resolveOsProductId(domain, productId) ?? productId;
+    this.logger.log(
+      { productId, resolvedId, resolvedViaMongo: resolvedId !== productId },
+      'resolved product id for OS lookup',
+    );
 
     const raw = await this.ratioClient.getProduct(merchantId, domain, resolvedId) as Record<string, unknown>;
     const product = (raw?.product ?? raw?.data ?? raw) as Record<string, unknown>;

@@ -138,7 +138,19 @@ export class RpRatioClientService {
     if (!res.ok) {
       this.logger.error({ merchantId, productId, status: res.status }, 'OS item service error');
     }
-    return res.json();
+    const body = (await res.json()) as Record<string, unknown>;
+    // Diagnostic for the product-id-resolution fix: OS can respond 200 with an empty/
+    // placeholder product (id 0, no variants) for an id it doesn't recognize — e.g. when
+    // products.service.ts's Mongo resolution didn't find a match and fell back to the
+    // still-hashed id. That case has no non-2xx status to trip the error log above, so
+    // it's otherwise invisible. Log the requested id and what came back either way.
+    const product = (body?.product ?? body?.data ?? body) as Record<string, unknown> | undefined;
+    const looksReal = !!product?.id && product.id !== 0 && product.id !== '0';
+    this.logger.log(
+      { merchantId, productId, status: res.status, looksReal, returnedId: product?.id },
+      'OS item service product lookup',
+    );
+    return body;
   }
 
   /**
