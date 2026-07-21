@@ -20,18 +20,18 @@ interface Props {
 }
 
 /**
- * Persistent live preview (B2). Renders beside the editor and reflects the
- * current builder state as it changes, so merchants never leave the editor to
- * see their form. A device toggle switches the embedded FormPreview between the
- * desktop and mobile (375px) frames; FormPreview owns the Ready/Success/Error/
- * Closed state control.
+ * Persistent live preview (B2). A full-width panel at the top of the builder
+ * that reflects the current builder state as it changes, so merchants never
+ * leave the editor to see their form. A device toggle switches the embedded
+ * FormPreview between the wide desktop frame and the 375px mobile frame; with
+ * the panel now full width the desktop frame has real room to differ from
+ * mobile. FormPreview owns the Ready/Success/Error/Closed state control.
  */
 export function LivePreview(props: Props) {
   const [device, setDevice] = useState<Device>('desktop');
   return (
     <Card
       title="Live preview"
-      style={{ flex: '1 1 340px', minWidth: 300 }}
       extra={
         <Segmented
           aria-label="Preview device"

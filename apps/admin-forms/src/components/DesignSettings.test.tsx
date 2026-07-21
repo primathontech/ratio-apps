@@ -84,6 +84,25 @@ describe('DesignSettings', () => {
     });
   });
 
+  it('resets colors + typography + layout + background to the defaults, leaving assets alone (D1)', () => {
+    const dispatch = vi.fn();
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />);
+    fireEvent.click(screen.getByLabelText('Reset design to default'));
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateAppearance',
+      patch: {
+        colors: DEFAULT_APPEARANCE.colors,
+        typography: DEFAULT_APPEARANCE.typography,
+        layout: DEFAULT_APPEARANCE.layout,
+        background: DEFAULT_APPEARANCE.background,
+      },
+    });
+    // The reset never touches brand assets (logo/cover).
+    const call = dispatch.mock.calls[0]?.[0];
+    expect(call?.patch).not.toHaveProperty('logo');
+    expect(call?.patch).not.toHaveProperty('cover');
+  });
+
   it('toggles card border and shadow through the layout controls', () => {
     const dispatch = vi.fn();
     renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />);

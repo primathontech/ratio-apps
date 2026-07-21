@@ -1,4 +1,5 @@
 import {
+  Button,
   Card,
   Collapse,
   ColorPicker,
@@ -8,6 +9,7 @@ import {
   Slider,
   Switch,
   Typography,
+  UndoOutlined,
 } from '@primathonos/orion';
 import {
   FORM_BG_IMAGE_FITS,
@@ -28,7 +30,7 @@ import {
   type FormAppearance,
 } from '@shared/schemas/form-schema';
 import type { Dispatch } from 'react';
-import type { AppearancePatch, BuilderAction } from '@/lib/builder-state';
+import { type AppearancePatch, type BuilderAction, DEFAULT_APPEARANCE } from '@/lib/builder-state';
 import { contrastRatio } from '@/lib/contrast';
 import { type AppearancePreset, FORM_APPEARANCE_PRESETS } from '@/lib/presets';
 
@@ -107,9 +109,19 @@ export function DesignSettings({ appearance, dispatch }: Props) {
       background: p.appearance.background,
     });
 
+  // Reset restores the built-in defaults for the same four sections a preset
+  // touches; brand assets (logo/cover) are content, so they stay put.
+  const resetToDefault = () =>
+    patch({
+      colors: DEFAULT_APPEARANCE.colors,
+      typography: DEFAULT_APPEARANCE.typography,
+      layout: DEFAULT_APPEARANCE.layout,
+      background: DEFAULT_APPEARANCE.background,
+    });
+
   return (
     <Card title="Design">
-      <PresetRow onApply={applyPreset} />
+      <PresetRow onApply={applyPreset} onReset={resetToDefault} />
       <Collapse
         accordion
         defaultActiveKey={['colors']}
@@ -541,12 +553,37 @@ export function DesignSettings({ appearance, dispatch }: Props) {
   );
 }
 
-function PresetRow({ onApply }: { onApply: (preset: AppearancePreset) => void }) {
+function PresetRow({
+  onApply,
+  onReset,
+}: {
+  onApply: (preset: AppearancePreset) => void;
+  onReset: () => void;
+}) {
   return (
     <div style={{ marginBottom: 16 }}>
-      <Typography.Text strong style={{ display: 'block', marginBottom: 8, fontSize: 13 }}>
-        Presets
-      </Typography.Text>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+          marginBottom: 8,
+        }}
+      >
+        <Typography.Text strong style={{ fontSize: 13 }}>
+          Presets
+        </Typography.Text>
+        <Button
+          type="text"
+          size="small"
+          icon={<UndoOutlined />}
+          aria-label="Reset design to default"
+          onClick={onReset}
+        >
+          Reset to default
+        </Button>
+      </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
         {FORM_APPEARANCE_PRESETS.map((preset) => (
           <button
@@ -677,12 +714,13 @@ function AssetInput({
 }
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  // Stack label above the control: side-by-side squeezed long labels into a
+  // one-char-per-line column and left segmented controls no room. Stacking gives
+  // both the label and the control the full panel width.
   return (
-    <div
-      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}
-    >
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <Typography.Text style={{ fontSize: 13 }}>{label}</Typography.Text>
-      <div>{children}</div>
+      <div style={{ width: '100%' }}>{children}</div>
     </div>
   );
 }

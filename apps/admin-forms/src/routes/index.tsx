@@ -177,7 +177,7 @@ export function FormsListPage() {
           <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
             <Table
               rowKey="id"
-              size="middle"
+              size="small"
               columns={columns}
               dataSource={rows}
               loading={forms.isLoading}

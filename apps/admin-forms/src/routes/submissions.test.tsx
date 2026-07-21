@@ -112,7 +112,7 @@ describe('SubmissionsScreen', () => {
     // Preview truncates to the first 3 field values.
     expect(screen.queryByText(/extra: hidden/)).not.toBeInTheDocument();
     // Denser table rows (G2).
-    expect(document.querySelector('.ant-table-middle')).not.toBeNull();
+    expect(document.querySelector('.ant-table-small')).not.toBeNull();
     const listCall = mockedApi.mock.calls.find(
       (c) => c[0] === 'GET' && String(c[1]).startsWith('/api/forms/form_1/submissions'),
     );

@@ -33,9 +33,12 @@ interface Props {
   description?: string | undefined;
   /** Absent = un-themed; the SDK's baked-in defaults are used. */
   appearance?: FormAppearance | undefined;
-  /** 375px frame vs full-width split pane. */
+  /** 375px mobile frame vs a wide desktop frame (up to 680px, centered). */
   mode: 'mobile' | 'desktop';
 }
+
+/** Max render width of the desktop frame; a realistic form column, not the panel edge. */
+const DESKTOP_MAX_WIDTH = 680;
 
 const STATE_OPTIONS: { label: string; value: PreviewState }[] = [
   { label: 'Ready', value: 'ready' },
@@ -103,7 +106,11 @@ export function FormPreview({
       <div
         ref={hostRef}
         data-testid={`preview-${mode}`}
-        style={{ width: mode === 'mobile' ? 375 : '100%', maxWidth: '100%', margin: '0 auto' }}
+        style={{
+          width: mode === 'mobile' ? 375 : '100%',
+          maxWidth: mode === 'mobile' ? '100%' : DESKTOP_MAX_WIDTH,
+          margin: '0 auto',
+        }}
       />
     </div>
   );

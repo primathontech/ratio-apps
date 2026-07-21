@@ -85,7 +85,7 @@ const PALETTE_GROUPS: { title: string; types: FormFieldType[] }[] = [
 
 export function FieldPalette({ dispatch }: { dispatch: Dispatch<BuilderAction> }) {
   return (
-    <Card title="Fields" style={{ flex: '0 0 220px' }} styles={{ body: { padding: 12 } }}>
+    <Card title="Fields" style={{ flex: '0 0 240px' }} styles={{ body: { padding: 12 } }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {PALETTE_GROUPS.map((group) => (
           <div key={group.title}>
@@ -143,8 +143,8 @@ function PaletteItem({
       borderRadius: 6,
       background: '#fff',
       cursor: 'grab',
-      fontSize: 13,
-      lineHeight: 1.2,
+      fontSize: 12,
+      lineHeight: 1.25,
       minWidth: 0,
     }),
     [transform],
@@ -162,7 +162,16 @@ function PaletteItem({
         {FIELD_TYPE_ICONS[fieldType]}
       </span>
       <span
-        style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}
+        // Wrap to two lines instead of truncating so every type name stays
+        // fully readable in the narrow palette cell (B7).
+        style={{
+          minWidth: 0,
+          overflow: 'hidden',
+          display: '-webkit-box',
+          WebkitBoxOrient: 'vertical',
+          WebkitLineClamp: 2,
+          wordBreak: 'break-word',
+        }}
       >
         {FIELD_TYPE_LABELS[fieldType]}
       </span>

@@ -132,27 +132,32 @@ describe('BuilderScreen', () => {
     );
   });
 
-  it('shows a persistent live preview beside the editor with a device toggle', async () => {
+  it('reveals a collapsible full-width live preview with a device toggle', async () => {
     routeApi(makeForm());
     renderWithProviders(<BuilderScreen formId="form_1" />);
     await screen.findByText('Full name');
-    // The editor (palette + canvas) stays mounted while the preview is open.
-    fireEvent.click(screen.getByRole('button', { name: 'Show preview' }));
+    // Collapsed by default so the editor keeps its space.
+    expect(screen.queryByTestId('preview-desktop')).not.toBeInTheDocument();
+    // The header switch reveals the full-width panel; the editor stays mounted.
+    fireEvent.click(screen.getByRole('switch', { name: 'Live preview' }));
     const desktop = await screen.findByTestId('preview-desktop');
-    expect(desktop).toBeInTheDocument();
     expect(screen.getByTestId('canvas-field-full_name')).toBeInTheDocument();
+    // With the panel full width, Desktop renders a real, wide frame (up to 680px)
+    // rather than the cramped 375px it shared with Mobile in the old side panel.
+    expect(desktop).toHaveStyle({ maxWidth: '680px' });
     // The panel embeds the real storefront element; the current schema renders
     // inside its shadow root (no hand-rolled duplicate markup).
     const el = document.querySelector('ratio-form');
     expect(el).not.toBeNull();
     await waitFor(() => expect(el?.shadowRoot?.textContent).toContain('Full name'));
-    // The device toggle swaps the desktop frame for the 375px mobile frame.
+    // The device toggle swaps the wide desktop frame for the 375px mobile frame.
     const mobileToggle = screen.getByText('Mobile').closest('label')?.querySelector('input');
     if (!mobileToggle) throw new Error('no mobile device toggle');
     fireEvent.click(mobileToggle);
     const mobile = await screen.findByTestId('preview-mobile');
     expect(mobile).toHaveStyle({ width: '375px' });
-    fireEvent.click(screen.getByRole('button', { name: 'Hide preview' }));
+    // Toggling the switch off collapses the panel again.
+    fireEvent.click(screen.getByRole('switch', { name: 'Live preview' }));
     await waitFor(() => expect(screen.queryByTestId('preview-mobile')).not.toBeInTheDocument());
   });
 
@@ -277,10 +282,11 @@ describe('BuilderScreen', () => {
     await screen.findByText('Full name');
     fireEvent.click(screen.getByTestId('canvas-field-full_name'));
     await screen.findByLabelText('Field label');
-    // Expand the collapsed "Advanced style" section, then pick a non-inherit variant.
+    // Expand the collapsed "Advanced style" section, then pick a non-inherit
+    // variant from the input-style Select.
     fireEvent.click(screen.getByText('Advanced style'));
-    const filled = await screen.findByText('Filled');
-    fireEvent.click(filled.closest('label') ?? filled);
+    fireEvent.mouseDown(await screen.findByRole('combobox', { name: 'Field input style' }));
+    fireEvent.click(await screen.findByText('Filled'));
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => {
       const put = mockedApi.mock.calls.find((c) => c[0] === 'PUT' && c[1] === '/api/forms/form_1');

@@ -68,3 +68,10 @@ severity; feeds the combined improvement punch-list.
   — unreadable. Fix: labels must show fully (wrap to 2 lines, smaller font, wider
   cells, or shorter display names). In the palette component (builder.$formId.tsx
   / FieldPalette). Fix with B5 in the builder pass after the UI workflow lands.
+- **B8 (P1) Design-tab `Row` squeezes long labels to vertical / mid-word wrap.**
+  The shared Row (label + control side-by-side) in DesignSettings.tsx gives the
+  label a too-narrow column, so long labels render one-char-per-line ("Logo URL",
+  "Cover image URL", "Input style") or break mid-word ("Button size", "Button
+  alignment"). Fix: make Row STACK label above control (like fields/_shared
+  SettingRow) so labels are never squeezed. Fixes the whole Design tab at once.
+  In DesignSettings.tsx (Row helper). After the follow-up workflow releases it.

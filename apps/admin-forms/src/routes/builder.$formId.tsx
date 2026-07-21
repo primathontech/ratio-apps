@@ -22,6 +22,7 @@ import {
   Radio,
   RadioGroup,
   Segmented,
+  Select,
   Space,
   Spin,
   Switch,
@@ -47,7 +48,7 @@ import { FieldPalette, PALETTE_PREFIX } from '@/components/FieldPalette';
 import { LivePreview } from '@/components/LivePreview';
 // Per-field settings panels (Phase 0 refactor): TypeSpecificSettings dispatches
 // through this registry; each panel lives in @/fields/<type>/settings.tsx.
-import { SettingRow } from '@/fields/_shared/controls';
+import { SettingRow, SettingRowGroup } from '@/fields/_shared/controls';
 import { fieldSettingsRegistry } from '@/fields/registry';
 import { useForm, useToggleFormStatus, useUpdateForm } from '@/hooks/useForms';
 import { useWebhookTest } from '@/hooks/useWebhookTest';
@@ -78,6 +79,10 @@ export function BuilderScreen({ formId }: { formId: string }) {
   const webhookTest = useWebhookTest(formId);
   const [state, dispatch] = useReducer(builderReducer, EMPTY_BUILDER_STATE);
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
+  // Live preview is a collapsible full-width panel at the top (B2). Collapsed by
+  // default so the editor row keeps all its vertical space; the header switch
+  // reveals it above the palette/canvas/settings row, where it has the width to
+  // render a real desktop frame.
   const [previewOpen, setPreviewOpen] = useState(false);
   const [saveErrors, setSaveErrors] = useState<string[]>([]);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
@@ -165,12 +170,17 @@ export function BuilderScreen({ formId }: { formId: string }) {
           </Space>
         </div>
         <Space wrap>
+          <Space size={8}>
+            <Switch
+              aria-label="Live preview"
+              checked={previewOpen}
+              onChange={setPreviewOpen}
+            />
+            <Typography.Text>Live preview</Typography.Text>
+          </Space>
           <Link to="/submissions/$formId" params={{ formId }}>
             <Button>Submissions</Button>
           </Link>
-          <Button onClick={() => setPreviewOpen((v) => !v)}>
-            {previewOpen ? 'Hide preview' : 'Show preview'}
-          </Button>
           <Button
             loading={toggle.isPending}
             onClick={() => toggle.mutate({ id: formId, active: status !== 'active' })}
@@ -182,6 +192,17 @@ export function BuilderScreen({ formId }: { formId: string }) {
           </PrimaryButton>
         </Space>
       </div>
+
+      {previewOpen && (
+        <LivePreview
+          name={state.meta.name}
+          fields={state.fields}
+          submitLabel={state.meta.submitLabel}
+          successMessage={state.meta.successMessage}
+          description={state.meta.description}
+          appearance={state.meta.appearance}
+        />
+      )}
 
       {saveErrors.length > 0 && (
         <Alert
@@ -246,16 +267,6 @@ export function BuilderScreen({ formId }: { formId: string }) {
               />
             )}
           </div>
-          {previewOpen && (
-            <LivePreview
-              name={state.meta.name}
-              fields={state.fields}
-              submitLabel={state.meta.submitLabel}
-              successMessage={state.meta.successMessage}
-              description={state.meta.description}
-              appearance={state.meta.appearance}
-            />
-          )}
         </div>
       </DndContext>
     </Space>
@@ -397,8 +408,8 @@ function AdornmentSettings({
     <>
       <Divider style={{ margin: '4px 0' }}>Adornments</Divider>
       {isAdornable(field.type) && (
-        <div style={{ display: 'flex', gap: 8 }}>
-          <SettingRow label="Prefix">
+        <SettingRowGroup>
+          <SettingRow label="Prefix" style={{ flex: 1 }}>
             <Input
               aria-label="Prefix"
               maxLength={8}
@@ -407,7 +418,7 @@ function AdornmentSettings({
               onChange={(e) => patch({ prefix: e.target.value || undefined })}
             />
           </SettingRow>
-          <SettingRow label="Suffix">
+          <SettingRow label="Suffix" style={{ flex: 1 }}>
             <Input
               aria-label="Suffix"
               maxLength={8}
@@ -416,7 +427,7 @@ function AdornmentSettings({
               onChange={(e) => patch({ suffix: e.target.value || undefined })}
             />
           </SettingRow>
-        </div>
+        </SettingRowGroup>
       )}
       <SettingRow label="Help text">
         <Input
@@ -474,8 +485,12 @@ function AdvancedStyleSettings({
           children: (
             <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
               <SettingRow label="Input style">
-                <Segmented
+                {/* A Select instead of a Segmented (B5): the 4 variant labels
+                    overflow the ~280px settings panel, so a full-width Select
+                    keeps every option (including "Underlined") in bounds. */}
+                <Select
                   aria-label="Field input style"
+                  style={{ width: '100%' }}
                   value={style.inputVariant ?? 'inherit'}
                   onChange={(value) =>
                     setStyle({

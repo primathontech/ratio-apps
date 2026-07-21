@@ -117,4 +117,10 @@ describe('FormPreview', () => {
     renderWithProviders(<FormPreview name="X" fields={fields} mode="mobile" />);
     expect(screen.getByTestId('preview-mobile')).toHaveStyle({ width: '375px' });
   });
+
+  it('frames the desktop preview wide (up to 680px), not the 375px mobile width', async () => {
+    renderWithProviders(<FormPreview name="X" fields={fields} mode="desktop" />);
+    const desktop = screen.getByTestId('preview-desktop');
+    expect(desktop).toHaveStyle({ width: '100%', maxWidth: '680px' });
+  });
 });
