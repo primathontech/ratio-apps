@@ -11,6 +11,7 @@ import { RpCustomersService } from './customers/customers.service';
 import { RpDiscountsController } from './discounts/discounts.controller';
 import { RpDiscountsService } from './discounts/discounts.service';
 import { RpRequestGuard, RpWebhookSignatureGuard } from './guards';
+import { RpIdMappingService } from './id-mapping/id-mapping.service';
 import { RpKyselyModule } from './kysely.module';
 import { RpMerchantsService } from './merchants/merchants.service';
 import { RpRatioTokenProvider } from './oauth/ratio-token.provider';
@@ -49,6 +50,7 @@ import { RpSdkController } from './sdk/sdk.controller';
   ],
   providers: [
     RpMerchantsService,
+    RpIdMappingService,
     RpTransformerService,
     RpWebhooksService,
     RpOrderSyncService,

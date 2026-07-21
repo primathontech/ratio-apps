@@ -1,14 +1,14 @@
-// Converts a UUID or arbitrary string to a deterministic numeric string
-// by parsing the first 15 hex digits as base-16. Matches transformer.service.ts logic.
+import { hashId } from '../id-mapping/hash-id';
+
+// Converts a UUID or arbitrary string to a deterministic numeric id, delegating to the
+// shared canonical hash (id-mapping/hash-id.ts) so this always agrees with
+// transformer.service.ts's numericId() for the same real id. Previously had its own,
+// different (truncated-hex) algorithm — the same real product/variant id could hash to two
+// different numbers depending on whether RP learned about it via an order line item or a
+// direct product fetch, which is exactly the kind of drift the shared id-mapping table
+// (products.service.ts) needs to not exist for reversal to work reliably.
 function numericIdFromString(value: string): number {
-  if (!value) return 0;
-  const direct = Number(value);
-  if (!isNaN(direct) && direct > 0 && direct <= Number.MAX_SAFE_INTEGER) return direct;
-  const hexStr = !isNaN(direct) && direct > 0
-    ? BigInt(value).toString(16)
-    : value.replace(/-/g, '').replace(/[^0-9a-f]/gi, '');
-  const hex = hexStr.slice(0, 13);
-  return hex ? parseInt(hex, 16) : 0;
+  return Number(hashId(value));
 }
 
 // Adds Shopify-compatible price_set / discounted_price_set fields that RP BE

@@ -4,6 +4,7 @@ import type { Env } from '../../../config/env.schema';
 import { RpMerchantsService } from '../merchants/merchants.service';
 import { RpTransformerService } from '../transformer/transformer.service';
 import { RpOrderSyncService } from '../orders/order-sync.service';
+import { RpIdMappingService } from '../id-mapping/id-mapping.service';
 
 type Rec = Record<string, unknown>;
 
@@ -16,6 +17,7 @@ export class RpWebhooksService {
     private readonly transformer: RpTransformerService,
     private readonly config: ConfigService<Env, true>,
     private readonly orderSync: RpOrderSyncService,
+    private readonly idMapping: RpIdMappingService,
   ) {}
 
   async handleProductCreate(merchantId: string, body: Rec): Promise<void> {
@@ -111,6 +113,18 @@ export class RpWebhooksService {
       this.logger.warn({ merchantId, topic }, 'merchant not found — dropping webhook');
       return;
     }
+
+    // This is one of the origin points where a product's hashed id is first minted and
+    // shown to RP (independent of any order) — persist the reverse mapping now so a later
+    // products.controller lookup for this same product can resolve it back to the real OS id.
+    const realProductId = body.id != null ? String(body.id) : null;
+    if (realProductId) await this.idMapping.hashAndPersist('product', realProductId);
+    const variants = Array.isArray(body.variants) ? (body.variants as Rec[]) : [];
+    await Promise.all(
+      variants
+        .filter((v) => v.id != null)
+        .map((v) => this.idMapping.hashAndPersist('variant', String(v.id))),
+    );
 
     const shopifyPayload = this.transformer.shopifyProduct(body);
 
