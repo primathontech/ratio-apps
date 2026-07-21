@@ -13,11 +13,19 @@ import { LOYALTY_DB_TOKEN } from '../kysely.module';
 // storefront SDK and the config it bootstraps stay in lockstep.
 const SDK_VERSION = '0.1.0';
 
-/** Config-row cache TTL (seconds). The cached ROW holds no plaintext secret. */
+/** Config-row cache TTL (seconds). The cached row holds no plaintext secret. */
 const CONFIG_CACHE_TTL_S = 120;
 const configCacheKey = (merchantId: string) => `loyalty:cfg:${merchantId}`;
 
-type LoyaltyConfigRow = Selectable<LoyaltyDatabase['loyalty_configs']>;
+// The cache stores ONLY the non-secret columns `publicConfig` needs — never the
+// full row. `loyalty_configs` carries `claimSigningSecret`, so a `selectAll()`
+// here would sweep the raw signing secret into Redis (a lower-trust store); we
+// deliberately allow-list the columns instead. `merchantId` proves existence
+// (drives `enabled`); `programName` is the only value read out.
+type CachedConfigRow = Pick<
+  Selectable<LoyaltyDatabase['loyalty_configs']>,
+  'merchantId' | 'programName'
+>;
 
 /**
  * Builds the PUBLIC, redacted storefront config served to the browser SDK.
@@ -37,13 +45,13 @@ export class StorefrontConfigService {
    * Read the merchant's config row, Redis-cached (TTL {@link CONFIG_CACHE_TTL_S}).
    * Degrades to a direct DB read when Redis is unavailable.
    */
-  private async configRow(merchantId: string): Promise<LoyaltyConfigRow | undefined> {
+  private async configRow(merchantId: string): Promise<CachedConfigRow | undefined> {
     const key = configCacheKey(merchantId);
-    const cached = await this.redis.getJson<LoyaltyConfigRow>(key);
+    const cached = await this.redis.getJson<CachedConfigRow>(key);
     if (cached) return cached;
     const row = await this.handle.db
       .selectFrom('loyalty_configs')
-      .selectAll()
+      .select(['merchantId', 'programName'])
       .where('merchantId', '=', merchantId)
       .limit(1)
       .executeTakeFirst();
