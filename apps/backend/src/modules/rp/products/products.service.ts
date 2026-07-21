@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { RpRatioClientService } from '../ratio-client/ratio-client.service';
 import { RpTransformerService } from '../transformer/transformer.service';
-import { RpOrderSyncService } from '../orders/order-sync.service';
+import { RpIdMappingService } from '../id-mapping/id-mapping.service';
 
 @Injectable()
 export class RpProductsService {
@@ -10,20 +10,19 @@ export class RpProductsService {
   constructor(
     private readonly ratioClient: RpRatioClientService,
     private readonly transformer: RpTransformerService,
-    private readonly orderSync: RpOrderSyncService,
+    private readonly idMapping: RpIdMappingService,
   ) {}
 
   async getProduct(merchantId: string, domain: string, productId: string): Promise<unknown> {
-    // OS product IDs are > MAX_SAFE_INTEGER so normalize-order hashes them.
-    // e.g. "17720223476919127" → 1107513967307445 (stored in RP MongoDB as product_id).
-    // RP sends back the hashed id; we must resolve it to the real OS id before
-    // calling OS Item Service (which only knows the original id).
-    // Diagnostic entry point: correlate the whole resolve→OS-lookup chain for one request
-    // by grepping this productId across logs.
+    // OS product IDs are > MAX_SAFE_INTEGER so we hash them (id-mapping/hash-id.ts) before
+    // showing them to RP. RP sends the hashed id back — we must resolve it to the real OS
+    // id before calling OS Item Service, which only knows the original id. Resolution reads
+    // ratio-apps' own id-mapping table (populated by orders.service.ts, order-sync.service.ts,
+    // and webhooks.service.ts whenever they mint a hash), never RP's own MongoDB.
     this.logger.log({ merchantId, domain, productId }, 'product lookup requested (possibly hashed id)');
-    const resolvedId = await this.resolveOsProductId(domain, productId) ?? productId;
+    const resolvedId = (await this.idMapping.resolveRealId('product', productId)) ?? productId;
     this.logger.log(
-      { productId, resolvedId, resolvedViaMongo: resolvedId !== productId },
+      { productId, resolvedId, resolved: resolvedId !== productId },
       'resolved product id for OS lookup',
     );
 
@@ -38,29 +37,5 @@ export class RpProductsService {
     }
 
     return { product: shaped };
-  }
-
-  /**
-   * Look up the original OS product ID from RP's MongoDB orders collection.
-   * normalize-order stores os_product_id on each line item alongside the hashed product_id.
-   * Returns null if not found (caller falls back to the hashed id as-is).
-   */
-  private async resolveOsProductId(domain: string, hashedProductId: string): Promise<string | null> {
-    try {
-      const db = await this.orderSync.getDb();
-      if (!db) return null;
-      const order = await db.collection('orders').findOne(
-        {
-          store: domain,
-          'line_items.product_id': Number(hashedProductId) || hashedProductId,
-          'line_items.os_product_id': { $exists: true, $ne: null },
-        },
-        { projection: { 'line_items.$': 1 } },
-      );
-      const li = order?.line_items?.[0];
-      return li?.os_product_id ? String(li.os_product_id) : null;
-    } catch {
-      return null;
-    }
   }
 }

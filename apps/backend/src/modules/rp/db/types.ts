@@ -14,8 +14,18 @@ export interface ReturnPrimeMerchantsTable {
   updatedAt: Generated<Date>;
 }
 
+export interface RpIdMappingsTable {
+  id: Generated<string>;
+  entityType: string;
+  hashedId: string;
+  realId: string;
+  createdAt: Generated<Date>;
+}
+
 export interface RpDatabase {
   return_prime_merchants: ReturnPrimeMerchantsTable;
+  rp_id_mappings: RpIdMappingsTable;
 }
 
 export type RpMerchantRow = Selectable<ReturnPrimeMerchantsTable>;
+export type RpIdMappingRow = Selectable<RpIdMappingsTable>;

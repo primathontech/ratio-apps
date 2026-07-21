@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MongoClient, type Db } from 'mongodb';
 import type { Env } from '../../../config/env.schema';
+import { RpIdMappingService } from '../id-mapping/id-mapping.service';
 import { normalizeOrder } from './normalize-order';
 
 /**
@@ -19,12 +20,12 @@ export class RpOrderSyncService implements OnModuleDestroy {
   private client: MongoClient | null = null;
   private db: Db | null = null;
 
-  constructor(private readonly config: ConfigService<Env, true>) {}
+  constructor(
+    private readonly config: ConfigService<Env, true>,
+    private readonly idMapping: RpIdMappingService,
+  ) {}
 
   async upsertOrder(rawOrder: Record<string, unknown>, storeDomain: string): Promise<void> {
-    const db = await this.getDb();
-    if (!db) return;
-
     const normalized = normalizeOrder({ ...rawOrder, store: storeDomain });
     const numericId = normalized.id as number;
 
@@ -33,39 +34,55 @@ export class RpOrderSyncService implements OnModuleDestroy {
       return;
     }
 
+    // Runs regardless of whether RP_MONGO_URL is configured below: id-mapping is backed by
+    // ratio-apps' own database (id-mapping module), not RP's Mongo, so it must not be gated
+    // behind Mongo availability — that would defeat the point of not depending on RP's Mongo.
+    await this.persistLineItemIdMappings(normalized);
+
+    const db = await this.getDb();
+    if (!db) return;
+
     try {
       await db.collection('orders').updateOne(
         { id: numericId, store: storeDomain },
         { $set: { ...normalized, store: storeDomain, updated_at: new Date() } },
         { upsert: true },
       );
-      // Diagnostic for the product-id-resolution fix: confirms whether this sync actually
-      // wrote os_product_id onto the order's line items — the field products.service.ts's
-      // resolveOsProductId() depends on. If this logs 0/N, the return/exchange flow's
-      // product lookup for this order will fall back to the (unresolvable) hashed id.
-      const lineItems = Array.isArray(normalized.line_items) ? normalized.line_items : [];
-      const withOsProductId = lineItems.filter(
-        (li) => (li as Record<string, unknown>)?.os_product_id != null,
-      ).length;
-      this.logger.log(
-        { id: numericId, store: storeDomain, lineItems: lineItems.length, withOsProductId },
-        'order upserted into RP MongoDB',
-      );
+      this.logger.log({ id: numericId, store: storeDomain }, 'order upserted into RP MongoDB');
     } catch (err) {
       this.logger.error({ err, id: numericId, store: storeDomain }, 'failed to upsert order');
     }
   }
 
+  /** See RpOrdersService.persistLineItemIdMappings — same purpose, webhook-driven path. */
+  private async persistLineItemIdMappings(order: Record<string, unknown>): Promise<void> {
+    const lineItems = Array.isArray(order.line_items) ? order.line_items : [];
+    await Promise.all(
+      lineItems.flatMap((li) => {
+        const item = li as Record<string, unknown>;
+        const writes: Promise<unknown>[] = [];
+        if (item.os_product_id != null) {
+          writes.push(this.idMapping.hashAndPersist('product', String(item.os_product_id)));
+        }
+        if (item.os_variant_id != null) {
+          writes.push(this.idMapping.hashAndPersist('variant', String(item.os_variant_id)));
+        }
+        return writes;
+      }),
+    );
+  }
+
   /**
-   * Get or establish connection to RP MongoDB.
-   * Used by order sync and products service to look up orders/line items.
+   * Get or establish connection to RP MongoDB. Used only by order sync (caching order
+   * documents for RP's own return-flow reads) — hashed-id resolution no longer depends on
+   * this; see id-mapping module.
    */
   async getDb(): Promise<Db | null> {
     if (this.db) return this.db;
 
     const url = (this.config.get as (key: string) => string | undefined)('RP_MONGO_URL');
     if (!url) {
-      this.logger.warn('RP_MONGO_URL not set — order sync disabled');
+      this.logger.warn('RP_MONGO_URL not set — order sync into RP MongoDB disabled');
       return null;
     }
 
