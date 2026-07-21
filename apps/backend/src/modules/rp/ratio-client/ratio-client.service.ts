@@ -80,7 +80,15 @@ export class RpRatioClientService {
     // necessarily OS's real "ordr_..." id — same resolution createRefund/calculateRefund
     // already do. Without it, OS 404s on the literal order_number string.
     const osId = await this.resolveOsOrderId(merchantId, orderId);
-    const order = ((body as Record<string, unknown>)?.order ?? body) as unknown;
+    const order = { ...((body as Record<string, unknown>)?.order ?? body) as Record<string, unknown> };
+    // RP's markOsOrderReturned.js builds tags as a JS array (buildReturnedTags dedupes into
+    // [...new Set([...])]) — matching Shopify's own REST tags convention loosely, but OS's
+    // UpdateOrderDto strictly types tags as a comma-separated string and throws an unhandled
+    // 500 ("An error occurred while updating the order") on an array instead of a clean 400.
+    // Confirmed live: the identical array reproduces the same 500 against OS directly.
+    if (Array.isArray(order.tags)) {
+      order.tags = (order.tags as unknown[]).map((t) => String(t).trim()).filter(Boolean).join(', ');
+    }
     const res = await fetch(`${base}/api/v1/admin/orders/${encodeURIComponent(osId)}`, {
       method: 'PATCH',
       headers: { 'gk-merchant-id': merchantId, 'Content-Type': 'application/json' },
