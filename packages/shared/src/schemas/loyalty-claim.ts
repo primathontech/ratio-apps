@@ -40,10 +40,16 @@ export const loyaltyQrStatusSchema = z.object({
 
 export type LoyaltyQrStatus = z.infer<typeof loyaltyQrStatusSchema>;
 
-/** `POST /loyalty/qr/:code/claim` request body — token only, never a phone. */
+/** `POST /loyalty/qr/:code/claim` request — a per-merchant SIGNED claim.
+ * The storefront BFF resolves the verified phone and signs
+ * `${merchantId}.${qr}.${phone}.${ts}` with the merchant's claim secret.
+ * Our backend never sees a KwikPass token or a client-supplied unsigned phone. */
 export const loyaltyClaimRequestSchema = z
   .object({
-    gkAccessToken: z.string().min(1).max(4096),
+    merchantId: z.string().min(1).max(128),
+    phone: z.string().min(1).max(20),
+    ts: z.number().int().positive(),
+    sig: z.string().min(1).max(256),
   })
   .strict();
 
