@@ -23,6 +23,7 @@ export interface LoyaltyConfigsTable {
   coinValueInr: DecimalColumnWithDefault;
   storefrontBaseUrl: string | null;
   exportEmail: string | null;
+  claimSigningSecret: string | null;
   createdAt: Generated<Date>;
   updatedAt: Generated<Date>;
 }

@@ -1,7 +1,13 @@
+import { randomBytes } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { sql, type Transaction } from 'kysely';
 import type { AppBootstrap } from '../../core/oauth/app-bootstrap.token';
 import type { LoyaltyDatabase } from './db/types';
+
+/** 32-byte base64 claim-signing secret (per merchant). */
+export function generateClaimSecret(): string {
+  return randomBytes(32).toString('base64');
+}
 
 /**
  * Loyalty-specific install bootstrap. Runs inside the OAuth install
@@ -22,7 +28,8 @@ export class LoyaltyBootstrap implements AppBootstrap<LoyaltyDatabase> {
     // Column defaults carry the rest (programName 'Coins', rates, NULL urls).
     await trx
       .insertInto('loyalty_configs')
-      .values({ merchantId })
+      .values({ merchantId, claimSigningSecret: generateClaimSecret() })
+      // Reinstall preserves existing settings incl. the secret (no-op self-update).
       .onDuplicateKeyUpdate({ merchantId: sql`merchant_id` } as never)
       .execute();
     this.logger.log({ msg: 'loyalty config seeded', merchantId });
