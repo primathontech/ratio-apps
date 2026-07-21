@@ -1,4 +1,4 @@
-import type { FormField } from '@ratio-app/shared/schemas/form-schema';
+import type { FormAppearance, FormField } from '@ratio-app/shared/schemas/form-schema';
 import type { ColumnType, Generated, Selectable } from 'kysely';
 import type { BaseMerchantsTable } from '../../../core/merchants/merchant.types';
 import type { BaseOauthTokensTable } from '../../../core/oauth/oauth-tokens.types';
@@ -41,13 +41,19 @@ interface FormsTable {
   id: string;
   merchantId: string;
   name: string;
+  /** Optional subtitle/heading (shared `formInputSchema.description`); null when unset. */
+  description: Generated<string | null>;
   /** Ordered field array (shared `formFieldsSchema`); stringified on write. */
   schemaJson: ColumnType<FormField[] | string, string, string>;
+  /** Optional theme (shared `appearanceSchema`); stringified on write, null when un-themed. */
+  appearanceJson: ColumnType<FormAppearance | string | null, string | null, string | null>;
   submitLabel: string;
   successMessage: string;
   spamProtection: Generated<FormSpamProtection>;
   notificationEmail: Generated<string | null>;
   webhookUrl: Generated<string | null>;
+  /** Optional https redirect-on-submit target (shared `formInputSchema.redirectUrl`). */
+  redirectUrl: Generated<string | null>;
   status: Generated<FormStatus>;
   /** Soft delete only — submissions outlive the form. */
   deletedAt: Generated<Date | null>;

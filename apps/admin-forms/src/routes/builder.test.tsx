@@ -24,8 +24,22 @@ function makeForm(overrides: Partial<FormEntity> = {}): FormEntity {
     id: 'form_1',
     name: 'Contact us',
     schema: [
-      { key: 'full_name', type: 'text', label: 'Full name', required: true },
-      { key: 'email', type: 'email', label: 'Email', required: true },
+      {
+        key: 'full_name',
+        type: 'text',
+        label: 'Full name',
+        required: true,
+        width: 'full',
+        showCounter: false,
+      },
+      {
+        key: 'email',
+        type: 'email',
+        label: 'Email',
+        required: true,
+        width: 'full',
+        showCounter: false,
+      },
     ],
     submitLabel: 'Send',
     successMessage: 'Thanks!',
@@ -125,8 +139,15 @@ describe('BuilderScreen', () => {
     const mobile = await screen.findByTestId('preview-mobile');
     expect(mobile).toHaveStyle({ width: '375px' });
     expect(screen.getByTestId('preview-desktop')).toBeInTheDocument();
-    // Both panes render the same current schema.
-    expect(screen.getAllByText('Full name').length).toBeGreaterThanOrEqual(2);
+    // Both panes embed the real storefront element; the current schema renders
+    // inside each element's shadow root (no hand-rolled duplicate markup).
+    const elements = document.querySelectorAll('ratio-form');
+    expect(elements.length).toBeGreaterThanOrEqual(2);
+    await waitFor(() =>
+      expect(
+        Array.from(elements).every((el) => el.shadowRoot?.textContent?.includes('Full name')),
+      ).toBe(true),
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Close preview' }));
     await waitFor(() => expect(screen.queryByTestId('preview-mobile')).not.toBeInTheDocument());
   });
@@ -154,5 +175,132 @@ describe('BuilderScreen', () => {
     await waitFor(() =>
       expect(screen.queryByTestId('canvas-field-full_name')).not.toBeInTheDocument(),
     );
+  });
+
+  it('adds a Heading content block whose panel has text (no label) and saves it (§1.3)', async () => {
+    routeApi(makeForm());
+    renderWithProviders(<BuilderScreen formId="form_1" />);
+    await screen.findByText('Full name');
+    // The palette now offers content blocks alongside inputs.
+    fireEvent.click(screen.getByRole('button', { name: 'Heading' }));
+    // Its property panel edits heading text and has no collectable-field "Label".
+    const headingText = await screen.findByLabelText('Heading text');
+    expect(screen.queryByLabelText('Field label')).not.toBeInTheDocument();
+    fireEvent.change(headingText, { target: { value: 'Tell us about you' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => {
+      const put = mockedApi.mock.calls.find((c) => c[0] === 'PUT' && c[1] === '/api/forms/form_1');
+      const parsed = formInputSchema.safeParse(put?.[2]);
+      expect(parsed.success).toBe(true);
+      const heading = parsed.success && parsed.data.schema.find((f) => f.type === 'heading');
+      expect(heading && 'text' in heading && heading.text).toBe('Tell us about you');
+    });
+  });
+
+  it('saves per-field adornments (prefix, help text, counter) for a text field (§2.3)', async () => {
+    routeApi(makeForm());
+    renderWithProviders(<BuilderScreen formId="form_1" />);
+    await screen.findByText('Full name');
+    fireEvent.click(screen.getByTestId('canvas-field-full_name'));
+    await screen.findByLabelText('Field label');
+    fireEvent.change(screen.getByLabelText('Prefix'), { target: { value: '$' } });
+    fireEvent.change(screen.getByLabelText('Help text'), {
+      target: { value: 'Enter your legal name' },
+    });
+    fireEvent.click(screen.getByLabelText('Show character counter'));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => {
+      const put = mockedApi.mock.calls.find((c) => c[0] === 'PUT' && c[1] === '/api/forms/form_1');
+      const parsed = formInputSchema.safeParse(put?.[2]);
+      expect(parsed.success).toBe(true);
+      const field = parsed.success && parsed.data.schema[0];
+      expect(field && 'prefix' in field && field.prefix).toBe('$');
+      expect(field && 'helpText' in field && field.helpText).toBe('Enter your legal name');
+      expect(field && 'showCounter' in field && field.showCounter).toBe(true);
+    });
+  });
+
+  it('does not offer adornments for a non-text-like field like Dropdown (§2.3)', async () => {
+    routeApi(makeForm());
+    renderWithProviders(<BuilderScreen formId="form_1" />);
+    await screen.findByText('Full name');
+    fireEvent.click(screen.getByRole('button', { name: 'Dropdown' }));
+    // The newly-added dropdown is auto-selected; its panel has options, not adornments.
+    await screen.findByText('Options');
+    expect(screen.queryByLabelText('Prefix')).not.toBeInTheDocument();
+    // But every collectable field still gets the Advanced style section (§2.2).
+    expect(screen.getByText('Advanced style')).toBeInTheDocument();
+  });
+
+  it('offers prefix/suffix but no counter for an adornable-only field like Email (§2.3)', async () => {
+    routeApi(makeForm());
+    renderWithProviders(<BuilderScreen formId="form_1" />);
+    await screen.findByText('Full name');
+    fireEvent.click(screen.getByTestId('canvas-field-email'));
+    await screen.findByLabelText('Field label');
+    // Email is in FORM_ADORNABLE_FIELD_TYPES but not FORM_COUNTER_FIELD_TYPES.
+    expect(screen.getByLabelText('Prefix')).toBeInTheDocument();
+    expect(screen.getByLabelText('Suffix')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Show character counter')).not.toBeInTheDocument();
+  });
+
+  it('offers the counter but no prefix/suffix for a counter-only field like Paragraph (§2.3)', async () => {
+    routeApi(makeForm());
+    renderWithProviders(<BuilderScreen formId="form_1" />);
+    await screen.findByText('Full name');
+    fireEvent.click(screen.getByRole('button', { name: 'Paragraph' }));
+    // The newly-added textarea is auto-selected. It is counter-only: no chip, has a counter.
+    await screen.findByLabelText('Field label');
+    expect(screen.queryByLabelText('Prefix')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Suffix')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Show character counter')).toBeInTheDocument();
+  });
+
+  it('offers no adornments for Phone, which carries neither a chip nor a counter (§2.3)', async () => {
+    routeApi(makeForm());
+    renderWithProviders(<BuilderScreen formId="form_1" />);
+    await screen.findByText('Full name');
+    fireEvent.click(screen.getByRole('button', { name: 'Phone' }));
+    // Phone is in neither shared set: it owns its +91 chip and has no maxLength.
+    await screen.findByLabelText('Field label');
+    expect(screen.queryByLabelText('Prefix')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Show character counter')).not.toBeInTheDocument();
+  });
+
+  it('pins a per-field input variant through Advanced style and saves it (§2.2)', async () => {
+    routeApi(makeForm());
+    renderWithProviders(<BuilderScreen formId="form_1" />);
+    await screen.findByText('Full name');
+    fireEvent.click(screen.getByTestId('canvas-field-full_name'));
+    await screen.findByLabelText('Field label');
+    // Expand the collapsed "Advanced style" section, then pick a non-inherit variant.
+    fireEvent.click(screen.getByText('Advanced style'));
+    const filled = await screen.findByText('Filled');
+    fireEvent.click(filled.closest('label') ?? filled);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => {
+      const put = mockedApi.mock.calls.find((c) => c[0] === 'PUT' && c[1] === '/api/forms/form_1');
+      const parsed = formInputSchema.safeParse(put?.[2]);
+      expect(parsed.success).toBe(true);
+      const field = parsed.success && parsed.data.schema[0];
+      expect(field && 'style' in field && field.style?.inputVariant).toBe('filled');
+    });
+  });
+
+  it('sets a field to half width and saves it in the payload', async () => {
+    routeApi(makeForm());
+    renderWithProviders(<BuilderScreen formId="form_1" />);
+    await screen.findByText('Full name');
+    fireEvent.click(screen.getByTestId('canvas-field-full_name'));
+    await screen.findByLabelText('Field label');
+    const half = screen.getByText('Half width');
+    fireEvent.click(half.closest('label') ?? half);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => {
+      const put = mockedApi.mock.calls.find((c) => c[0] === 'PUT' && c[1] === '/api/forms/form_1');
+      const parsed = formInputSchema.safeParse(put?.[2]);
+      expect(parsed.success).toBe(true);
+      expect(parsed.success && parsed.data.schema[0]?.width).toBe('half');
+    });
   });
 });

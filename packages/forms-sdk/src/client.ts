@@ -1,7 +1,7 @@
 // The forms PUBLIC API contract (TRD §2 /forms/public/v1/*): schema fetch,
 // presigned upload, and submission intake. Types come from `@ratio-app/shared`
 // TYPE-ONLY so Zod never reaches the browser bundle.
-import type { FormField } from '@ratio-app/shared';
+import type { FormAppearance, FormField } from '@ratio-app/shared';
 
 /** Runtime config injected by the backend SDK prelude (sdk.service.ts). */
 export interface FormsClientConfig {
@@ -13,11 +13,17 @@ export interface FormsClientConfig {
 export interface PublicFormSchema {
   id: string;
   name: string;
+  /** Optional subtitle rendered under the form name. */
+  description?: string;
   schema: FormField[];
   submitLabel: string;
   successMessage: string;
+  /** https-only redirect target followed shortly after a successful submit. */
+  redirectUrl?: string;
   spamProtection: 'recaptcha' | 'honeypot';
   recaptchaSiteKey?: string;
+  /** Optional rich-theming tokens; absent for un-themed forms. */
+  appearance?: FormAppearance;
 }
 
 export interface UploadRequest {

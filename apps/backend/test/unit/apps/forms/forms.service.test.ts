@@ -1,5 +1,9 @@
 import { NotFoundException } from '@nestjs/common';
-import { type FormInput, formInputSchema } from '@ratio-app/shared/schemas/form-schema';
+import {
+  appearanceSchema,
+  type FormInput,
+  formInputSchema,
+} from '@ratio-app/shared/schemas/form-schema';
 import { describe, expect, it } from 'vitest';
 import type { KyselyClient } from '../../../../src/core/db/kysely-factory';
 import type { FormsDatabase } from '../../../../src/modules/forms/db/types';
@@ -177,12 +181,14 @@ function seedFormRow(overrides: Row = {}): Row {
     id: 'form_seed1',
     merchantId: 'mer_A',
     name: 'Contact us',
+    description: null,
     schemaJson: JSON.stringify(contactInput.schema),
     submitLabel: 'Send',
     successMessage: 'Thanks!',
     spamProtection: 'recaptcha',
     notificationEmail: 'leads@merchant.example',
     webhookUrl: 'https://hooks.merchant.example/forms',
+    redirectUrl: null,
     status: 'inactive',
     deletedAt: null,
     createdAt: new Date('2026-07-01T00:00:00Z'),
@@ -376,5 +382,184 @@ describe('FormsService (TDD §3.1)', () => {
     await expect(service.setStatus('mer_A', 'form_seed1', 'active')).rejects.toBeInstanceOf(
       NotFoundException,
     );
+  });
+});
+
+describe('FormsService — appearance / theming (§1.3)', () => {
+  const themed: FormInput = formInputSchema.parse({
+    ...contactInput,
+    appearance: { colors: { primary: '#123456' } },
+  });
+
+  it('create persists appearance_json stringified and echoes it back', async () => {
+    const { handle, inserts } = makeFakeHandle();
+    const service = new FormsService(handle);
+
+    const created = await service.create('mer_A', themed);
+
+    const values = inserts[0].values;
+    expect(typeof values.appearanceJson).toBe('string');
+    expect(JSON.parse(values.appearanceJson as string)).toEqual(themed.appearance);
+    expect(created.appearance).toEqual(themed.appearance);
+  });
+
+  it('un-themed create writes null appearance_json and omits appearance', async () => {
+    const { handle, inserts } = makeFakeHandle();
+    const service = new FormsService(handle);
+
+    const created = await service.create('mer_A', contactInput);
+
+    expect(inserts[0].values.appearanceJson).toBeNull();
+    expect('appearance' in created).toBe(false);
+  });
+
+  it('appearance round-trips: stringified on write, parsed object on read', async () => {
+    const appearance = appearanceSchema.parse({});
+    const { handle } = makeFakeHandle({
+      forms: [seedFormRow({ appearanceJson: JSON.stringify(appearance) })],
+    });
+    const service = new FormsService(handle);
+
+    const form = await service.getById('mer_A', 'form_seed1');
+
+    expect(form.appearance).toEqual(appearance);
+  });
+
+  it('reads with a null appearance_json leave appearance absent (today’s look)', async () => {
+    const { handle } = makeFakeHandle({ forms: [seedFormRow({ appearanceJson: null })] });
+    const service = new FormsService(handle);
+
+    const form = await service.getById('mer_A', 'form_seed1');
+
+    expect('appearance' in form).toBe(false);
+  });
+
+  it('update replaces appearance_json', async () => {
+    const { handle, updates } = makeFakeHandle({ forms: [seedFormRow()] });
+    const service = new FormsService(handle);
+
+    const updated = await service.update('mer_A', 'form_seed1', themed);
+
+    expect(updates[0].set.appearanceJson).toBe(JSON.stringify(themed.appearance));
+    expect(updated.appearance).toEqual(themed.appearance);
+  });
+
+  it('update without appearance clears appearance_json to null', async () => {
+    const { handle, updates } = makeFakeHandle({
+      forms: [seedFormRow({ appearanceJson: JSON.stringify(appearanceSchema.parse({})) })],
+    });
+    const service = new FormsService(handle);
+
+    const updated = await service.update('mer_A', 'form_seed1', contactInput);
+
+    expect(updates[0].set.appearanceJson).toBeNull();
+    expect('appearance' in updated).toBe(false);
+  });
+
+  it('duplicate copies the appearance_json column', async () => {
+    const appearance = appearanceSchema.parse({});
+    const { handle, inserts } = makeFakeHandle({
+      forms: [seedFormRow({ appearanceJson: JSON.stringify(appearance) })],
+    });
+    const service = new FormsService(handle);
+
+    const copy = await service.duplicate('mer_A', 'form_seed1');
+
+    expect(JSON.parse(inserts[0].values.appearanceJson as string)).toEqual(appearance);
+    expect(copy.appearance).toEqual(appearance);
+  });
+});
+
+describe('FormsService — description / redirectUrl round-trip', () => {
+  const withMeta: FormInput = formInputSchema.parse({
+    ...contactInput,
+    description: 'Reach the sales team',
+    redirectUrl: 'https://merchant.example/thanks',
+  });
+
+  it('create persists description + redirect_url and echoes them back', async () => {
+    const { handle, inserts } = makeFakeHandle();
+    const service = new FormsService(handle);
+
+    const created = await service.create('mer_A', withMeta);
+
+    expect(inserts[0].values.description).toBe('Reach the sales team');
+    expect(inserts[0].values.redirectUrl).toBe('https://merchant.example/thanks');
+    expect(created.description).toBe('Reach the sales team');
+    expect(created.redirectUrl).toBe('https://merchant.example/thanks');
+  });
+
+  it('create without either writes null and echoes null', async () => {
+    const { handle, inserts } = makeFakeHandle();
+    const service = new FormsService(handle);
+
+    const created = await service.create('mer_A', contactInput);
+
+    expect(inserts[0].values.description).toBeNull();
+    expect(inserts[0].values.redirectUrl).toBeNull();
+    expect(created.description).toBeNull();
+    expect(created.redirectUrl).toBeNull();
+  });
+
+  it('round-trips on read: columns parsed straight back onto the entity', async () => {
+    const { handle } = makeFakeHandle({
+      forms: [
+        seedFormRow({
+          description: 'Reach the sales team',
+          redirectUrl: 'https://merchant.example/thanks',
+        }),
+      ],
+    });
+    const service = new FormsService(handle);
+
+    const form = await service.getById('mer_A', 'form_seed1');
+
+    expect(form.description).toBe('Reach the sales team');
+    expect(form.redirectUrl).toBe('https://merchant.example/thanks');
+  });
+
+  it('update replaces description + redirect_url', async () => {
+    const { handle, updates } = makeFakeHandle({ forms: [seedFormRow()] });
+    const service = new FormsService(handle);
+
+    const updated = await service.update('mer_A', 'form_seed1', withMeta);
+
+    expect(updates[0].set.description).toBe('Reach the sales team');
+    expect(updates[0].set.redirectUrl).toBe('https://merchant.example/thanks');
+    expect(updated.description).toBe('Reach the sales team');
+    expect(updated.redirectUrl).toBe('https://merchant.example/thanks');
+  });
+
+  it('update without them clears both columns to null', async () => {
+    const { handle, updates } = makeFakeHandle({
+      forms: [seedFormRow({ description: 'old', redirectUrl: 'https://merchant.example/old' })],
+    });
+    const service = new FormsService(handle);
+
+    const updated = await service.update('mer_A', 'form_seed1', contactInput);
+
+    expect(updates[0].set.description).toBeNull();
+    expect(updates[0].set.redirectUrl).toBeNull();
+    expect(updated.description).toBeNull();
+    expect(updated.redirectUrl).toBeNull();
+  });
+
+  it('duplicate copies both columns', async () => {
+    const { handle, inserts } = makeFakeHandle({
+      forms: [
+        seedFormRow({
+          description: 'Reach the sales team',
+          redirectUrl: 'https://merchant.example/thanks',
+        }),
+      ],
+    });
+    const service = new FormsService(handle);
+
+    const copy = await service.duplicate('mer_A', 'form_seed1');
+
+    expect(inserts[0].values.description).toBe('Reach the sales team');
+    expect(inserts[0].values.redirectUrl).toBe('https://merchant.example/thanks');
+    expect(copy.description).toBe('Reach the sales team');
+    expect(copy.redirectUrl).toBe('https://merchant.example/thanks');
   });
 });

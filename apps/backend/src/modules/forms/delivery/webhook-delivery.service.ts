@@ -14,12 +14,22 @@ import {
   FORMS_WEBHOOK_RETRY_DELAYS_MS,
   type FormSubmittedPayload,
 } from '@ratio-app/shared/constants/forms-events';
-import type { FormField } from '@ratio-app/shared/schemas/form-schema';
+import {
+  type FormField,
+  type FormNonCollectableFieldType,
+  isCollectableFieldType,
+} from '@ratio-app/shared/schemas/form-schema';
 import { sql } from 'kysely';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
 import type { FormRow, FormsDatabase, FormWebhookDeliveryRow } from '../db/types';
 import { FORMS_DB_TOKEN } from '../kysely.module';
 import { FormsS3Service } from '../uploads/s3.service';
+
+/** A field that carries user input — content blocks (§1.3) are display-only. */
+type CollectableFormField = Exclude<FormField, { type: FormNonCollectableFieldType }>;
+
+const isCollectableField = (field: FormField): field is CollectableFormField =>
+  isCollectableFieldType(field.type);
 
 /** Live delivery timeout (TRD: 10s); the admin "send test payload" uses 5s. */
 const DELIVERY_TIMEOUT_MS = 10_000;
@@ -224,6 +234,8 @@ export class WebhookDeliveryService {
         : form.schemaJson;
     const fields: Record<string, unknown> = {};
     for (const field of schema) {
+      // Content blocks (heading/divider/etc) submit no data — mirror a real payload.
+      if (!isCollectableField(field)) continue;
       fields[field.key] = WebhookDeliveryService.sampleValue(field);
     }
     return {
@@ -238,7 +250,7 @@ export class WebhookDeliveryService {
     };
   }
 
-  private static sampleValue(field: FormField): unknown {
+  private static sampleValue(field: CollectableFormField): unknown {
     switch (field.type) {
       case 'email':
         return 'test@example.com';

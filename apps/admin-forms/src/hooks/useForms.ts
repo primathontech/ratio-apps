@@ -1,4 +1,4 @@
-import type { FormField, FormInput } from '@shared/schemas/form-schema';
+import type { FormAppearance, FormField, FormInput } from '@shared/schemas/form-schema';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { queryKeys } from '../lib/queryKeys';
@@ -14,6 +14,9 @@ export interface FormEntity {
   spamProtection: 'recaptcha' | 'honeypot';
   notificationEmail: string | null;
   webhookUrl: string | null;
+  description?: string | null;
+  redirectUrl?: string | null;
+  appearance?: FormAppearance;
   status: 'active' | 'inactive';
   createdAt: string;
   updatedAt: string;

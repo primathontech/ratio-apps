@@ -42,6 +42,8 @@ for (const [relPath, override] of ENV_FILES) {
   }
 }
 
+const DEV_API_TARGET = process.env.FORMS_DEV_PROXY_TARGET || 'http://localhost:3000';
+
 export default defineConfig({
   // Relative base: the app is served from a deep, version-pinned subpath on the
   // Ratio ecosystem host (e.g. /apps/<app>/<install>/<version>/index.html), not
@@ -53,14 +55,25 @@ export default defineConfig({
     alias: {
       '@': resolve(__dirname, 'src'),
       '@shared': resolve(__dirname, '../../packages/shared/src'),
+      // The SDK renderer embedded via the `?sdk` import pulls the shared
+      // capability matrix (§2.3) from the Zod-free form-adornments module. Its
+      // dist is CommonJS, whose named exports rollup can't statically trace, so
+      // point that specifier at the ESM source (mirrors forms-sdk/vite.config.ts).
+      '@ratio-app/shared/schemas/form-adornments': resolve(
+        __dirname,
+        '../../packages/shared/src/schemas/form-adornments.ts',
+      ),
     },
   },
   server: {
     port: 5173,
     proxy: {
-      '/forms/api': { target: 'http://localhost:3000', changeOrigin: true },
-      '/forms/sdk': { target: 'http://localhost:3000', changeOrigin: true },
-      '/forms/auth': { target: 'http://localhost:3000', changeOrigin: true },
+      // Backend dev port. Defaults to 3000; override when the backend runs
+      // elsewhere (e.g. FORMS_DEV_PROXY_TARGET=http://localhost:3001 to coexist
+      // with another module on 3000).
+      '/forms/api': { target: DEV_API_TARGET, changeOrigin: true },
+      '/forms/sdk': { target: DEV_API_TARGET, changeOrigin: true },
+      '/forms/auth': { target: DEV_API_TARGET, changeOrigin: true },
     },
   },
   test: {

@@ -16,6 +16,8 @@ import {
   Button,
   Card,
   Checkbox,
+  Collapse,
+  ColorPicker,
   DeleteOutlined,
   Divider,
   HolderOutlined,
@@ -24,23 +26,33 @@ import {
   PrimaryButton,
   Radio,
   RadioGroup,
+  Segmented,
   Space,
   Spin,
   Switch,
+  Tabs,
   Tag,
   Typography,
 } from '@primathonos/orion';
 import {
   FORM_FIELD_TYPES,
+  FORM_FIELD_WIDTHS,
   FORM_FILE_ALLOWED_MIME_TYPES,
   FORM_FILE_MAX_BYTES,
+  FORM_HEADING_LEVELS,
+  FORM_INPUT_VARIANTS,
+  FORM_RATING_ICONS,
   FORM_TEXTAREA_HARD_MAX_LENGTH,
   type FormField,
   type FormFieldType,
   formInputSchema,
+  isAdornable,
+  isCollectableFieldType,
+  supportsCounter,
 } from '@shared/schemas/form-schema';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { type Dispatch, useEffect, useReducer, useState } from 'react';
+import { DesignSettings } from '@/components/DesignSettings';
 import { FormPreview } from '@/components/FormPreview';
 import { useForm, useToggleFormStatus, useUpdateForm } from '@/hooks/useForms';
 import { useWebhookTest } from '@/hooks/useWebhookTest';
@@ -48,8 +60,10 @@ import {
   type BuilderAction,
   type BuilderState,
   builderReducer,
+  DEFAULT_APPEARANCE,
   EMPTY_BUILDER_STATE,
   FIELD_TYPE_LABELS,
+  toFormInput,
 } from '@/lib/builder-state';
 
 export const Route = createFileRoute('/builder/$formId')({
@@ -121,17 +135,7 @@ export function BuilderScreen({ formId }: { formId: string }) {
   };
 
   const onSave = () => {
-    const payload = {
-      name: state.meta.name,
-      schema: state.fields,
-      submitLabel: state.meta.submitLabel,
-      successMessage: state.meta.successMessage,
-      spamProtection: state.meta.spamProtection,
-      ...(state.meta.notificationEmail.trim()
-        ? { notificationEmail: state.meta.notificationEmail.trim() }
-        : {}),
-      ...(state.meta.webhookUrl.trim() ? { webhookUrl: state.meta.webhookUrl.trim() } : {}),
-    };
+    const payload = toFormInput(state);
     const parsed = formInputSchema.safeParse(payload);
     if (!parsed.success) {
       setSaveErrors(
@@ -209,6 +213,9 @@ export function BuilderScreen({ formId }: { formId: string }) {
               name={state.meta.name}
               fields={state.fields}
               submitLabel={state.meta.submitLabel}
+              successMessage={state.meta.successMessage}
+              description={state.meta.description}
+              appearance={state.meta.appearance}
               mode="mobile"
             />
           </Card>
@@ -217,6 +224,9 @@ export function BuilderScreen({ formId }: { formId: string }) {
               name={state.meta.name}
               fields={state.fields}
               submitLabel={state.meta.submitLabel}
+              successMessage={state.meta.successMessage}
+              description={state.meta.description}
+              appearance={state.meta.appearance}
               mode="desktop"
             />
           </Card>
@@ -230,22 +240,42 @@ export function BuilderScreen({ formId }: { formId: string }) {
               {selected ? (
                 <FieldSettings field={selected} dispatch={dispatch} />
               ) : (
-                <FormSettings
-                  state={state}
-                  dispatch={dispatch}
-                  onWebhookTest={() =>
-                    webhookTest.mutate(undefined, {
-                      onSuccess: (result) =>
-                        void message.info(
-                          result.statusCode === null
-                            ? 'Webhook test sent, no response (network error)'
-                            : `Webhook responded with status ${result.statusCode}`,
-                        ),
-                      onError: (err) => void message.error((err as Error).message),
-                    })
-                  }
-                  webhookTestPending={webhookTest.isPending}
-                  webhookTestResult={webhookTest.data ?? null}
+                <Tabs
+                  items={[
+                    {
+                      key: 'content',
+                      label: 'Content',
+                      children: (
+                        <FormSettings
+                          state={state}
+                          dispatch={dispatch}
+                          onWebhookTest={() =>
+                            webhookTest.mutate(undefined, {
+                              onSuccess: (result) =>
+                                void message.info(
+                                  result.statusCode === null
+                                    ? 'Webhook test sent, no response (network error)'
+                                    : `Webhook responded with status ${result.statusCode}`,
+                                ),
+                              onError: (err) => void message.error((err as Error).message),
+                            })
+                          }
+                          webhookTestPending={webhookTest.isPending}
+                          webhookTestResult={webhookTest.data ?? null}
+                        />
+                      ),
+                    },
+                    {
+                      key: 'design',
+                      label: 'Design',
+                      children: (
+                        <DesignSettings
+                          appearance={state.meta.appearance ?? DEFAULT_APPEARANCE}
+                          dispatch={dispatch}
+                        />
+                      ),
+                    },
+                  ]}
                 />
               )}
             </div>
@@ -341,6 +371,9 @@ function CanvasField({
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
     id: field.key,
   });
+  // Content blocks (§1.3) carry no label/required; fall back to the type name.
+  const displayLabel = 'label' in field ? field.label : FIELD_TYPE_LABELS[field.type];
+  const required = 'required' in field ? field.required : false;
   return (
     // biome-ignore lint/a11y/useKeyWithClickEvents: selection also works via the settings panel
     // biome-ignore lint/a11y/noStaticElementInteractions: canvas row click is a pointer affordance; keyboard users select via the settings panel
@@ -365,15 +398,15 @@ function CanvasField({
       <span
         {...attributes}
         {...listeners}
-        aria-label={`Reorder ${field.label}`}
+        aria-label={`Reorder ${displayLabel}`}
         style={{ cursor: 'grab', color: '#999', display: 'inline-flex' }}
       >
         <HolderOutlined />
       </span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <Typography.Text strong style={{ display: 'block' }}>
-          {field.label}
-          {field.required && <span style={{ color: '#cf1322' }}> *</span>}
+          {displayLabel}
+          {required && <span style={{ color: '#cf1322' }}> *</span>}
         </Typography.Text>
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
           {FIELD_TYPE_LABELS[field.type]} ({field.key})
@@ -383,7 +416,7 @@ function CanvasField({
         type="text"
         size="small"
         danger
-        aria-label={`Delete ${field.label}`}
+        aria-label={`Delete ${displayLabel}`}
         icon={<DeleteOutlined />}
         onClick={(e) => {
           e.stopPropagation();
@@ -405,6 +438,12 @@ function SettingRow({ label, children }: { label: string; children: React.ReactN
   );
 }
 
+/** Segmented labels for the per-field render width. */
+const WIDTH_LABELS: Record<(typeof FORM_FIELD_WIDTHS)[number], string> = {
+  full: 'Full width',
+  half: 'Half width',
+};
+
 function FieldSettings({
   field,
   dispatch,
@@ -414,9 +453,15 @@ function FieldSettings({
 }) {
   const patch = (p: Partial<FormField>) =>
     dispatch({ type: 'updateField', key: field.key, patch: p });
+  // Content blocks (§1.3) are display-only: no label/placeholder/required.
+  const collectable = isCollectableFieldType(field.type);
   return (
     <Card
-      title={`${FIELD_TYPE_LABELS[field.type]} field`}
+      title={
+        collectable
+          ? `${FIELD_TYPE_LABELS[field.type]} field`
+          : `${FIELD_TYPE_LABELS[field.type]} block`
+      }
       extra={
         <Button size="small" onClick={() => dispatch({ type: 'selectField', key: null })}>
           Done
@@ -424,13 +469,15 @@ function FieldSettings({
       }
     >
       <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
-        <SettingRow label="Label">
-          <Input
-            aria-label="Field label"
-            value={field.label}
-            onChange={(e) => patch({ label: e.target.value })}
-          />
-        </SettingRow>
+        {'label' in field && (
+          <SettingRow label="Label">
+            <Input
+              aria-label="Field label"
+              value={field.label}
+              onChange={(e) => patch({ label: e.target.value })}
+            />
+          </SettingRow>
+        )}
         <SettingRow label="Key">
           <Input
             aria-label="Field key"
@@ -441,25 +488,179 @@ function FieldSettings({
             Auto-generated from the label; used in exports and webhooks.
           </Typography.Text>
         </SettingRow>
-        <SettingRow label="Placeholder">
-          <Input
-            aria-label="Field placeholder"
-            value={field.placeholder ?? ''}
-            onChange={(e) => patch({ placeholder: e.target.value })}
-          />
-        </SettingRow>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Switch
-            aria-label="Required"
-            checked={field.required}
-            onChange={(checked) => patch({ required: checked })}
-          />
-          <Typography.Text>Required</Typography.Text>
-        </div>
+        {'placeholder' in field && (
+          <SettingRow label="Placeholder">
+            <Input
+              aria-label="Field placeholder"
+              value={field.placeholder ?? ''}
+              onChange={(e) => patch({ placeholder: e.target.value })}
+            />
+          </SettingRow>
+        )}
+        {'required' in field && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Switch
+              aria-label="Required"
+              checked={field.required}
+              onChange={(checked) => patch({ required: checked })}
+            />
+            <Typography.Text>Required</Typography.Text>
+          </div>
+        )}
+        {field.type !== 'hidden' && (
+          <SettingRow label="Width">
+            <Segmented
+              aria-label="Field width"
+              value={field.width ?? 'full'}
+              onChange={(value) => patch({ width: value as FormField['width'] })}
+              options={FORM_FIELD_WIDTHS.map((w) => ({ value: w, label: WIDTH_LABELS[w] }))}
+            />
+          </SettingRow>
+        )}
         <TypeSpecificSettings field={field} dispatch={dispatch} />
+        {/* §2.3 adornments — only when the type supports a chip or a counter. §2.2 style override — any collectable field. */}
+        {'required' in field && (isAdornable(field.type) || supportsCounter(field.type)) && (
+          <AdornmentSettings field={field} dispatch={dispatch} />
+        )}
+        {'required' in field && <AdvancedStyleSettings field={field} dispatch={dispatch} />}
       </Space>
     </Card>
   );
+}
+
+/** Any field that collects data — the members carrying baseFieldShape's style/adornments. */
+type CollectableField = Extract<FormField, { required: boolean }>;
+
+/** §2.3 — per-field prefix/suffix, help text and character counter (all text nodes). */
+function AdornmentSettings({
+  field,
+  dispatch,
+}: {
+  field: CollectableField;
+  dispatch: Dispatch<BuilderAction>;
+}) {
+  const patch = (p: Partial<CollectableField>) =>
+    dispatch({ type: 'updateField', key: field.key, patch: p });
+  return (
+    <>
+      <Divider style={{ margin: '4px 0' }}>Adornments</Divider>
+      {isAdornable(field.type) && (
+        <div style={{ display: 'flex', gap: 8 }}>
+          <SettingRow label="Prefix">
+            <Input
+              aria-label="Prefix"
+              maxLength={8}
+              placeholder="e.g. $"
+              value={field.prefix ?? ''}
+              onChange={(e) => patch({ prefix: e.target.value || undefined })}
+            />
+          </SettingRow>
+          <SettingRow label="Suffix">
+            <Input
+              aria-label="Suffix"
+              maxLength={8}
+              placeholder="e.g. .com"
+              value={field.suffix ?? ''}
+              onChange={(e) => patch({ suffix: e.target.value || undefined })}
+            />
+          </SettingRow>
+        </div>
+      )}
+      <SettingRow label="Help text">
+        <Input
+          aria-label="Help text"
+          maxLength={200}
+          placeholder="Shown below the field"
+          value={field.helpText ?? ''}
+          onChange={(e) => patch({ helpText: e.target.value || undefined })}
+        />
+      </SettingRow>
+      {supportsCounter(field.type) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Switch
+            aria-label="Show character counter"
+            checked={field.showCounter ?? false}
+            onChange={(checked) => patch({ showCounter: checked })}
+          />
+          <Typography.Text>Show character counter</Typography.Text>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            Needs a max length
+          </Typography.Text>
+        </div>
+      )}
+    </>
+  );
+}
+
+/** §2.2 — per-field opt-out of the global input variant/accent. Absent = inherits. */
+function AdvancedStyleSettings({
+  field,
+  dispatch,
+}: {
+  field: CollectableField;
+  dispatch: Dispatch<BuilderAction>;
+}) {
+  const style = field.style ?? {};
+  // Rebuild the whole style object each edit (updateField replaces it), then drop
+  // it entirely when nothing is pinned so the field cleanly inherits the global look.
+  const setStyle = (next: NonNullable<CollectableField['style']>) => {
+    const cleaned: NonNullable<CollectableField['style']> = {};
+    if (next.inputVariant !== undefined) cleaned.inputVariant = next.inputVariant;
+    if (next.accent !== undefined) cleaned.accent = next.accent;
+    dispatch({
+      type: 'updateField',
+      key: field.key,
+      patch: { style: Object.keys(cleaned).length ? cleaned : undefined },
+    });
+  };
+  return (
+    <Collapse
+      items={[
+        {
+          key: 'advanced-style',
+          label: 'Advanced style',
+          children: (
+            <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
+              <SettingRow label="Input style">
+                <Segmented
+                  aria-label="Field input style"
+                  value={style.inputVariant ?? 'inherit'}
+                  onChange={(value) =>
+                    setStyle({
+                      ...style,
+                      inputVariant:
+                        value === 'inherit'
+                          ? undefined
+                          : (value as (typeof FORM_INPUT_VARIANTS)[number]),
+                    })
+                  }
+                  options={[
+                    { value: 'inherit', label: 'Inherit' },
+                    ...FORM_INPUT_VARIANTS.map((v) => ({ value: v, label: titleCaseWord(v) })),
+                  ]}
+                />
+              </SettingRow>
+              <SettingRow label="Accent color">
+                <ColorPicker
+                  aria-label="Field accent color"
+                  allowClear
+                  format="hex"
+                  showText
+                  value={style.accent ?? null}
+                  onChangeComplete={(c) => setStyle({ ...style, accent: c.toHexString() })}
+                  onClear={() => setStyle({ ...style, accent: undefined })}
+                />
+              </SettingRow>
+            </Space>
+          ),
+        },
+      ]}
+    />
+  );
+}
+
+function titleCaseWord(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function TypeSpecificSettings({
@@ -476,7 +677,25 @@ function TypeSpecificSettings({
       return <TextareaValidationSettings field={field} dispatch={dispatch} />;
     case 'dropdown':
     case 'multi_select':
+    case 'radio':
       return <OptionsEditor field={field} dispatch={dispatch} />;
+    case 'checkbox':
+      return <CheckboxConsentSettings field={field} dispatch={dispatch} />;
+    case 'number':
+      return <NumberValidationSettings field={field} dispatch={dispatch} />;
+    case 'rating':
+      return <RatingSettings field={field} dispatch={dispatch} />;
+    case 'hidden':
+      return <HiddenSettings field={field} dispatch={dispatch} />;
+    case 'url':
+      return (
+        <Alert
+          type="info"
+          showIcon
+          message="URL field"
+          description="Validated as a URL when the form is submitted."
+        />
+      );
     case 'file':
       return <FileValidationSettings field={field} dispatch={dispatch} />;
     case 'phone':
@@ -488,13 +707,122 @@ function TypeSpecificSettings({
           description="Indian mobile numbers only."
         />
       );
+    case 'heading':
+      return <HeadingSettings field={field} dispatch={dispatch} />;
+    case 'paragraph':
+      return <ParagraphSettings field={field} dispatch={dispatch} />;
+    case 'image':
+      return <ImageBlockSettings field={field} dispatch={dispatch} />;
+    case 'divider':
+      return (
+        <Alert
+          type="info"
+          showIcon
+          message="Divider"
+          description="A horizontal rule shown between fields. Nothing to configure."
+        />
+      );
     default:
       return null;
   }
 }
 
+function HeadingSettings({
+  field,
+  dispatch,
+}: {
+  field: Extract<FormField, { type: 'heading' }>;
+  dispatch: Dispatch<BuilderAction>;
+}) {
+  const patch = (p: Partial<Extract<FormField, { type: 'heading' }>>) =>
+    dispatch({ type: 'updateField', key: field.key, patch: p });
+  return (
+    <>
+      <Divider style={{ margin: '4px 0' }}>Heading</Divider>
+      <SettingRow label="Text">
+        <Input
+          aria-label="Heading text"
+          value={field.text}
+          onChange={(e) => patch({ text: e.target.value })}
+        />
+      </SettingRow>
+      <SettingRow label="Level">
+        <Segmented
+          aria-label="Heading level"
+          value={field.level}
+          onChange={(value) =>
+            patch({ level: value as Extract<FormField, { type: 'heading' }>['level'] })
+          }
+          options={FORM_HEADING_LEVELS.map((l) => ({ value: l, label: l.toUpperCase() }))}
+        />
+      </SettingRow>
+    </>
+  );
+}
+
+function ParagraphSettings({
+  field,
+  dispatch,
+}: {
+  field: Extract<FormField, { type: 'paragraph' }>;
+  dispatch: Dispatch<BuilderAction>;
+}) {
+  const patch = (p: Partial<Extract<FormField, { type: 'paragraph' }>>) =>
+    dispatch({ type: 'updateField', key: field.key, patch: p });
+  return (
+    <>
+      <Divider style={{ margin: '4px 0' }}>Text</Divider>
+      <SettingRow label="Text">
+        <Input.TextArea
+          aria-label="Paragraph text"
+          rows={4}
+          value={field.text}
+          onChange={(e) => patch({ text: e.target.value })}
+        />
+      </SettingRow>
+    </>
+  );
+}
+
+function ImageBlockSettings({
+  field,
+  dispatch,
+}: {
+  field: Extract<FormField, { type: 'image' }>;
+  dispatch: Dispatch<BuilderAction>;
+}) {
+  const patch = (p: Partial<Extract<FormField, { type: 'image' }>>) =>
+    dispatch({ type: 'updateField', key: field.key, patch: p });
+  return (
+    <>
+      <Divider style={{ margin: '4px 0' }}>Image</Divider>
+      <SettingRow label="Image URL (https)">
+        <Input
+          aria-label="Image URL"
+          placeholder="https://cdn.example.com/image.png"
+          value={field.url}
+          onChange={(e) => patch({ url: e.target.value.trim() })}
+        />
+      </SettingRow>
+      <SettingRow label="Alt text">
+        <Input
+          aria-label="Image alt text"
+          placeholder="Describes the image for screen readers"
+          value={field.alt ?? ''}
+          onChange={(e) => patch({ alt: e.target.value ? e.target.value : undefined })}
+        />
+      </SettingRow>
+    </>
+  );
+}
+
 function parseIntOr(value: string): number | undefined {
   const n = Number.parseInt(value, 10);
+  return Number.isNaN(n) ? undefined : n;
+}
+
+function parseFloatOr(value: string): number | undefined {
+  const n = Number.parseFloat(value);
   return Number.isNaN(n) ? undefined : n;
 }
 
@@ -596,7 +924,7 @@ function OptionsEditor({
   field,
   dispatch,
 }: {
-  field: Extract<FormField, { type: 'dropdown' | 'multi_select' }>;
+  field: Extract<FormField, { type: 'dropdown' | 'multi_select' | 'radio' }>;
   dispatch: Dispatch<BuilderAction>;
 }) {
   const setOptions = (options: string[]) =>
@@ -716,6 +1044,161 @@ function FileValidationSettings({
   );
 }
 
+function CheckboxConsentSettings({
+  field,
+  dispatch,
+}: {
+  field: Extract<FormField, { type: 'checkbox' }>;
+  dispatch: Dispatch<BuilderAction>;
+}) {
+  const patch = (p: Partial<Extract<FormField, { type: 'checkbox' }>>) =>
+    dispatch({ type: 'updateField', key: field.key, patch: p });
+  return (
+    <>
+      <Divider style={{ margin: '4px 0' }}>Consent link</Divider>
+      <SettingRow label="Link text">
+        <Input
+          aria-label="Link text"
+          placeholder="e.g. Privacy policy"
+          value={field.linkText ?? ''}
+          onChange={(e) => patch({ linkText: e.target.value ? e.target.value : undefined })}
+        />
+      </SettingRow>
+      <SettingRow label="Link URL (https)">
+        <Input
+          aria-label="Link URL"
+          placeholder="https://example.com/privacy"
+          value={field.linkUrl ?? ''}
+          onChange={(e) => patch({ linkUrl: e.target.value ? e.target.value : undefined })}
+        />
+      </SettingRow>
+    </>
+  );
+}
+
+function NumberValidationSettings({
+  field,
+  dispatch,
+}: {
+  field: Extract<FormField, { type: 'number' }>;
+  dispatch: Dispatch<BuilderAction>;
+}) {
+  const validation = field.validation ?? { integer: false };
+  const set = (v: typeof validation) =>
+    dispatch({ type: 'updateField', key: field.key, patch: { validation: v } });
+  return (
+    <>
+      <Divider style={{ margin: '4px 0' }}>Validation</Divider>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <SettingRow label="Min">
+          <Input
+            aria-label="Min"
+            type="number"
+            value={validation.min ?? ''}
+            onChange={(e) => set({ ...validation, min: parseFloatOr(e.target.value) })}
+          />
+        </SettingRow>
+        <SettingRow label="Max">
+          <Input
+            aria-label="Max"
+            type="number"
+            value={validation.max ?? ''}
+            onChange={(e) => set({ ...validation, max: parseFloatOr(e.target.value) })}
+          />
+        </SettingRow>
+        <SettingRow label="Step">
+          <Input
+            aria-label="Step"
+            type="number"
+            min={0}
+            value={validation.step ?? ''}
+            onChange={(e) => set({ ...validation, step: parseFloatOr(e.target.value) })}
+          />
+        </SettingRow>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Switch
+          aria-label="Integer only"
+          checked={validation.integer}
+          onChange={(checked) => set({ ...validation, integer: checked })}
+        />
+        <Typography.Text>Integer only</Typography.Text>
+      </div>
+    </>
+  );
+}
+
+function RatingSettings({
+  field,
+  dispatch,
+}: {
+  field: Extract<FormField, { type: 'rating' }>;
+  dispatch: Dispatch<BuilderAction>;
+}) {
+  const patch = (p: Partial<Extract<FormField, { type: 'rating' }>>) =>
+    dispatch({ type: 'updateField', key: field.key, patch: p });
+  return (
+    <>
+      <Divider style={{ margin: '4px 0' }}>Rating</Divider>
+      <SettingRow label="Max (3-10)">
+        <Input
+          aria-label="Max rating"
+          type="number"
+          min={3}
+          max={10}
+          value={field.max}
+          onChange={(e) => {
+            const parsed = parseIntOr(e.target.value);
+            if (parsed === undefined) return;
+            patch({ max: Math.min(10, Math.max(3, parsed)) });
+          }}
+        />
+      </SettingRow>
+      <SettingRow label="Icon">
+        <RadioGroup
+          value={field.icon}
+          onChange={(e) =>
+            patch({ icon: e.target.value as Extract<FormField, { type: 'rating' }>['icon'] })
+          }
+        >
+          {FORM_RATING_ICONS.map((icon) => (
+            <Radio key={icon} value={icon}>
+              {icon === 'heart' ? 'Heart' : 'Star'}
+            </Radio>
+          ))}
+        </RadioGroup>
+      </SettingRow>
+    </>
+  );
+}
+
+function HiddenSettings({
+  field,
+  dispatch,
+}: {
+  field: Extract<FormField, { type: 'hidden' }>;
+  dispatch: Dispatch<BuilderAction>;
+}) {
+  const patch = (p: Partial<Extract<FormField, { type: 'hidden' }>>) =>
+    dispatch({ type: 'updateField', key: field.key, patch: p });
+  return (
+    <>
+      <Divider style={{ margin: '4px 0' }}>Hidden capture</Divider>
+      <SettingRow label="URL parameter name">
+        <Input
+          aria-label="Param name"
+          placeholder="e.g. utm_source"
+          value={field.paramName}
+          onChange={(e) => patch({ paramName: e.target.value })}
+        />
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          Captured from the page URL query string; never shown to the visitor.
+        </Typography.Text>
+      </SettingRow>
+    </>
+  );
+}
+
 function FormSettings({
   state,
   dispatch,
@@ -740,6 +1223,15 @@ function FormSettings({
             onChange={(e) => patch({ name: e.target.value })}
           />
         </SettingRow>
+        <SettingRow label="Description">
+          <Input.TextArea
+            aria-label="Form description"
+            rows={2}
+            placeholder="Optional subtitle shown under the form title"
+            value={state.meta.description}
+            onChange={(e) => patch({ description: e.target.value })}
+          />
+        </SettingRow>
         <SettingRow label="Submit button label">
           <Input
             aria-label="Submit label"
@@ -753,6 +1245,14 @@ function FormSettings({
             rows={2}
             value={state.meta.successMessage}
             onChange={(e) => patch({ successMessage: e.target.value })}
+          />
+        </SettingRow>
+        <SettingRow label="Redirect URL (https)">
+          <Input
+            aria-label="Redirect URL"
+            placeholder="https:// page to send visitors to after submitting"
+            value={state.meta.redirectUrl}
+            onChange={(e) => patch({ redirectUrl: e.target.value })}
           />
         </SettingRow>
         <SettingRow label="Spam protection">

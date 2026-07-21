@@ -4,6 +4,11 @@
  * Component styles come from @primathonos/orion (Ant Design + Orion theme),
  * which uses CSS-in-JS (no global CSS required). This file owns body resets,
  * page-level layout helpers, and antd font-family override to Inter.
+ *
+ * Inter here dresses the admin CHROME only. The form preview renders inside the
+ * `<ratio-form>` element's shadow root (`:host { all: initial }`), so this font
+ * never reaches it: the SDK injects whichever Google Font the merchant picked
+ * at document scope, and the preview honors it like the live storefront does.
  */
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
 

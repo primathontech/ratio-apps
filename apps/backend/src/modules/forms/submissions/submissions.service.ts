@@ -8,7 +8,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import type { FormField } from '@ratio-app/shared/schemas/form-schema';
+import type { FormAppearance, FormField } from '@ratio-app/shared/schemas/form-schema';
 import { sql } from 'kysely';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
 import type {
@@ -48,9 +48,14 @@ export interface PublicSubmissionResult {
 export interface PublicFormSchema {
   id: string;
   name: string;
+  /** Optional subtitle/heading the widget renders under the form name. */
+  description?: string;
   schema: FormField[];
+  appearance?: FormAppearance;
   submitLabel: string;
   successMessage: string;
+  /** Optional https redirect-on-submit target the widget navigates to on success. */
+  redirectUrl?: string;
   spamProtection: 'recaptcha' | 'honeypot';
   recaptchaSiteKey?: string;
 }
@@ -245,12 +250,16 @@ export class SubmissionsService {
       form.spamProtection === 'recaptcha'
         ? (config.recaptchaSiteKey ?? process.env.FORMS_RECAPTCHA_SHARED_SITE_KEY?.trim() ?? null)
         : null;
+    const appearance = SubmissionsService.parseAppearance(form.appearanceJson);
     return {
       id: form.id,
       name: form.name,
+      ...(form.description ? { description: form.description } : {}),
       schema,
+      ...(appearance ? { appearance } : {}),
       submitLabel: form.submitLabel,
       successMessage: form.successMessage,
+      ...(form.redirectUrl ? { redirectUrl: form.redirectUrl } : {}),
       spamProtection: form.spamProtection,
       ...(siteKey ? { recaptchaSiteKey: siteKey } : {}),
     };
@@ -490,6 +499,14 @@ export class SubmissionsService {
 
   private static parseSchema(value: FormField[] | string): FormField[] {
     return typeof value === 'string' ? (JSON.parse(value) as FormField[]) : value;
+  }
+
+  /** Nullable — un-themed forms serve no `appearance` and render with SDK defaults. */
+  private static parseAppearance(
+    value: FormAppearance | string | null,
+  ): FormAppearance | undefined {
+    if (value == null) return undefined;
+    return typeof value === 'string' ? (JSON.parse(value) as FormAppearance) : value;
   }
 
   /** `sub_<random>` via node:crypto — also used for the fake spam-reject id. */

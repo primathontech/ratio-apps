@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import type { FormField, FormInput } from '@ratio-app/shared/schemas/form-schema';
+import type { FormAppearance, FormField, FormInput } from '@ratio-app/shared/schemas/form-schema';
 import { sql } from 'kysely';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
 import type { FormRow, FormSpamProtection, FormStatus, FormsDatabase } from '../db/types';
@@ -10,12 +10,15 @@ import { FORMS_DB_TOKEN } from '../kysely.module';
 export interface FormEntity {
   id: string;
   name: string;
+  description: string | null;
   schema: FormField[];
+  appearance?: FormAppearance;
   submitLabel: string;
   successMessage: string;
   spamProtection: FormSpamProtection;
   notificationEmail: string | null;
   webhookUrl: string | null;
+  redirectUrl: string | null;
   status: FormStatus;
   createdAt: Date;
   updatedAt: Date;
@@ -52,20 +55,25 @@ export class FormsService {
 
   async create(merchantId: string, input: FormInput): Promise<FormEntity> {
     const id = FormsService.mintId();
+    const description = input.description ?? null;
     const notificationEmail = input.notificationEmail ?? null;
     const webhookUrl = input.webhookUrl ?? null;
+    const redirectUrl = input.redirectUrl ?? null;
     await this.handle.db
       .insertInto('forms')
       .values({
         id,
         merchantId,
         name: input.name,
+        description,
         schemaJson: JSON.stringify(input.schema),
+        appearanceJson: input.appearance ? JSON.stringify(input.appearance) : null,
         submitLabel: input.submitLabel,
         successMessage: input.successMessage,
         spamProtection: input.spamProtection,
         notificationEmail,
         webhookUrl,
+        redirectUrl,
         status: 'inactive',
       })
       .execute();
@@ -75,12 +83,15 @@ export class FormsService {
     return {
       id,
       name: input.name,
+      description,
       schema: input.schema,
+      ...(input.appearance ? { appearance: input.appearance } : {}),
       submitLabel: input.submitLabel,
       successMessage: input.successMessage,
       spamProtection: input.spamProtection,
       notificationEmail,
       webhookUrl,
+      redirectUrl,
       status: 'inactive',
       createdAt: now,
       updatedAt: now,
@@ -141,18 +152,23 @@ export class FormsService {
 
   async update(merchantId: string, id: string, input: FormInput): Promise<FormEntity> {
     const existing = (await this.findScoped(merchantId, id)) ?? this.notFound();
+    const description = input.description ?? null;
     const notificationEmail = input.notificationEmail ?? null;
     const webhookUrl = input.webhookUrl ?? null;
+    const redirectUrl = input.redirectUrl ?? null;
     await this.handle.db
       .updateTable('forms')
       .set({
         name: input.name,
+        description,
         schemaJson: JSON.stringify(input.schema),
+        appearanceJson: input.appearance ? JSON.stringify(input.appearance) : null,
         submitLabel: input.submitLabel,
         successMessage: input.successMessage,
         spamProtection: input.spamProtection,
         notificationEmail,
         webhookUrl,
+        redirectUrl,
         updatedAt: sql`CURRENT_TIMESTAMP(3)`,
       })
       .where('id', '=', id)
@@ -161,12 +177,15 @@ export class FormsService {
     return {
       id,
       name: input.name,
+      description,
       schema: input.schema,
+      ...(input.appearance ? { appearance: input.appearance } : {}),
       submitLabel: input.submitLabel,
       successMessage: input.successMessage,
       spamProtection: input.spamProtection,
       notificationEmail,
       webhookUrl,
+      redirectUrl,
       status: existing.status,
       createdAt: existing.createdAt,
       updatedAt: new Date(),
@@ -204,6 +223,10 @@ export class FormsService {
     const copyId = FormsService.mintId();
     const schemaJson =
       typeof source.schemaJson === 'string' ? source.schemaJson : JSON.stringify(source.schemaJson);
+    const appearanceJson =
+      source.appearanceJson == null || typeof source.appearanceJson === 'string'
+        ? source.appearanceJson
+        : JSON.stringify(source.appearanceJson);
     const name = `${source.name} (copy)`;
     await this.handle.db
       .insertInto('forms')
@@ -211,12 +234,15 @@ export class FormsService {
         id: copyId,
         merchantId,
         name,
+        description: source.description,
         schemaJson,
+        appearanceJson,
         submitLabel: source.submitLabel,
         successMessage: source.successMessage,
         spamProtection: source.spamProtection,
         notificationEmail: source.notificationEmail,
         webhookUrl: source.webhookUrl,
+        redirectUrl: source.redirectUrl,
         status: 'inactive',
       })
       .execute();
@@ -244,15 +270,19 @@ export class FormsService {
   }
 
   private toEntity(row: FormRow): FormEntity {
+    const appearance = FormsService.parseAppearance(row.appearanceJson);
     return {
       id: row.id,
       name: row.name,
+      description: row.description,
       schema: FormsService.parseSchema(row.schemaJson),
+      ...(appearance ? { appearance } : {}),
       submitLabel: row.submitLabel,
       successMessage: row.successMessage,
       spamProtection: row.spamProtection,
       notificationEmail: row.notificationEmail,
       webhookUrl: row.webhookUrl,
+      redirectUrl: row.redirectUrl,
       status: row.status,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
@@ -262,6 +292,14 @@ export class FormsService {
   /** mysql2 usually parses JSON columns; older paths may hand back strings. */
   private static parseSchema(value: FormField[] | string): FormField[] {
     return typeof value === 'string' ? (JSON.parse(value) as FormField[]) : value;
+  }
+
+  /** Nullable twin of parseSchema — `undefined` for un-themed forms. */
+  private static parseAppearance(
+    value: FormAppearance | string | null,
+  ): FormAppearance | undefined {
+    if (value == null) return undefined;
+    return typeof value === 'string' ? (JSON.parse(value) as FormAppearance) : value;
   }
 
   /** `form_<random>` via node:crypto (never Math.random). */

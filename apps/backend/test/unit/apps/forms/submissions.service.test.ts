@@ -1,4 +1,5 @@
 import { HttpException, Logger } from '@nestjs/common';
+import { appearanceSchema } from '@ratio-app/shared/schemas/form-schema';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FormsRecaptchaService } from '../../../../src/modules/forms/spam/recaptcha.service';
 import type { SubmitRateLimitService } from '../../../../src/modules/forms/spam/submit-rate-limit.service';
@@ -396,6 +397,50 @@ describe('SubmissionsService.getPublicSchema — the render-schema read (AC4/AC1
       forms_configs: [configRow()],
     });
     await expectHttpError(service.getPublicSchema('form_empty'), 404, 'form_not_available');
+  });
+
+  it('exposes appearance to the widget when the form is themed (§1.3)', async () => {
+    const appearance = appearanceSchema.parse({ colors: { primary: '#123456' } });
+    const { service } = setup({
+      forms: [kitchenSinkForm({ appearanceJson: JSON.stringify(appearance) })],
+      forms_configs: [configRow()],
+    });
+    const schema = await service.getPublicSchema('form_sink');
+    expect(schema.appearance).toEqual(appearance);
+  });
+
+  it('omits appearance for un-themed forms (null appearance_json → today’s look)', async () => {
+    const { service } = setup({
+      forms: [kitchenSinkForm({ appearanceJson: null })],
+      forms_configs: [configRow()],
+    });
+    const schema = await service.getPublicSchema('form_sink');
+    expect('appearance' in schema).toBe(false);
+  });
+
+  it('exposes description + redirectUrl to the widget when set', async () => {
+    const { service } = setup({
+      forms: [
+        kitchenSinkForm({
+          description: 'Reach the sales team',
+          redirectUrl: 'https://merchant.example/thanks',
+        }),
+      ],
+      forms_configs: [configRow()],
+    });
+    const schema = await service.getPublicSchema('form_sink');
+    expect(schema.description).toBe('Reach the sales team');
+    expect(schema.redirectUrl).toBe('https://merchant.example/thanks');
+  });
+
+  it('omits description + redirectUrl when unset (null columns)', async () => {
+    const { service } = setup({
+      forms: [kitchenSinkForm({ description: null, redirectUrl: null })],
+      forms_configs: [configRow()],
+    });
+    const schema = await service.getPublicSchema('form_sink');
+    expect('description' in schema).toBe(false);
+    expect('redirectUrl' in schema).toBe(false);
   });
 });
 

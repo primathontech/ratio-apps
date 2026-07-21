@@ -8,6 +8,18 @@ import { defineConfig } from 'vite';
 // this config first (emptyOutDir wipes dist), then the loader config with
 // emptyOutDir disabled so both artifacts coexist in `dist/`.
 export default defineConfig({
+  resolve: {
+    // The shared dist is CommonJS, whose named exports rollup can't statically
+    // trace; point the widget build at the ESM TypeScript source. The
+    // capability matrix (§2.3) lives in the Zod-free form-adornments module, so
+    // importing it here keeps Zod out of the bundle.
+    alias: {
+      '@ratio-app/shared/schemas/form-adornments': resolve(
+        __dirname,
+        '../shared/src/schemas/form-adornments.ts',
+      ),
+    },
+  },
   build: {
     target: 'es2019',
     emptyOutDir: true,
@@ -16,5 +28,14 @@ export default defineConfig({
       output: { entryFileNames: 'forms-widget.js', format: 'es', dir: 'dist' },
     },
   },
-  test: { environment: 'happy-dom', include: ['src/**/*.test.ts'] },
+  test: {
+    environment: 'happy-dom',
+    include: ['src/**/*.test.ts'],
+    // Tests assert the injected reCAPTCHA <script> tag, not real execution.
+    // Letting happy-dom fetch+run api.js throws an unhandled rejection that
+    // fails the run, so keep external script files inert.
+    environmentOptions: {
+      happyDOM: { settings: { disableJavaScriptFileLoading: true } },
+    },
+  },
 });
