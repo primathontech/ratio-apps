@@ -8,6 +8,7 @@ export function renderRating(field: ControlFieldOf<'rating'>, ctx: FieldRenderCt
     class="rf-rating"
     id=${ctx.id}
     role="radiogroup"
+    aria-labelledby=${`rf-label-${field.key}`}
     aria-invalid=${ctx.invalid}
     aria-describedby=${ctx.describedBy}
   >

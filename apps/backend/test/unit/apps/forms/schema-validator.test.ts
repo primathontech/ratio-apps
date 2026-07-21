@@ -380,6 +380,167 @@ describe('SchemaValidatorService — P1 field types (url / rating / hidden, §4)
     });
   });
 
+  describe('number.step (P2-4 — server-side step enforcement)', () => {
+    const schema: FormField[] = [
+      {
+        key: 'qty',
+        type: 'number',
+        label: 'Quantity',
+        required: true,
+        validation: { min: 0, step: 5 },
+      },
+    ];
+
+    it('accepts a value that is a multiple of step from the base', () => {
+      expect(run(schema, { qty: 15 }).ok).toBe(true);
+    });
+
+    it('rejects a value that is not a multiple of step', () => {
+      const result = run(schema, { qty: 3 });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.qty).toBe('must be a multiple of 5');
+    });
+
+    it('measures the step from min, not from zero', () => {
+      const offset: FormField[] = [
+        { key: 'qty', type: 'number', label: 'Q', required: true, validation: { min: 2, step: 5 } },
+      ];
+      expect(run(offset, { qty: 7 }).ok).toBe(true); // 2 + 5
+      expect(run(offset, { qty: 5 }).ok).toBe(false); // not 2 + 5k
+    });
+  });
+
+  describe('date (P2-5 — strict ISO + normalization)', () => {
+    const schema: FormField[] = [
+      { key: 'd', type: 'date', label: 'Date', required: true },
+    ];
+
+    it('accepts a strict ISO date and stores it canonically', () => {
+      const result = run(schema, { d: '2026-03-01' });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.data.d).toBe('2026-03-01');
+    });
+
+    it.each(['2026', 'July 2026', '2026-02-30', '12/31/2026', '2026-13-01', '2026-00-10'])(
+      'rejects the non-ISO / impossible date %s',
+      (value) => {
+        const result = run(schema, { d: value });
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.errors.d).toBeDefined();
+      },
+    );
+  });
+
+  describe('multi_select (P2-6 — dedup + count cap)', () => {
+    const schema: FormField[] = [
+      {
+        key: 'ch',
+        type: 'multi_select',
+        label: 'Channels',
+        required: false,
+        options: ['email', 'sms'],
+      },
+    ];
+
+    it('accepts distinct valid selections', () => {
+      expect(run(schema, { ch: ['email', 'sms'] }).ok).toBe(true);
+    });
+
+    it('rejects duplicate selections', () => {
+      const result = run(schema, { ch: ['email', 'email'] });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.ch).toBe('selections must not contain duplicates');
+    });
+
+    it('rejects more selections than defined options', () => {
+      const result = run(schema, { ch: ['email', 'sms', 'email'] });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.ch).toBeDefined();
+    });
+  });
+
+  describe('text pattern (P1-1 — bounded input on submit)', () => {
+    const schema: FormField[] = [
+      {
+        key: 'code',
+        type: 'text',
+        label: 'Code',
+        required: true,
+        validation: { pattern: '^[a-z]+$' },
+      },
+    ];
+
+    it('matches within the input cap', () => {
+      expect(run(schema, { code: 'abc' }).ok).toBe(true);
+    });
+
+    it('rejects an input longer than the regex-input cap without running the regex', () => {
+      const result = run(schema, { code: 'a'.repeat(1001) });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.code).toBe('does not match the required pattern');
+    });
+  });
+
+  describe('file (P2-2 — fieldKey suffix must match)', () => {
+    const schema: FormField[] = [
+      {
+        key: 'resume',
+        type: 'file',
+        label: 'Resume',
+        required: true,
+        validation: { allowedMimeTypes: ['application/pdf'], maxBytes: 1024 },
+      },
+      {
+        key: 'avatar',
+        type: 'file',
+        label: 'Avatar',
+        required: true,
+        validation: { allowedMimeTypes: ['image/png'], maxBytes: 1024 },
+      },
+    ];
+
+    it('accepts a key whose trailing segment matches the field', () => {
+      const result = service.validate(
+        schema,
+        {},
+        {
+          resume: `${MERCHANT_ID}/${FORM_ID}/draft_a/resume`,
+          avatar: `${MERCHANT_ID}/${FORM_ID}/draft_b/avatar`,
+        },
+        scope,
+      );
+      expect(result.ok).toBe(true);
+    });
+
+    it("rejects an object uploaded for another field (avatar submitting resume's key)", () => {
+      const result = service.validate(
+        schema,
+        {},
+        {
+          resume: `${MERCHANT_ID}/${FORM_ID}/draft_a/resume`,
+          avatar: `${MERCHANT_ID}/${FORM_ID}/draft_a/resume`,
+        },
+        scope,
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.avatar).toBe('file was not uploaded for this field');
+    });
+
+    it('rejects a key with the wrong segment count', () => {
+      const result = service.validate(
+        schema,
+        {},
+        {
+          resume: `${MERCHANT_ID}/${FORM_ID}/resume`,
+          avatar: `${MERCHANT_ID}/${FORM_ID}/draft_b/avatar`,
+        },
+        scope,
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.resume).toBe('file does not belong to this form');
+    });
+  });
+
   describe('hidden', () => {
     const schema: FormField[] = [
       {

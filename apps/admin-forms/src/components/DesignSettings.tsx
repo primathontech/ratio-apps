@@ -23,6 +23,7 @@ import {
   FORM_FOCUS_STYLES,
   FORM_FONT_FAMILIES,
   FORM_GRADIENT_DIRS,
+  FORM_INPUT_SIZES,
   FORM_INPUT_VARIANTS,
   FORM_LABEL_POSITIONS,
   FORM_REQUIRED_MARKS,
@@ -61,6 +62,13 @@ const FONT_LABELS: Record<(typeof FORM_FONT_FAMILIES)[number], string> = {
 
 /** Button-size labels — spelled out so they never collide with the shadow segments. */
 const BUTTON_SIZE_LABELS: Record<(typeof FORM_BUTTON_SIZES)[number], string> = {
+  sm: 'Small',
+  md: 'Medium',
+  lg: 'Large',
+};
+
+/** Input-size labels — spelled out, mirroring the button-size control. */
+const INPUT_SIZE_LABELS: Record<(typeof FORM_INPUT_SIZES)[number], string> = {
   sm: 'Small',
   md: 'Medium',
   lg: 'Large',
@@ -205,9 +213,9 @@ export function DesignSettings({ appearance, dispatch }: Props) {
                     options={FORM_DENSITIES.map((d) => ({ value: d, label: titleCase(d) }))}
                   />
                 </Row>
-                <Row label={`Max width (${layout.maxWidth}px)`}>
+                <Row label={`Form width (${layout.maxWidth}px)`}>
                   <Slider
-                    aria-label="Max width"
+                    aria-label="Form width"
                     min={280}
                     max={960}
                     step={10}
@@ -310,6 +318,21 @@ export function DesignSettings({ appearance, dispatch }: Props) {
                       })
                     }
                     options={FORM_INPUT_VARIANTS.map((v) => ({ value: v, label: titleCase(v) }))}
+                  />
+                </Row>
+                <Row label="Input size">
+                  <Segmented
+                    aria-label="Input size"
+                    value={layout.inputSize}
+                    onChange={(value) =>
+                      patch({
+                        layout: { inputSize: value as FormAppearance['layout']['inputSize'] },
+                      })
+                    }
+                    options={FORM_INPUT_SIZES.map((s) => ({
+                      value: s,
+                      label: INPUT_SIZE_LABELS[s],
+                    }))}
                   />
                 </Row>
                 <Row label="Focus style">
@@ -594,6 +617,7 @@ function PresetRow({
             style={{
               display: 'flex',
               flexDirection: 'column',
+              alignItems: 'center',
               gap: 6,
               padding: 6,
               border: '1px solid #e5e5e5',
@@ -622,7 +646,11 @@ function PresetThumbnail({ id, appearance }: { id: string; appearance: FormAppea
   const cardRadius = Math.min(layout.radius, 10);
   const inputRadius = Math.min(layout.radius, 6);
   const buttonRadius =
-    layout.buttonShape === 'sharp' ? 0 : layout.buttonShape === 'pill' ? 999 : Math.min(layout.radius, 10);
+    layout.buttonShape === 'sharp'
+      ? 0
+      : layout.buttonShape === 'pill'
+        ? 999
+        : Math.min(layout.radius, 10);
 
   return (
     <span
@@ -673,7 +701,9 @@ function PresetThumbnail({ id, appearance }: { id: string; appearance: FormAppea
             justifyContent: 'center',
           }}
         >
-          <span style={{ height: 3, width: '40%', borderRadius: 2, background: colors.buttonText }} />
+          <span
+            style={{ height: 3, width: '40%', borderRadius: 2, background: colors.buttonText }}
+          />
         </span>
       </span>
     </span>

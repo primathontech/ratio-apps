@@ -54,6 +54,11 @@ function isContentBlock(field: FormField): field is ContentBlockField {
   );
 }
 
+// Group fields (§P2-7): render a role=radiogroup/group <div>, not a labelable
+// control, so the question binds via aria-labelledby on the group (mirrored in
+// each group's render.ts) instead of an inert <label for> pointing at a div.
+const GROUP_FIELD_TYPES = new Set<FormField['type']>(['radio', 'multi_select', 'rating']);
+
 // Curated leading-glyph SVGs for the submit button (§1.5), keyed by the shared
 // FORM_BUTTON_ICONS enum. Static markup only — never a merchant-supplied URL.
 const BUTTON_ICONS: Record<'arrow' | 'check' | 'send', TemplateResult> = {
@@ -310,6 +315,10 @@ export class RatioForm extends LitElement {
         width: 100%;
         max-width: 100%;
         box-sizing: border-box;
+        /* §1.9 — control height scales with inputSize; 'md' (~40px) = today.
+           A floor only, so density/§1.6 padding still applies within it and a
+           multi-row textarea stays taller. */
+        min-height: var(--wz-input-min-h);
         /* §2.4 — eased border/focus transitions. --wz-dur is 0s unless
            animations is on, so this is a no-op today; reduced-motion collapses
            it to ~0. */
@@ -437,6 +446,14 @@ export class RatioForm extends LitElement {
       }
       .rf-check input {
         width: auto;
+      }
+      /* §1.9 — the input min-height governs text inputs, selects, and
+         textareas only; toggles (checkbox/radio), the rating stars, and the
+         file control opt out so their intrinsic sizing is unchanged. */
+      .rf-check input,
+      .rf-star input,
+      input[type='file'] {
+        min-height: 0;
       }
       /* Honeypot: visually hidden but focusable-by-bots. */
       .rf-hp {
@@ -1031,7 +1048,11 @@ export class RatioForm extends LitElement {
         style=${this.fieldAccent(field)}
         ?data-float=${this.floats(field)}
       >
-        <label class="rf-label" for=${`rf-${field.key}`}>
+        <label
+          class="rf-label"
+          id=${`rf-label-${field.key}`}
+          for=${GROUP_FIELD_TYPES.has(field.type) ? nothing : `rf-${field.key}`}
+        >
           ${field.label}${this.renderRequiredMark(field.required)}
         </label>
         ${this.renderControl(field)}

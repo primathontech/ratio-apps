@@ -8,7 +8,10 @@ describe('contrastRatio', () => {
 
   it('is 1:1 for a colour against itself and order-independent', () => {
     expect(contrastRatio('#0fb3a9', '#0fb3a9')).toBeCloseTo(1, 5);
-    expect(contrastRatio('#000', '#fff')).toBeCloseTo(contrastRatio('#fff', '#000')!, 5);
+    expect(contrastRatio('#000', '#fff')).toBeCloseTo(
+      contrastRatio('#fff', '#000') ?? Number.NaN,
+      5,
+    );
   });
 
   it('accepts shorthand and 8-digit hex', () => {

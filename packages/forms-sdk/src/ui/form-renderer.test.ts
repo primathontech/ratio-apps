@@ -1709,3 +1709,84 @@ describe('ratio-form frosted card (§2.6)', () => {
     expect(css).toContain('backdrop-filter: blur(var(--wz-card-blur))');
   });
 });
+
+describe('ratio-form group accessible name (P2-7)', () => {
+  it('binds radio/multi_select/rating groups to their label via aria-labelledby', async () => {
+    // radio (P0 fixture): the group div carries the accessible name, and the
+    // label no longer holds an inert for= pointing at that non-labelable div.
+    const radioRoot = shadow(
+      (await mount({ schema: { status: 200, body: { data: p0FieldsSchema() } } })).el,
+    );
+    const radioGroup = radioRoot.querySelector('[data-field="plan"] [role="radiogroup"]');
+    expect(radioGroup?.getAttribute('aria-labelledby')).toBe('rf-label-plan');
+    const radioLabel = radioRoot.getElementById('rf-label-plan');
+    expect(radioLabel?.textContent).toContain('Plan');
+    expect(radioLabel?.hasAttribute('for')).toBe(false);
+
+    // multi_select (kitchen sink): a role=group container named by its label.
+    const msRoot = shadow((await mount()).el);
+    const msGroup = msRoot.querySelector('[data-field="interests"] [role="group"]');
+    expect(msGroup?.getAttribute('aria-labelledby')).toBe('rf-label-interests');
+    expect(msRoot.getElementById('rf-label-interests')?.textContent).toContain('Interests');
+    expect(msRoot.getElementById('rf-label-interests')?.hasAttribute('for')).toBe(false);
+
+    // rating (P1 fixture): the radiogroup gains the labelledby binding.
+    const ratingRoot = shadow(
+      (await mount({ schema: { status: 200, body: { data: p1FieldsSchema() } } })).el,
+    );
+    const ratingGroup = ratingRoot.querySelector('.rf-rating[role="radiogroup"]');
+    expect(ratingGroup?.getAttribute('aria-labelledby')).toBe('rf-label-score');
+    expect(ratingRoot.getElementById('rf-label-score')?.textContent).toContain('Rating');
+    expect(ratingRoot.getElementById('rf-label-score')?.hasAttribute('for')).toBe(false);
+  });
+
+  it('keeps <label for> pointing at the real control on non-group fields', async () => {
+    const root = shadow((await mount()).el);
+    const label = root.querySelector('[data-field="full_name"] .rf-label');
+    expect(label?.getAttribute('for')).toBe('rf-full_name');
+  });
+});
+
+describe('ratio-form checkbox + file aria wiring (P2-8)', () => {
+  it('wires aria-invalid + aria-describedby onto an invalid consent checkbox', async () => {
+    const { el } = await mount({ schema: { status: 200, body: { data: p0FieldsSchema() } } });
+    await submit(el);
+    const consent = shadow(el).querySelector('input[name="consent"]') as HTMLInputElement;
+    expect(consent.getAttribute('aria-invalid')).toBe('true');
+    expect(consent.getAttribute('aria-describedby')).toBe('rf-err-consent');
+  });
+
+  it('clears the checkbox aria-invalid once consent is given', async () => {
+    const { el } = await mount({ schema: { status: 200, body: { data: p0FieldsSchema() } } });
+    await submit(el);
+    const consent = shadow(el).querySelector('input[name="consent"]') as HTMLInputElement;
+    consent.checked = true;
+    consent.dispatchEvent(new Event('change', { bubbles: true }));
+    await submit(el);
+    expect(consent.hasAttribute('aria-invalid')).toBe(false);
+  });
+
+  it('wires aria-invalid + aria-describedby onto an invalid required file input', async () => {
+    const fileSchema: PublicFormSchema = {
+      id: 'form_file',
+      name: 'File',
+      schema: [
+        {
+          key: 'resume',
+          type: 'file',
+          label: 'Resume',
+          required: true,
+          validation: { allowedMimeTypes: ['application/pdf'], maxBytes: 1024 },
+        },
+      ] as PublicFormSchema['schema'],
+      submitLabel: 'Go',
+      successMessage: 'Done',
+      spamProtection: 'honeypot',
+    };
+    const { el } = await mount({ schema: { status: 200, body: { data: fileSchema } } });
+    await submit(el);
+    const file = shadow(el).querySelector('input[name="resume"]') as HTMLInputElement;
+    expect(file.getAttribute('aria-invalid')).toBe('true');
+    expect(file.getAttribute('aria-describedby')).toBe('rf-err-resume');
+  });
+});

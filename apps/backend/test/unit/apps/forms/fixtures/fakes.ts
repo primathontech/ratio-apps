@@ -77,7 +77,13 @@ export class FakeS3Presigner implements S3PresignerLike {
     contentLength: number;
     expiresInSeconds: number;
   }> = [];
-  gets: Array<{ bucket: string; region: string; key: string; expiresInSeconds: number }> = [];
+  gets: Array<{
+    bucket: string;
+    region: string;
+    key: string;
+    expiresInSeconds: number;
+    responseContentDisposition?: string;
+  }> = [];
 
   async presignPut(params: FakeS3Presigner['puts'][number]): Promise<string> {
     this.puts.push(params);

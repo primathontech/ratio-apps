@@ -171,11 +171,7 @@ export function BuilderScreen({ formId }: { formId: string }) {
         </div>
         <Space wrap>
           <Space size={8}>
-            <Switch
-              aria-label="Live preview"
-              checked={previewOpen}
-              onChange={setPreviewOpen}
-            />
+            <Switch aria-label="Live preview" checked={previewOpen} onChange={setPreviewOpen} />
             <Typography.Text>Live preview</Typography.Text>
           </Space>
           <Link to="/submissions/$formId" params={{ formId }}>
@@ -347,7 +343,10 @@ function FieldSettings({
             value={field.key}
             onChange={(e) => patch({ key: e.target.value })}
           />
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          <Typography.Text
+            type="secondary"
+            style={{ display: 'block', marginTop: 4, fontSize: 12 }}
+          >
             Auto-generated from the label; used in exports and webhooks.
           </Typography.Text>
         </SettingRow>

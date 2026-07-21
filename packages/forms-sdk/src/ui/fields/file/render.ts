@@ -7,6 +7,8 @@ export function renderFile(field: ControlFieldOf<'file'>, ctx: FieldRenderCtx): 
     name=${field.key}
     type="file"
     accept=${(field.validation?.allowedMimeTypes ?? []).join(',')}
+    aria-invalid=${ctx.invalid}
+    aria-describedby=${ctx.describedBy}
     @change=${(e: Event) => {
       const input = e.target as HTMLInputElement;
       ctx.files[field.key] = input.files?.[0] ?? null;

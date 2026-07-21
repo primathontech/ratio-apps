@@ -32,7 +32,9 @@ export function clearSession(): void {
 export function installPostMessageListener(onSession: (id: string) => void): () => void {
   const allowed = (import.meta.env.VITE_RATIO_DASHBOARD_ORIGIN as string | undefined) ?? '';
   const handler = (ev: MessageEvent): void => {
-    if (allowed && ev.origin !== allowed) return;
+    // Fail closed: with no configured dashboard origin we cannot trust any
+    // sender, so reject every message rather than accepting all origins.
+    if (!allowed || ev.origin !== allowed) return;
     const data = ev.data as { type?: string; merchantId?: string } | null;
     if (data?.type === 'ratio:session' && typeof data.merchantId === 'string') {
       window.localStorage.setItem(STORAGE_KEY, data.merchantId);

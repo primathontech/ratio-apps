@@ -1,6 +1,8 @@
+import { message } from '@primathonos/orion';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DeliveryRow, SubmissionListItem } from '@/hooks/useSubmissions';
+import { EXPORT_POLL_MAX_MS } from '@/hooks/useSubmissions';
 import { ApiException, api } from '@/lib/api';
 import { useMerchantStore } from '@/stores/useMerchantStore';
 import { renderWithProviders } from '../test-utils';
@@ -183,6 +185,81 @@ describe('SubmissionsScreen', () => {
       expect(poll).toBeDefined();
     });
     await waitFor(() => expect(navigatedTo).toBe('https://s3.example/exports/exp_1.csv?sig=abc'));
+  });
+
+  it('recovers when the export poll errors instead of spinning forever', async () => {
+    const errorSpy = vi.spyOn(message, 'error').mockImplementation(() => ({}) as never);
+    mockedApi.mockImplementation((method: string, path: string) => {
+      if (method === 'GET' && path === '/api/forms/form_1') {
+        return Promise.resolve({ id: 'form_1', name: 'Contact us', schema: [], status: 'active' });
+      }
+      if (method === 'GET' && path.startsWith('/api/forms/form_1/submissions')) {
+        return Promise.resolve({
+          submissions: [makeSubmission()],
+          page: 1,
+          limit: 20,
+          hasMore: false,
+        });
+      }
+      if (method === 'POST' && path === '/api/forms/form_1/exports') {
+        return Promise.resolve({ jobId: 'exp_1', status: 'pending' });
+      }
+      // The poll GET 500s — data stays undefined and the button must not stick.
+      if (method === 'GET' && path.startsWith('/api/forms/form_1/exports/')) {
+        return Promise.reject(new Error('boom'));
+      }
+      return Promise.resolve({});
+    });
+
+    renderWithProviders(<SubmissionsScreen formId="form_1" />);
+    await screen.findByText(/full_name: Asha/);
+    fireEvent.click(screen.getByRole('button', { name: /Export CSV/ }));
+
+    // The button first enters the preparing state…
+    await screen.findByText('Preparing export…');
+    // …then the poll error clears it and surfaces a message.
+    await waitFor(() => expect(screen.queryByText('Preparing export…')).not.toBeInTheDocument());
+    expect(errorSpy).toHaveBeenCalledWith('Export failed. Please try again.');
+    errorSpy.mockRestore();
+  });
+
+  it('times out a job stuck in processing rather than spinning forever', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const errorSpy = vi.spyOn(message, 'error').mockImplementation(() => ({}) as never);
+    mockedApi.mockImplementation((method: string, path: string) => {
+      if (method === 'GET' && path === '/api/forms/form_1') {
+        return Promise.resolve({ id: 'form_1', name: 'Contact us', schema: [], status: 'active' });
+      }
+      if (method === 'GET' && path.startsWith('/api/forms/form_1/submissions')) {
+        return Promise.resolve({
+          submissions: [makeSubmission()],
+          page: 1,
+          limit: 20,
+          hasMore: false,
+        });
+      }
+      if (method === 'POST' && path === '/api/forms/form_1/exports') {
+        return Promise.resolve({ jobId: 'exp_1', status: 'processing' });
+      }
+      // Worker crashed: the job never leaves `processing`.
+      if (method === 'GET' && path.startsWith('/api/forms/form_1/exports/')) {
+        return Promise.resolve({ status: 'processing' });
+      }
+      return Promise.resolve({});
+    });
+
+    renderWithProviders(<SubmissionsScreen formId="form_1" />);
+    await screen.findByText(/full_name: Asha/);
+    fireEvent.click(screen.getByRole('button', { name: /Export CSV/ }));
+    await screen.findByText('Preparing export…');
+
+    // Advance past the poll cap; the backstop timeout clears the stuck UI.
+    await vi.advanceTimersByTimeAsync(EXPORT_POLL_MAX_MS + 500);
+
+    await waitFor(() => expect(screen.queryByText('Preparing export…')).not.toBeInTheDocument());
+    expect(errorSpy).toHaveBeenCalledWith('Export is taking too long. Please try again.');
+    errorSpy.mockRestore();
+    vi.useRealTimers();
   });
 
   it('falls back to the sync CSV download when async export is unavailable (503)', async () => {

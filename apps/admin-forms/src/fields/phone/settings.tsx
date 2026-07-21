@@ -1,12 +1,5 @@
-import { Alert } from '@primathonos/orion';
+import { FieldHint } from '../_shared/FieldHint';
 
 export function PhoneSettings() {
-  return (
-    <Alert
-      type="info"
-      showIcon
-      message="+91, 10 digits"
-      description="Indian mobile numbers only."
-    />
-  );
+  return <FieldHint title="Phone">Accepts Indian mobile numbers only (+91, 10 digits).</FieldHint>;
 }

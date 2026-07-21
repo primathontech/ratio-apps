@@ -9,7 +9,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import type { FormAppearance, FormField } from '@ratio-app/shared/schemas/form-schema';
-import { sql } from 'kysely';
+import { type Kysely, sql } from 'kysely';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
 import type {
   FormRow,
@@ -170,35 +170,64 @@ export class SubmissionsService {
       });
     }
 
+    // (4b) confirm each accepted file object actually exists — every key
+    // segment (merchantId/formId/fieldKey) is public, so a well-formed but
+    // fabricated key would otherwise store a phantom reference. One HEAD per
+    // file (P2-2).
+    for (const [fieldKey, objectKey] of Object.entries(validated.files)) {
+      if (!(await this.s3.exists(objectKey))) {
+        throw new UnprocessableEntityException({
+          message: 'submission validation failed',
+          error_code: 'SUBMISSION_INVALID',
+          details: { fields: { [fieldKey]: 'uploaded file not found' } },
+          safeForClient: true,
+        });
+      }
+    }
+
     // (5) idempotency key: sha256(formId : session-or-ip : 5s bucket).
     const idempotencyKey = this.idempotency.computeKey(formId, meta.sessionKey ?? meta.ip);
 
-    // (6) insert + enqueue the delivery/email rows (the sweeper drains them).
+    // (6) insert + enqueue the delivery/email rows (the sweeper drains them)
+    // in ONE transaction: a partial failure (submission stored but a delivery
+    // row throws) would otherwise leave a stored-but-undeliverable submission
+    // whose retry lands in the 5s idempotency bucket and 409s forever. Wrapping
+    // both writes makes the unit atomic — either the submission and its
+    // deliveries all commit, or nothing does and the client's retry re-inserts
+    // cleanly (P3-1).
     const submissionId = SubmissionsService.mintSubmissionId();
     const hasFiles = Object.keys(validated.files).length > 0;
     try {
-      await this.handle.db
-        .insertInto('form_submissions')
-        .values({
-          id: submissionId,
-          formId: ctx.form.id,
-          merchantId: ctx.form.merchantId,
-          dataJson: JSON.stringify(validated.data),
-          filesJson: hasFiles ? JSON.stringify(validated.files) : null,
-          recaptchaScore,
-          idempotencyKey,
-        })
-        .execute();
+      await this.handle.db.transaction().execute(async (trx) => {
+        await trx
+          .insertInto('form_submissions')
+          .values({
+            id: submissionId,
+            formId: ctx.form.id,
+            merchantId: ctx.form.merchantId,
+            dataJson: JSON.stringify(validated.data),
+            filesJson: hasFiles ? JSON.stringify(validated.files) : null,
+            recaptchaScore,
+            idempotencyKey,
+          })
+          .execute();
+        await this.enqueueDeliveries(trx, ctx, submissionId);
+      });
     } catch (err) {
       if (this.idempotency.isDuplicateKeyError(err)) {
         // Same (form, session-or-ip, 5s bucket) — the second submission is
         // REJECTED (PRD F10 / TDD AC6): the UNIQUE column is the dedup
         // mechanism, and the client sees an explicit 409 so double-clicks
-        // don't silently mint what looks like a second submission.
+        // don't silently mint what looks like a second submission. Because the
+        // original insert + enqueue were atomic, that first submission is fully
+        // delivered — so we return its id (not a bare conflict) to let a client
+        // that lost the first response reconcile instead of losing it (P3-2).
+        const originalId = await this.findSubmissionIdByKey(ctx.form.merchantId, idempotencyKey);
         throw new HttpException(
           {
             message: 'duplicate submission — already received',
             error_code: 'duplicate_submission',
+            ...(originalId ? { submissionId: originalId } : {}),
           },
           409,
         );
@@ -206,7 +235,6 @@ export class SubmissionsService {
       throw err;
     }
 
-    await this.enqueueDeliveries(ctx, submissionId);
     return { submissionId };
   }
 
@@ -441,12 +469,20 @@ export class SubmissionsService {
     return { submissionId: SubmissionsService.mintSubmissionId() };
   }
 
-  /** Email-log + webhook-delivery rows; the minute sweeper drains them. */
-  private async enqueueDeliveries(ctx: ActiveFormContext, submissionId: string): Promise<void> {
+  /**
+   * Email-log + webhook-delivery rows; the minute sweeper drains them. Runs
+   * on the caller's executor (the submit transaction) so the rows commit
+   * atomically with the submission (P3-1).
+   */
+  private async enqueueDeliveries(
+    db: Kysely<FormsDatabase>,
+    ctx: ActiveFormContext,
+    submissionId: string,
+  ): Promise<void> {
     const now = new Date();
     const recipient = ctx.form.notificationEmail ?? ctx.config.defaultNotificationEmail;
     if (recipient) {
-      await this.handle.db
+      await db
         .insertInto('form_email_log')
         .values({
           submissionId,
@@ -458,7 +494,7 @@ export class SubmissionsService {
         .execute();
     }
     if (ctx.form.webhookUrl) {
-      await this.handle.db
+      await db
         .insertInto('form_webhook_deliveries')
         .values({
           submissionId,
@@ -470,6 +506,21 @@ export class SubmissionsService {
         })
         .execute();
     }
+  }
+
+  /** Original submission id for an idempotency key — recovers the id on a 409. */
+  private async findSubmissionIdByKey(
+    merchantId: string,
+    idempotencyKey: string,
+  ): Promise<string | null> {
+    const row = await this.handle.db
+      .selectFrom('form_submissions')
+      .select('id')
+      .where('merchantId', '=', merchantId)
+      .where('idempotencyKey', '=', idempotencyKey)
+      .limit(1)
+      .executeTakeFirst();
+    return row?.id ?? null;
   }
 
   private loadConfig(merchantId: string): Promise<FormsConfigRow | undefined> {

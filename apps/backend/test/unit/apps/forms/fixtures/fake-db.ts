@@ -171,6 +171,26 @@ export function makeFakeHandle(seed: Record<string, Row[]> = {}): FakeHandle {
       };
     },
 
+    // Minimal `db.transaction().execute(cb)`: runs `cb` against the same db and
+    // rolls back appended rows if it throws (this fake's transactions only
+    // insert), so an atomic insert + enqueue that fails midway leaves nothing.
+    transaction() {
+      return {
+        // biome-ignore lint/suspicious/noExplicitAny: mirrors kysely's trx cb
+        execute: async (cb: (trx: any) => Promise<unknown>) => {
+          const tableLengths = new Map(Object.keys(tables).map((t) => [t, tables[t].length]));
+          const insertsLen = inserts.length;
+          try {
+            return await cb(db);
+          } catch (err) {
+            for (const [t, len] of tableLengths) tables[t].length = len;
+            inserts.length = insertsLen;
+            throw err;
+          }
+        },
+      };
+    },
+
     updateTable(table: string) {
       const state = { set: {} as Row, wheres: [] as Where[] };
       // biome-ignore lint/suspicious/noExplicitAny: chain fake

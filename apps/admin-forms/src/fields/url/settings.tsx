@@ -1,12 +1,5 @@
-import { Alert } from '@primathonos/orion';
+import { FieldHint } from '../_shared/FieldHint';
 
 export function UrlSettings() {
-  return (
-    <Alert
-      type="info"
-      showIcon
-      message="URL field"
-      description="Validated as a URL when the form is submitted."
-    />
-  );
+  return <FieldHint title="URL">Validated as a URL when the form is submitted.</FieldHint>;
 }

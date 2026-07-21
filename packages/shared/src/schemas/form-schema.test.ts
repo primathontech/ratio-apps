@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  appearanceSchema,
   FORM_ADORNABLE_FIELD_TYPES,
   FORM_COUNTER_FIELD_TYPES,
   FORM_FIELD_TYPES,
@@ -10,7 +11,6 @@ import {
   FORM_TEXTAREA_HARD_MAX_LENGTH,
   type FormAppearance,
   type FormField,
-  appearanceSchema,
   formFieldSchema,
   formInputSchema,
   isAdornable,
@@ -291,9 +291,9 @@ describe('formFieldSchema (discriminated union over the supported field types)',
   });
 
   it('rejects number validation with a non-positive step', () => {
-    expect(
-      formFieldSchema.safeParse({ ...numberField, validation: { step: 0 } }).success,
-    ).toBe(false);
+    expect(formFieldSchema.safeParse({ ...numberField, validation: { step: 0 } }).success).toBe(
+      false,
+    );
   });
 
   it('url field needs no extra config beyond the basics', () => {
@@ -354,19 +354,21 @@ describe('content-block field types (§1.3 — heading / divider / paragraph / i
 
   it('rejects empty/oversized heading and paragraph text', () => {
     expect(formFieldSchema.safeParse({ ...headingField, text: '' }).success).toBe(false);
-    expect(formFieldSchema.safeParse({ ...headingField, text: 'a'.repeat(256) }).success).toBe(false);
+    expect(formFieldSchema.safeParse({ ...headingField, text: 'a'.repeat(256) }).success).toBe(
+      false,
+    );
     expect(formFieldSchema.safeParse({ ...paragraphField, text: '' }).success).toBe(false);
-    expect(
-      formFieldSchema.safeParse({ ...paragraphField, text: 'a'.repeat(2001) }).success,
-    ).toBe(false);
+    expect(formFieldSchema.safeParse({ ...paragraphField, text: 'a'.repeat(2001) }).success).toBe(
+      false,
+    );
   });
 
   it('image block requires an https url; alt is optional', () => {
     const { alt: _a, ...noAlt } = imageField;
     expect(formFieldSchema.safeParse(noAlt).success).toBe(true);
-    expect(formFieldSchema.safeParse({ ...imageField, url: 'http://cdn.example/x.png' }).success).toBe(
-      false,
-    );
+    expect(
+      formFieldSchema.safeParse({ ...imageField, url: 'http://cdn.example/x.png' }).success,
+    ).toBe(false);
     expect(formFieldSchema.safeParse({ ...imageField, url: 'javascript:alert(1)' }).success).toBe(
       false,
     );
@@ -375,7 +377,10 @@ describe('content-block field types (§1.3 — heading / divider / paragraph / i
   it('content blocks participate in the field-key uniqueness check', () => {
     const dup = formInputSchema.safeParse({
       name: 'Dup',
-      schema: [{ ...headingField, key: 'shared' }, { ...dividerField, key: 'shared' }],
+      schema: [
+        { ...headingField, key: 'shared' },
+        { ...dividerField, key: 'shared' },
+      ],
     });
     expect(dup.success).toBe(false);
   });
@@ -514,6 +519,7 @@ describe('appearanceSchema (theme contract)', () => {
     expect(parsed.layout.shadow).toBe('sm');
     // Tier-1 layout additions all default to today's value.
     expect(parsed.layout.inputVariant).toBe('outlined');
+    expect(parsed.layout.inputSize).toBe('md');
     expect(parsed.layout.buttonSize).toBe('md');
     expect(parsed.layout.buttonIcon).toBe('none');
     expect(parsed.layout.fieldGap).toBeUndefined();
@@ -540,6 +546,7 @@ describe('appearanceSchema (theme contract)', () => {
     const ok = appearanceSchema.parse({
       layout: {
         inputVariant: 'filled',
+        inputSize: 'lg',
         buttonSize: 'lg',
         buttonIcon: 'arrow',
         focusStyle: 'glow',
@@ -548,6 +555,7 @@ describe('appearanceSchema (theme contract)', () => {
       },
     });
     expect(ok.layout.inputVariant).toBe('filled');
+    expect(ok.layout.inputSize).toBe('lg');
     expect(ok.layout.buttonSize).toBe('lg');
     expect(ok.layout.buttonIcon).toBe('arrow');
     expect(ok.layout.focusStyle).toBe('glow');
@@ -555,6 +563,7 @@ describe('appearanceSchema (theme contract)', () => {
     expect(ok.layout.labelPosition).toBe('floating');
     expect(appearanceSchema.safeParse({ layout: { inputVariant: 'ghost' } }).success).toBe(false);
     expect(appearanceSchema.safeParse({ layout: { buttonSize: 'xl' } }).success).toBe(false);
+    expect(appearanceSchema.safeParse({ layout: { inputSize: 'xl' } }).success).toBe(false);
     expect(appearanceSchema.safeParse({ layout: { buttonIcon: 'rocket' } }).success).toBe(false);
     expect(appearanceSchema.safeParse({ layout: { focusStyle: 'none' } }).success).toBe(false);
     expect(appearanceSchema.safeParse({ layout: { requiredMark: 'star' } }).success).toBe(false);
@@ -585,14 +594,19 @@ describe('appearanceSchema (theme contract)', () => {
     expect(parsed.background.gradientFrom).toBe('#0fb3a9');
     expect(parsed.background.gradientDir).toBe('radial');
     expect(appearanceSchema.safeParse({ background: { gradientFrom: 'red' } }).success).toBe(false);
-    expect(
-      appearanceSchema.safeParse({ background: { gradientDir: 'diagonal' } }).success,
-    ).toBe(false);
+    expect(appearanceSchema.safeParse({ background: { gradientDir: 'diagonal' } }).success).toBe(
+      false,
+    );
   });
 
   it('accepts an image background with an https url and bounded scrim', () => {
     const parsed = appearanceSchema.parse({
-      background: { type: 'image', imageUrl: 'https://cdn.example/bg.jpg', imageFit: 'contain', scrim: 0.5 },
+      background: {
+        type: 'image',
+        imageUrl: 'https://cdn.example/bg.jpg',
+        imageFit: 'contain',
+        scrim: 0.5,
+      },
     });
     expect(parsed.background.imageUrl).toBe('https://cdn.example/bg.jpg');
     expect(parsed.background.imageFit).toBe('contain');
@@ -661,12 +675,12 @@ describe('appearanceSchema (theme contract)', () => {
   });
 
   it('rejects non-https logo/cover URLs', () => {
-    expect(appearanceSchema.safeParse({ logo: { url: 'http://cdn.example/logo.png' } }).success).toBe(
+    expect(
+      appearanceSchema.safeParse({ logo: { url: 'http://cdn.example/logo.png' } }).success,
+    ).toBe(false);
+    expect(appearanceSchema.safeParse({ cover: { url: 'javascript:alert(1)' } }).success).toBe(
       false,
     );
-    expect(
-      appearanceSchema.safeParse({ cover: { url: 'javascript:alert(1)' } }).success,
-    ).toBe(false);
   });
 
   it('a partial object is safe — only the set token overrides its default', () => {
@@ -694,9 +708,9 @@ describe('appearanceSchema (theme contract)', () => {
   });
 
   it('rejects an unknown font family', () => {
-    expect(
-      appearanceSchema.safeParse({ typography: { fontFamily: 'comic-sans' } }).success,
-    ).toBe(false);
+    expect(appearanceSchema.safeParse({ typography: { fontFamily: 'comic-sans' } }).success).toBe(
+      false,
+    );
   });
 
   it('enforces numeric bounds on layout + typography', () => {
@@ -782,13 +796,13 @@ describe('formInputSchema (form CRUD contract)', () => {
   });
 
   it('description is optional and capped at 500 chars', () => {
-    expect(formInputSchema.safeParse({ ...validForm, description: 'A short subtitle' }).success).toBe(
-      true,
-    );
-    expect(formInputSchema.parse({ name: 'X', schema: [emailField] }).description).toBeUndefined();
     expect(
-      formInputSchema.safeParse({ ...validForm, description: 'a'.repeat(501) }).success,
-    ).toBe(false);
+      formInputSchema.safeParse({ ...validForm, description: 'A short subtitle' }).success,
+    ).toBe(true);
+    expect(formInputSchema.parse({ name: 'X', schema: [emailField] }).description).toBeUndefined();
+    expect(formInputSchema.safeParse({ ...validForm, description: 'a'.repeat(501) }).success).toBe(
+      false,
+    );
   });
 
   it('redirectUrl accepts https and rejects non-https', () => {

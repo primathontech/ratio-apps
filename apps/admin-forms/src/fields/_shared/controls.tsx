@@ -44,11 +44,7 @@ export function SettingRow({
  * pushing its input lower than its neighbour's.
  */
 export function SettingRowGroup({ children }: { children: React.ReactNode }) {
-  return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-      {children}
-    </div>
-  );
+  return <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>{children}</div>;
 }
 
 export function parseIntOr(value: string): number | undefined {

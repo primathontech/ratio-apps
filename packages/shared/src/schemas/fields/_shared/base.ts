@@ -8,6 +8,15 @@ import { z } from 'zod';
  */
 
 /**
+ * Reserved field keys — names the export/webhook layer appends as its own
+ * columns. A merchant field key may never collide with these, or the CSV would
+ * emit two identically-named columns (e.g. two `submitted_at`) and header-keyed
+ * parsers would collapse or mis-map them (P2-11). Webhook is immune (fields is
+ * a nested object), but the key is reserved uniformly to keep the contract simple.
+ */
+export const RESERVED_FIELD_KEYS = ['submitted_at'] as const;
+
+/**
  * Field key — becomes the JSON key in `data_json`, the CSV header, and the
  * `fields` key of the `form.submitted` payload. Machine-safe by construction.
  */
@@ -17,6 +26,9 @@ export const formFieldKeySchema = z
   .max(64, { message: 'field key must be at most 64 characters' })
   .regex(/^[a-zA-Z][a-zA-Z0-9_]*$/, {
     message: 'field key must start with a letter and contain only letters, digits, and underscores',
+  })
+  .refine((key) => !(RESERVED_FIELD_KEYS as readonly string[]).includes(key), {
+    message: 'field key is reserved and cannot be used',
   });
 
 /** Field render width — two consecutive 'half' fields sit side-by-side. */
@@ -80,7 +92,170 @@ export const contentBlockBaseShape = {
   width: z.enum(FORM_FIELD_WIDTHS).default('full'),
 };
 
-/** A merchant-supplied validation regex — must compile. */
+/**
+ * Parse a regex quantifier at `src[i]` (`*`, `+`, `?`, `{n}`, `{n,}`, `{n,m}`
+ * with an optional trailing lazy/possessive marker). Returns the max repeat
+ * count (Infinity for unbounded) and the index just past the quantifier, or
+ * null when there is no quantifier here.
+ */
+function parseQuantifier(src: string, i: number): { maxRepeat: number; end: number } | null {
+  const c = src[i];
+  const consumeLazy = (end: number): number =>
+    src[end] === '?' || src[end] === '+' ? end + 1 : end;
+  if (c === '*' || c === '+')
+    return { maxRepeat: Number.POSITIVE_INFINITY, end: consumeLazy(i + 1) };
+  if (c === '?') return { maxRepeat: 1, end: consumeLazy(i + 1) };
+  if (c === '{') {
+    const m = /^\{(\d+)(?:(,)(\d*))?\}/.exec(src.slice(i));
+    if (!m) return null;
+    const lower = Number(m[1]);
+    let maxRepeat: number;
+    if (m[2] === undefined)
+      maxRepeat = lower; // {n}
+    else if (m[3] === undefined || m[3] === '')
+      maxRepeat = Number.POSITIVE_INFINITY; // {n,}
+    else maxRepeat = Number(m[3]); // {n,m}
+    return { maxRepeat, end: consumeLazy(i + m[0].length) };
+  }
+  return null;
+}
+
+/**
+ * Lightweight, safe-regex-style lint for catastrophic backtracking (P1-1).
+ * Merchant `pattern`s are compiled and `.test()`ed against shopper input on
+ * the UNAUTHENTICATED public submit path; a nested-quantifier shape like
+ * `(a+)+`, `(a*)*`, or `(.*a){20}` backtracks exponentially and pins the shared
+ * event loop. We reject those shapes at SAVE time (this lint), and bound the
+ * tested input length at submit time (text/validate.ts) as defense in depth.
+ *
+ * Heuristic: track, per group, whether it contains a *variable-length*
+ * repetition (an atom/class/group repeated more than once — `*`, `+`, `{n,}`,
+ * `{n,m}` with m>1, `{n}` with n>1). Flag when such a variable group is itself
+ * repeated more than once — that is the nested-quantifier signature. Overlap
+ * alternations like `(a|a)+` are not caught here; the submit-time input cap is
+ * the backstop for the residual.
+ */
+export function hasCatastrophicBacktracking(pattern: string): boolean {
+  type Frame = { variable: boolean };
+  const stack: Frame[] = [{ variable: false }];
+  const cur = (): Frame => stack[stack.length - 1] as Frame;
+  const n = pattern.length;
+  let i = 0;
+  while (i < n) {
+    const c = pattern[i];
+    if (c === '\\') {
+      // Escaped atom (e.g. \d, \(); a quantifier may follow it.
+      i += 2;
+      const q = parseQuantifier(pattern, i);
+      if (q) {
+        if (q.maxRepeat > 1) cur().variable = true;
+        i = q.end;
+      }
+      continue;
+    }
+    if (c === '[') {
+      // Character class: quantifiers inside are literal, so skip to the close.
+      i++;
+      if (pattern[i] === '^') i++;
+      if (pattern[i] === ']') i++; // literal ] as first class member
+      while (i < n && pattern[i] !== ']') i += pattern[i] === '\\' ? 2 : 1;
+      i++; // consume ]
+      const q = parseQuantifier(pattern, i);
+      if (q) {
+        if (q.maxRepeat > 1) cur().variable = true;
+        i = q.end;
+      }
+      continue;
+    }
+    if (c === '(') {
+      // Step past a group prefix — (?: , (?= , (?! , (?<= , (?<! , (?<name> .
+      let j = i + 1;
+      if (pattern[j] === '?') {
+        j++;
+        if (pattern[j] === '<' && pattern[j + 1] !== '=' && pattern[j + 1] !== '!') {
+          j++;
+          while (j < n && pattern[j] !== '>') j++;
+          j++;
+        } else if (pattern[j] === '<') j += 2;
+        else if (pattern[j] === ':' || pattern[j] === '=' || pattern[j] === '!') j++;
+      }
+      stack.push({ variable: false });
+      i = j;
+      continue;
+    }
+    if (c === ')') {
+      const frame = stack.pop() ?? { variable: false };
+      i++;
+      const q = parseQuantifier(pattern, i);
+      if (q && q.maxRepeat > 1 && frame.variable) return true; // nested quantifier
+      // A variable subgroup bubbles up structurally; repeating the group at all
+      // adds variability to the parent.
+      cur().variable = cur().variable || frame.variable || (q ? q.maxRepeat > 1 : false);
+      if (q) i = q.end;
+      continue;
+    }
+    // Ordinary atom (literal or `.`); a quantifier may follow.
+    i++;
+    const q = parseQuantifier(pattern, i);
+    if (q) {
+      if (q.maxRepeat > 1) cur().variable = true;
+      i = q.end;
+    }
+  }
+  return false;
+}
+
+/**
+ * Regex features the submit-time engine (RE2, linear-time / backtracking-immune
+ * — see backend `regex-engine.ts`) cannot execute: backreferences (`\1`,
+ * `\k<name>`) and lookaround (`(?=`, `(?!`, `(?<=`, `(?<!`). RE2 rejects these
+ * at compile time, so a merchant pattern using one would reject EVERY
+ * submission at runtime. We detect them here (in the isomorphic save-time
+ * schema, which never bundles the native module) and reject the pattern up
+ * front instead. Named groups `(?<name>...)` and non-capturing `(?:...)` ARE
+ * supported and must not be flagged.
+ */
+export function usesUnsupportedRegexFeature(pattern: string): boolean {
+  const n = pattern.length;
+  let i = 0;
+  let inClass = false;
+  while (i < n) {
+    const c = pattern[i];
+    if (c === '\\') {
+      const next = pattern[i + 1];
+      // Backreferences are meaningful only outside a character class.
+      if (!inClass && next !== undefined && ((next >= '1' && next <= '9') || next === 'k')) {
+        return true;
+      }
+      i += 2; // escaped atom — consume the escape + its target
+      continue;
+    }
+    if (inClass) {
+      if (c === ']') inClass = false;
+      i++;
+      continue;
+    }
+    if (c === '[') {
+      inClass = true;
+      i++;
+      continue;
+    }
+    if (c === '(' && pattern[i + 1] === '?') {
+      const marker = pattern[i + 2];
+      // Lookahead (?= (?! and lookbehind (?<= (?<! — but NOT named group (?<name>.
+      if (marker === '=' || marker === '!') return true;
+      if (marker === '<' && (pattern[i + 3] === '=' || pattern[i + 3] === '!')) return true;
+    }
+    i++;
+  }
+  return false;
+}
+
+/**
+ * A merchant-supplied validation regex — must compile, must not exhibit a
+ * catastrophic-backtracking shape, and must be runnable by the RE2 submit-time
+ * engine (P1-1 ReDoS). The 500-char cap bounds the lint cost itself.
+ */
 export const regexPatternSchema = z
   .string()
   .min(1)
@@ -95,7 +270,13 @@ export const regexPatternSchema = z
       }
     },
     { message: 'pattern must be a valid regular expression' },
-  );
+  )
+  .refine((pattern) => !hasCatastrophicBacktracking(pattern), {
+    message: 'pattern is too complex (catastrophic backtracking) and is not allowed',
+  })
+  .refine((pattern) => !usesUnsupportedRegexFeature(pattern), {
+    message: 'pattern uses an unsupported feature (backreferences and lookaround are not allowed)',
+  });
 
 export const minMaxConsistent = (v: {
   minLength?: number | undefined;

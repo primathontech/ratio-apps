@@ -20,6 +20,7 @@ import { useForm } from '@/hooks/useForms';
 import {
   type DeliveryRow,
   downloadSubmissionsCsv,
+  EXPORT_POLL_MAX_MS,
   type SubmissionListItem,
   useCreateExport,
   useDeliveries,
@@ -54,10 +55,19 @@ export function SubmissionsScreen({ formId }: { formId: string }) {
   const createExport = useCreateExport(formId);
   const exportJob = useExportJob(formId, jobId);
 
-  // React to the polled job settling: ready → plain S3 navigation (no
-  // blob/CORS); failed → surface an error. Then reset the flow.
+  // React to the polled job settling: ready -> plain S3 navigation (no
+  // blob/CORS); failed or a poll error -> surface an error. Then reset the flow.
   useEffect(() => {
-    if (!jobId || !exportJob.data) return;
+    if (!jobId) return;
+    // A poll error (network/500) would otherwise leave the button spinning
+    // forever, since `data` stays undefined and the branches below never run.
+    if (exportJob.isError) {
+      setJobId(null);
+      setExporting(false);
+      void message.error('Export failed. Please try again.');
+      return;
+    }
+    if (!exportJob.data) return;
     const { status, downloadUrl } = exportJob.data;
     if (status === 'ready' && downloadUrl) {
       setJobId(null);
@@ -68,7 +78,19 @@ export function SubmissionsScreen({ formId }: { formId: string }) {
       setExporting(false);
       void message.error('Export failed. Please try again.');
     }
-  }, [jobId, exportJob.data]);
+  }, [jobId, exportJob.data, exportJob.isError]);
+
+  // Backstop for a job that never leaves `processing` (crashed worker): the
+  // hook's poll cap stops the query, and this timeout clears the stuck UI.
+  useEffect(() => {
+    if (!jobId) return;
+    const timer = setTimeout(() => {
+      setJobId(null);
+      setExporting(false);
+      void message.error('Export is taking too long. Please try again.');
+    }, EXPORT_POLL_MAX_MS);
+    return () => clearTimeout(timer);
+  }, [jobId]);
 
   const onExport = async () => {
     setExporting(true);

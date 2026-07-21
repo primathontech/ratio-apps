@@ -274,6 +274,10 @@ describe('BuilderScreen', () => {
     await screen.findByLabelText('Field label');
     expect(screen.queryByLabelText('Prefix')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Show character counter')).not.toBeInTheDocument();
+    // The type-specific note is a subtle inline hint, not a padded Alert box.
+    expect(
+      screen.getByText('Accepts Indian mobile numbers only (+91, 10 digits).'),
+    ).toBeInTheDocument();
   });
 
   it('pins a per-field input variant through Advanced style and saves it (§2.2)', async () => {

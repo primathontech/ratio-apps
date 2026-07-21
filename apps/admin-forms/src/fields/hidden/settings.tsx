@@ -23,7 +23,7 @@ export function HiddenSettings({
           value={field.paramName}
           onChange={(e) => patch({ paramName: e.target.value })}
         />
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+        <Typography.Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
           Captured from the page URL query string; never shown to the visitor.
         </Typography.Text>
       </SettingRow>

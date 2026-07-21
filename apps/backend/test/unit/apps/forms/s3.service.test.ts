@@ -57,6 +57,13 @@ describe('FormsS3Service (TDD §3.6)', () => {
     expect(FORMS_SIGNED_GET_EXPIRY_SECONDS).toBe(7 * 24 * 60 * 60);
   });
 
+  it('signed GET forces attachment content-disposition (P2-3 XSS-on-download guard)', async () => {
+    const presigner = new FakeS3Presigner();
+    const service = new FormsS3Service(presigner);
+    await service.signedGetUrl('m_1/form_sink/draft_x/resume');
+    expect(presigner.gets[0]?.responseContentDisposition).toBe('attachment');
+  });
+
   it('mints a fresh draft id per upload (no key reuse)', async () => {
     const presigner = new FakeS3Presigner();
     const service = new FormsS3Service(presigner);

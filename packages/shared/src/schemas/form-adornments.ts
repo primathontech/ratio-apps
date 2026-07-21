@@ -13,10 +13,18 @@ import type { FormFieldType } from './form-schema';
  * Excludes textarea (multiline, chip has no baseline to sit on) and phone
  * (already carries its own +91 prefix chip).
  */
-export const FORM_ADORNABLE_FIELD_TYPES = ['text', 'email', 'url', 'number'] as const satisfies readonly FormFieldType[];
+export const FORM_ADORNABLE_FIELD_TYPES = [
+  'text',
+  'email',
+  'url',
+  'number',
+] as const satisfies readonly FormFieldType[];
 
 /** Field types where a character counter is meaningful — they support a maxLength. */
-export const FORM_COUNTER_FIELD_TYPES = ['text', 'textarea'] as const satisfies readonly FormFieldType[];
+export const FORM_COUNTER_FIELD_TYPES = [
+  'text',
+  'textarea',
+] as const satisfies readonly FormFieldType[];
 
 /** True when a field type can carry a prefix/suffix chip (§2.3). */
 export const isAdornable = (type: FormFieldType): boolean =>

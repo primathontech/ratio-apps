@@ -12,6 +12,7 @@ export type FormsThemeInput = FormAppearance | undefined;
 
 type FontFamily = FormAppearance['typography']['fontFamily'];
 type ButtonSize = FormAppearance['layout']['buttonSize'];
+type InputSize = FormAppearance['layout']['inputSize'];
 type BackgroundConfig = FormAppearance['background'];
 
 // Curated font stacks, keyed by the shared FORM_FONT_FAMILIES enum. 'system'
@@ -71,6 +72,15 @@ const BUTTON_SIZE: Record<ButtonSize, { padY: string; font: string }> = {
   sm: { padY: 'var(--wz-pad-y)', font: 'calc(var(--wz-font-size) - 1px)' },
   md: { padY: 'calc(var(--wz-pad-y) + 2px)', font: 'var(--wz-font-size)' },
   lg: { padY: 'calc(var(--wz-pad-y) + 6px)', font: 'calc(var(--wz-font-size) + 2px)' },
+};
+
+// Input size (§1.9) → min control height (px) for text inputs, selects, and
+// textareas. 'md' is the default (~today). Height only: vertical padding still
+// comes from density / the §1.6 inputPadY override, so this composes with both.
+const INPUT_SIZE: Record<InputSize, number> = {
+  sm: 34,
+  md: 40,
+  lg: 48,
 };
 
 /**
@@ -156,6 +166,8 @@ export function themeVars(appearance?: FormsThemeInput): string {
   const padY = l?.inputPadY ?? density.padY;
   // §1.5 — button size tokens; 'md' reproduces today.
   const btnSize = BUTTON_SIZE[l?.buttonSize ?? 'md'];
+  // §1.9 — input min-height; 'md' reproduces today.
+  const inputMinH = INPUT_SIZE[l?.inputSize ?? 'md'];
   // §2.4 — transitions are OFF by default (today). Only when animations is on
   // does the duration token become non-zero, so an un-toggled form has no
   // transitions; the renderer still collapses it to ~0 under
@@ -208,6 +220,8 @@ export function themeVars(appearance?: FormsThemeInput): string {
     `--wz-gap: ${gap}px; ` +
     `--wz-pad-y: ${padY}px; ` +
     `--wz-pad-x: 10px; ` +
+    // §1.9 — min control height for text inputs, selects, and textareas.
+    `--wz-input-min-h: ${inputMinH}px; ` +
     `--wz-max-width: ${l?.maxWidth ?? 640}px; ` +
     `--wz-btn-radius: ${btnRadius}; ` +
     `--wz-btn-align: ${btnAlign}; ` +

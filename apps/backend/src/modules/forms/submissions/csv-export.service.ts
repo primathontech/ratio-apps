@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { FormField } from '@ratio-app/shared/schemas/form-schema';
+import { type FormField, isCollectableFieldType } from '@ratio-app/shared/schemas/form-schema';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
 import type { FormsDatabase } from '../db/types';
 import { FORMS_DB_TOKEN } from '../kysely.module';
@@ -50,7 +50,10 @@ export class CsvExportService {
       typeof form.schemaJson === 'string'
         ? (JSON.parse(form.schemaJson) as FormField[])
         : form.schemaJson;
-    const keys = schema.map((f) => f.key);
+    // Content blocks (heading/divider/paragraph/image) carry a key but never
+    // produce a data_json entry — filter them so the CSV shape matches the
+    // webhook/validator contract instead of emitting phantom empty columns.
+    const keys = schema.filter((f) => isCollectableFieldType(f.type)).map((f) => f.key);
 
     await sink.write(`${[...keys, 'submitted_at'].map(CsvExportService.escape).join(',')}\n`);
 

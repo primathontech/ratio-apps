@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  type GoogleDiscoverResponse,
   googleConfigInputSchema,
   googleDiscoverResponseSchema,
-  type GoogleDiscoverResponse,
 } from './google-config';
 
 describe('google-config input schema', () => {
@@ -61,7 +61,9 @@ describe('google-config input schema', () => {
 describe('googleDiscoverResponseSchema', () => {
   it('parses a full discovery payload', () => {
     const value: GoogleDiscoverResponse = {
-      ga4: { streams: [{ measurementId: 'G-ABC123', displayName: 'Web', property: 'properties/1' }] },
+      ga4: {
+        streams: [{ measurementId: 'G-ABC123', displayName: 'Web', property: 'properties/1' }],
+      },
       gmc: { accounts: [{ merchantId: '1234567' }] },
     };
     expect(googleDiscoverResponseSchema.parse(value)).toEqual(value);

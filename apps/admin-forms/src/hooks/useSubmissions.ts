@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useRef } from 'react';
 import { api } from '../lib/api';
 import { queryKeys } from '../lib/queryKeys';
 import { useMerchantStore } from '../stores/useMerchantStore';
@@ -108,20 +109,37 @@ export function useCreateExport(formId: string) {
   });
 }
 
+/** Poll cadence and the cap after which a job stuck in a non-terminal state is abandoned. */
+export const EXPORT_POLL_INTERVAL_MS = 2000;
+export const EXPORT_POLL_MAX_MS = 60000;
+
 /**
  * Poll an export job every ~2s until it reaches a terminal state
  * (`ready`/`failed`), at which point polling stops. Enabled only while a
- * `jobId` is set.
+ * `jobId` is set. Polling also stops after `EXPORT_POLL_MAX_MS` so a job that
+ * never leaves `processing` (crashed worker) cannot spin forever.
  */
 export function useExportJob(formId: string, jobId: string | null) {
   const token = useMerchantStore((s) => s.token);
+  // Anchor the poll window to the first render for this jobId; reset when it
+  // clears so a subsequent export gets a fresh budget. A job that keeps
+  // returning `processing` refreshes dataUpdatedAt on every poll, so we cannot
+  // rely on that to detect "stuck" — a stable start timestamp is required.
+  const startedAtRef = useRef<number | null>(null);
+  if (!jobId) startedAtRef.current = null;
+  else if (startedAtRef.current === null) startedAtRef.current = Date.now();
+
   return useQuery({
     queryKey: queryKeys.exportJob(formId, jobId ?? ''),
     queryFn: () => api<ExportJobResult>('GET', `/api/forms/${formId}/exports/${jobId}`),
     enabled: !!token && !!jobId,
     refetchInterval: (query) => {
       const status = query.state.data?.status;
-      return status === 'ready' || status === 'failed' ? false : 2000;
+      if (status === 'ready' || status === 'failed') return false;
+      // Stop polling a job that never settles (crashed worker) once past the cap.
+      const startedAt = startedAtRef.current;
+      if (startedAt !== null && Date.now() - startedAt > EXPORT_POLL_MAX_MS) return false;
+      return EXPORT_POLL_INTERVAL_MS;
     },
   });
 }

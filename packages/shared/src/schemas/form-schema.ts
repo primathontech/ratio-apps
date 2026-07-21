@@ -155,6 +155,12 @@ export type FormColumnMode = (typeof FORM_COLUMN_MODES)[number];
 export const FORM_BUTTON_SIZES = ['sm', 'md', 'lg'] as const;
 export type FormButtonSize = (typeof FORM_BUTTON_SIZES)[number];
 
+// Input size (§1.9): 'md' = today. Drives the text-input/select/textarea
+// min-height token only — distinct from density (field spacing) and the §1.6
+// inputPadY override (input vertical padding).
+export const FORM_INPUT_SIZES = ['sm', 'md', 'lg'] as const;
+export type FormInputSize = (typeof FORM_INPUT_SIZES)[number];
+
 // Optional leading glyph on the submit button (§1.5). Rendered from a curated
 // inline-SVG map keyed by the enum — never a URL, zero injection surface.
 export const FORM_BUTTON_ICONS = ['none', 'arrow', 'check', 'send'] as const;
@@ -221,6 +227,8 @@ const appearanceLayoutSchema = z
     shadow: z.enum(FORM_SHADOWS).default('sm'), // card drop shadow
     // §1.2 — input look; 'outlined' = today (no host attribute).
     inputVariant: z.enum(FORM_INPUT_VARIANTS).default('outlined'),
+    // §1.9 — text-input/select/textarea height; 'md' = today (~40px).
+    inputSize: z.enum(FORM_INPUT_SIZES).default('md'),
     // §1.5 — submit button size + optional leading glyph; 'md'/'none' = today.
     buttonSize: z.enum(FORM_BUTTON_SIZES).default('md'),
     buttonIcon: z.enum(FORM_BUTTON_ICONS).default('none'),

@@ -208,6 +208,16 @@ describe('themeVars', () => {
     expect(lg).toContain('--wz-btn-pad-y: calc(var(--wz-pad-y) + 6px)');
   });
 
+  it('maps inputSize to the min-height token; md reproduces today (§1.9)', () => {
+    expect(themeVars(appearance())).toContain('--wz-input-min-h: 40px');
+    expect(themeVars(appearance({ layout: { inputSize: 'sm' } }))).toContain(
+      '--wz-input-min-h: 34px',
+    );
+    expect(themeVars(appearance({ layout: { inputSize: 'lg' } }))).toContain(
+      '--wz-input-min-h: 48px',
+    );
+  });
+
   it('lets explicit fieldGap / inputPadY override the density preset (§1.6)', () => {
     // Density spacious would give gap 20 / padY 11; the explicit values win.
     const css = themeVars(

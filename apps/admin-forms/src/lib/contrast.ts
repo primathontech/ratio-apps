@@ -10,9 +10,9 @@ function parseHex(hex: string): [number, number, number] | null {
   let g: string;
   let b: string;
   if (m.length === 3) {
-    r = m[0]! + m[0]!;
-    g = m[1]! + m[1]!;
-    b = m[2]! + m[2]!;
+    r = `${m[0]}${m[0]}`;
+    g = `${m[1]}${m[1]}`;
+    b = `${m[2]}${m[2]}`;
   } else if (m.length === 6 || m.length === 8) {
     r = m.slice(0, 2);
     g = m.slice(2, 4);

@@ -1,12 +1,5 @@
-import { Alert } from '@primathonos/orion';
+import { FieldHint } from '../_shared/FieldHint';
 
 export function DividerSettings() {
-  return (
-    <Alert
-      type="info"
-      showIcon
-      message="Divider"
-      description="A horizontal rule shown between fields. Nothing to configure."
-    />
-  );
+  return <FieldHint title="Divider">A horizontal rule shown between fields.</FieldHint>;
 }

@@ -257,6 +257,51 @@ describe('SubmissionsService.submitPublic — the PublicFormGuard chain (AC6)', 
     );
   });
 
+  it('(5) duplicate 409 returns the ORIGINAL submissionId so a client can reconcile (P3-2)', async () => {
+    const { service } = setup({
+      forms: [contactForm()],
+      forms_configs: [configRow()],
+    });
+    const first = await service.submitPublic('form_contact', VALID_CONTACT_PAYLOAD, meta);
+    vi.advanceTimersByTime(4_900);
+    try {
+      await service.submitPublic('form_contact', VALID_CONTACT_PAYLOAD, meta);
+      expect.unreachable('expected 409');
+    } catch (err) {
+      const http = err as HttpException;
+      expect(http.getStatus()).toBe(409);
+      const body = http.getResponse() as { error_code?: string; submissionId?: string };
+      expect(body.error_code).toBe('duplicate_submission');
+      expect(body.submissionId).toBe(first.submissionId);
+    }
+  });
+
+  it('(6) insert + enqueue are atomic: an enqueue failure rolls back the submission so the retry re-inserts (P3-1)', async () => {
+    const { service, fake } = setup({
+      forms: [contactForm()],
+      forms_configs: [configRow()],
+    });
+    const enqueueSpy = vi
+      .spyOn(
+        service as unknown as { enqueueDeliveries: () => Promise<void> },
+        'enqueueDeliveries',
+      )
+      .mockRejectedValueOnce(new Error('delivery boom'));
+    await expect(
+      service.submitPublic('form_contact', VALID_CONTACT_PAYLOAD, meta),
+    ).rejects.toThrow('delivery boom');
+    // The transaction rolled back — no orphaned submission row.
+    expect(fake.inserts.filter((i) => i.table === 'form_submissions')).toHaveLength(0);
+    expect(fake.inserts.filter((i) => i.table === 'form_email_log')).toHaveLength(0);
+
+    // Retry in the SAME 5s bucket now succeeds (no phantom 409) and delivers.
+    enqueueSpy.mockRestore();
+    const retry = await service.submitPublic('form_contact', VALID_CONTACT_PAYLOAD, meta);
+    expect(retry.submissionId).toMatch(/^sub_/);
+    expect(fake.inserts.filter((i) => i.table === 'form_submissions')).toHaveLength(1);
+    expect(fake.inserts.filter((i) => i.table === 'form_email_log')).toHaveLength(1);
+  });
+
   it('(5) 5.1s later lands in the next bucket → accepted', async () => {
     const { service, fake } = setup({
       forms: [contactForm()],

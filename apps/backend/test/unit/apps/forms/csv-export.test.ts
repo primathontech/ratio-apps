@@ -49,6 +49,33 @@ describe('CsvExportService (AC8)', () => {
     expect(chunks[2]).toContain('Ravi');
   });
 
+  it('excludes non-collectable content blocks from the header (no phantom columns)', async () => {
+    // heading/divider/paragraph/image carry a key but never produce a data_json
+    // entry — the CSV header must match the webhook/validator contract.
+    const schema = [
+      { key: 'intro', type: 'heading', text: 'Contact us' },
+      { key: 'name', type: 'text', label: 'Name', required: true },
+      { key: 'sep', type: 'divider' },
+      { key: 'blurb', type: 'paragraph', text: 'Tell us more' },
+      { key: 'email', type: 'email', label: 'Email', required: true },
+      { key: 'logo', type: 'image', url: 'https://cdn.example/x.png' },
+      { key: 'message', type: 'textarea', label: 'Message', required: false },
+    ];
+    const { service, chunks, sink } = setup({
+      forms: [contactForm({ schemaJson: JSON.stringify(schema) })],
+      form_submissions: [submissionRow()],
+    });
+    await service.export(MERCHANT_ID, 'form_contact', sink);
+    expect(chunks[0]).toBe('name,email,message,submitted_at\n');
+    // No column for the content-block keys.
+    expect(chunks[0]).not.toContain('intro');
+    expect(chunks[0]).not.toContain('sep');
+    expect(chunks[0]).not.toContain('blurb');
+    expect(chunks[0]).not.toContain('logo');
+    // Data row width matches the filtered header (3 field cells + submitted_at).
+    expect(chunks[1]?.split(',')).toHaveLength(4);
+  });
+
   it('escapes commas, quotes, and newlines per RFC 4180', async () => {
     const { service, chunks, sink } = setup({
       forms: [contactForm()],

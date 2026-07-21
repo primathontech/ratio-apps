@@ -153,11 +153,26 @@ describe('DesignSettings', () => {
   it('dispatches the button size from the Buttons group (§1.5)', () => {
     const dispatch = vi.fn();
     renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />);
-    const large = screen.getByText('Large');
+    // Input size shares the Small/Medium/Large labels, so scope to the row.
+    const sizeRow = screen.getByText('Button size').closest('div') as HTMLElement;
+    const large = within(sizeRow).getByText('Large');
     fireEvent.click(large.closest('label') ?? large);
     expect(dispatch).toHaveBeenCalledWith({
       type: 'updateAppearance',
       patch: { layout: { buttonSize: 'lg' } },
+    });
+  });
+
+  it('dispatches the input size from the Inputs group (§1.9)', () => {
+    const dispatch = vi.fn();
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />);
+    // Button size shares the Small/Medium/Large labels, so scope to the row.
+    const sizeRow = screen.getByText('Input size').closest('div') as HTMLElement;
+    const large = within(sizeRow).getByText('Large');
+    fireEvent.click(large.closest('label') ?? large);
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateAppearance',
+      patch: { layout: { inputSize: 'lg' } },
     });
   });
 

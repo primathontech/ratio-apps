@@ -1,6 +1,11 @@
 import { randomBytes } from 'node:crypto';
 import type { Readable } from 'node:stream';
-import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Inject, Injectable, Optional } from '@nestjs/common';
@@ -34,6 +39,8 @@ export interface S3PresignerLike {
     region: string;
     key: string;
     expiresInSeconds: number;
+    /** Forced `Content-Disposition` on the signed response (P2-3 XSS guard). */
+    responseContentDisposition?: string;
   }): Promise<string>;
 }
 
@@ -59,6 +66,21 @@ export interface S3UploaderLike {
 
 /** DI token for the uploader override (tests inject a recorder fake). */
 export const FORMS_S3_UPLOADER = Symbol.for('ratio-app:forms:s3-uploader');
+
+/**
+ * Object-existence seam (P2-2). A submitted object key is fully guessable
+ * (`<merchantId>/<formId>/<draftId>/<fieldKey>` — merchantId/formId/fieldKey are
+ * public and the draft segment is the only unknown), so a well-formed key that
+ * passes structural validation may still point at nothing. This re-checks the
+ * object was actually uploaded before a submission stores a reference to it.
+ * Prod uses the `HeadObjectCommand` implementation below; tests inject a fake.
+ */
+export interface S3ObjectCheckerLike {
+  exists(params: { bucket: string; region: string; key: string }): Promise<boolean>;
+}
+
+/** DI token for the object-checker override (tests inject a fake). */
+export const FORMS_S3_OBJECT_CHECKER = Symbol.for('ratio-app:forms:s3-object-checker');
 
 /**
  * AWS-SDK-backed presigner. Credentials resolve through the SDK's default
@@ -112,10 +134,20 @@ class AwsSdkPresigner implements S3PresignerLike {
     region: string;
     key: string;
     expiresInSeconds: number;
+    responseContentDisposition?: string;
   }): Promise<string> {
     return getSignedUrl(
       this.client(params.region),
-      new GetObjectCommand({ Bucket: params.bucket, Key: params.key }),
+      new GetObjectCommand({
+        Bucket: params.bucket,
+        Key: params.key,
+        // Force the response Content-Disposition so a file whose bytes were
+        // falsified past the declared type (P2-3) can never be interpreted as
+        // an active document (HTML/JS) when an admin opens the signed link — it
+        // downloads instead of rendering. Subresource <img> previews are
+        // unaffected (disposition is ignored for image loads).
+        ResponseContentDisposition: params.responseContentDisposition,
+      }),
       { expiresIn: params.expiresInSeconds },
     );
   }
@@ -159,6 +191,38 @@ class AwsSdkUploader implements S3UploaderLike {
 }
 
 /**
+ * AWS-SDK-backed object checker. A single `HeadObject` per key: 2xx → exists,
+ * 404/NotFound → absent. Any other failure (creds/network) is surfaced rather
+ * than silently treated as absent, so a transient S3 outage does not reject
+ * otherwise-valid submissions as "file not found".
+ */
+class AwsSdkObjectChecker implements S3ObjectCheckerLike {
+  private readonly clients = new Map<string, S3Client>();
+
+  private client(region: string): S3Client {
+    let client = this.clients.get(region);
+    if (!client) {
+      client = new S3Client({ region });
+      this.clients.set(region, client);
+    }
+    return client;
+  }
+
+  async exists(params: { bucket: string; region: string; key: string }): Promise<boolean> {
+    try {
+      await this.client(params.region).send(
+        new HeadObjectCommand({ Bucket: params.bucket, Key: params.key }),
+      );
+      return true;
+    } catch (err) {
+      const meta = (err as { name?: string; $metadata?: { httpStatusCode?: number } }) ?? {};
+      if (meta.name === 'NotFound' || meta.$metadata?.httpStatusCode === 404) return false;
+      throw err;
+    }
+  }
+}
+
+/**
  * S3 presigning for form file uploads (TRD §2/§6).
  *
  * Object keys are strictly `<merchantId>/<formId>/<draftId>/<fieldKey>` —
@@ -173,13 +237,16 @@ class AwsSdkUploader implements S3UploaderLike {
 export class FormsS3Service {
   private readonly presigner: S3PresignerLike;
   private readonly uploader: S3UploaderLike;
+  private readonly objectChecker: S3ObjectCheckerLike;
 
   constructor(
     @Optional() @Inject(FORMS_S3_PRESIGNER) presigner?: S3PresignerLike,
     @Optional() @Inject(FORMS_S3_UPLOADER) uploader?: S3UploaderLike,
+    @Optional() @Inject(FORMS_S3_OBJECT_CHECKER) objectChecker?: S3ObjectCheckerLike,
   ) {
     this.presigner = presigner ?? new AwsSdkPresigner();
     this.uploader = uploader ?? new AwsSdkUploader();
+    this.objectChecker = objectChecker ?? new AwsSdkObjectChecker();
   }
 
   /** Uploads are enabled only when a bucket is configured. */
@@ -230,6 +297,22 @@ export class FormsS3Service {
       region: this.region(),
       key: objectKey,
       expiresInSeconds,
+      // Uploaded content-type is client-declared and never byte-verified
+      // (P2-3), so force download rather than inline rendering on every serve.
+      responseContentDisposition: 'attachment',
+    });
+  }
+
+  /**
+   * Whether an object actually exists at `objectKey` (P2-2 submit-time
+   * re-check). One `HeadObject` per call; throws only on a real S3 error, not
+   * on a plain miss (which returns false).
+   */
+  async exists(objectKey: string): Promise<boolean> {
+    return this.objectChecker.exists({
+      bucket: this.bucket(),
+      region: this.region(),
+      key: objectKey,
     });
   }
 

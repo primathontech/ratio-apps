@@ -5,7 +5,14 @@ export function renderMultiSelect(
   field: ControlFieldOf<'multi_select'>,
   ctx: FieldRenderCtx,
 ): TemplateResult {
-  return html`<div class="rf-checks" id=${ctx.id}>
+  return html`<div
+    class="rf-checks"
+    id=${ctx.id}
+    role="group"
+    aria-labelledby=${`rf-label-${field.key}`}
+    aria-invalid=${ctx.invalid}
+    aria-describedby=${ctx.describedBy}
+  >
     ${field.options.map((opt) => {
       const current = Array.isArray(ctx.values[field.key])
         ? (ctx.values[field.key] as string[])
