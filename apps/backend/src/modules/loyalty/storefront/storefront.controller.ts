@@ -26,12 +26,17 @@ export class StorefrontController {
 
   constructor(private readonly cfg: StorefrontConfigService) {}
 
+  // The loader is served `no-cache` (must revalidate every load) because its
+  // URL is unversioned — this stops a stale loader from pinning an old claim
+  // bundle. The loader in turn requests `loyalty-claim.js?v=<SDK_VERSION>`, so
+  // the claim bundle is content-versioned and safe to cache long: a version
+  // bump changes the URL and busts any stale service-worker/browser cache.
   @Get('loyalty-loader.js')
   loader(@Res() reply: FastifyReply): void {
     reply
       .header('content-type', 'text/javascript; charset=utf-8')
       .header('access-control-allow-origin', '*')
-      .header('cache-control', 'public, max-age=3600')
+      .header('cache-control', 'no-cache')
       .send(this.readBundle('loyalty-loader.js'));
   }
 
@@ -40,7 +45,7 @@ export class StorefrontController {
     reply
       .header('content-type', 'text/javascript; charset=utf-8')
       .header('access-control-allow-origin', '*')
-      .header('cache-control', 'public, max-age=3600')
+      .header('cache-control', 'public, max-age=31536000, immutable')
       .send(this.readBundle('loyalty-claim.js'));
   }
 

@@ -40,7 +40,7 @@ describe('loyalty StorefrontController', () => {
   });
 
   describe('bundle routes', () => {
-    it('serves loyalty-loader.js with JS content-type, CORS * and caching', () => {
+    it('serves loyalty-loader.js with JS content-type, CORS * and no-cache (unversioned URL must revalidate)', () => {
       readFileSyncMock.mockReturnValue('loader-js-bytes');
       const { controller } = makeController();
       const { reply, headers, send } = makeReply();
@@ -50,11 +50,11 @@ describe('loyalty StorefrontController', () => {
       expect(send).toHaveBeenCalledWith('loader-js-bytes');
       expect(headers['content-type']).toBe('text/javascript; charset=utf-8');
       expect(headers['access-control-allow-origin']).toBe('*');
-      expect(headers['cache-control']).toBe('public, max-age=3600');
+      expect(headers['cache-control']).toBe('no-cache');
       expect(String(readFileSyncMock.mock.calls[0]?.[0])).toContain('loyalty-loader.js');
     });
 
-    it('serves loyalty-claim.js with JS content-type, CORS * and caching', () => {
+    it('serves loyalty-claim.js with JS content-type, CORS * and immutable long-cache (content-versioned URL)', () => {
       readFileSyncMock.mockReturnValue('claim-js-bytes');
       const { controller } = makeController();
       const { reply, headers, send } = makeReply();
@@ -64,7 +64,7 @@ describe('loyalty StorefrontController', () => {
       expect(send).toHaveBeenCalledWith('claim-js-bytes');
       expect(headers['content-type']).toBe('text/javascript; charset=utf-8');
       expect(headers['access-control-allow-origin']).toBe('*');
-      expect(headers['cache-control']).toBe('public, max-age=3600');
+      expect(headers['cache-control']).toBe('public, max-age=31536000, immutable');
       expect(String(readFileSyncMock.mock.calls[0]?.[0])).toContain('loyalty-claim.js');
     });
 
