@@ -16,7 +16,9 @@ const ctx = (value: unknown): FieldValidateCtx => ({ values: { n: value }, files
 // a multiple of step measured from the base (min, or 0). Server is authoritative.
 describe('validateNumber (step multiple-of, P2-4 client parity)', () => {
   it('rejects a value off the step grid', () => {
-    expect(validateNumber(field({ min: 0, step: 5 }), ctx(3))).toBe('must be a multiple of 5');
+    expect(validateNumber(field({ min: 0, step: 5 }), ctx(3))).toBe(
+      'Please enter a multiple of 5.',
+    );
   });
 
   it('accepts a value on the step grid', () => {
@@ -25,6 +27,8 @@ describe('validateNumber (step multiple-of, P2-4 client parity)', () => {
 
   it('offsets the grid by the base (min)', () => {
     expect(validateNumber(field({ min: 2, step: 5 }), ctx(7))).toBeNull();
-    expect(validateNumber(field({ min: 2, step: 5 }), ctx(5))).toBe('must be a multiple of 5');
+    expect(validateNumber(field({ min: 2, step: 5 }), ctx(5))).toBe(
+      'Please enter a multiple of 5.',
+    );
   });
 });

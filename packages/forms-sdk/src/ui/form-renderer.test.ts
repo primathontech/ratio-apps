@@ -198,7 +198,7 @@ describe('ratio-form client-side validation', () => {
     const { el, fetchImpl } = await mount();
     await submit(el);
     expect(shadow(el).querySelector('[data-error-for="full_name"]')?.textContent).toContain(
-      'this field is required',
+      'This field is required',
     );
     expect(shadow(el).querySelector('[data-error-for="email"]')).toBeTruthy();
     const posts = fetchImpl.mock.calls.filter((c) => (c[1] as RequestInit)?.method === 'POST');
@@ -242,7 +242,7 @@ describe('ratio-form client-side validation', () => {
     input.dispatchEvent(new Event('change'));
     await submit(el);
     expect(shadow(el).querySelector('[data-error-for="resume"]')?.textContent).toContain(
-      'allowed types',
+      'allowed type',
     );
     const posts = fetchImpl.mock.calls.filter((c) => (c[1] as RequestInit)?.method === 'POST');
     expect(posts).toHaveLength(0);
@@ -465,7 +465,9 @@ describe('ratio-form P0 field types', () => {
 
     setInput(el, 'qty', '99');
     await submit(el);
-    expect(shadow(el).querySelector('[data-error-for="qty"]')?.textContent).toContain('at most 10');
+    expect(shadow(el).querySelector('[data-error-for="qty"]')?.textContent).toContain(
+      '10 or less',
+    );
   });
 
   it('submits radio value + boolean consent on success', async () => {

@@ -762,7 +762,14 @@ export class RatioForm extends LitElement {
     // widens the per-member validator to the control-field union for dispatch.
     const ctx: FieldValidateCtx = { values: this.values, files: this.files };
     const mod = fieldControls[field.type] as FieldControlModule<ControlField['type']>;
-    return mod.validate(field, ctx);
+    const error = mod.validate(field, ctx);
+    // Merchant-authored custom message (§ production validation): when set it
+    // replaces the humanized default for ANY failure on this field. The backend
+    // applies the identical override, so client and server return the same
+    // string. Content blocks were already ruled out above (they carry no
+    // errorMessage); every control field carries the optional baseFieldShape.
+    if (error && field.errorMessage) return field.errorMessage;
+    return error;
   }
 
   private async onSubmit(event: Event): Promise<void> {

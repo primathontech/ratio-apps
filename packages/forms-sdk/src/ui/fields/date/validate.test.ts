@@ -22,11 +22,11 @@ describe('validateDate (strict ISO, P2-5 client parity)', () => {
 
   it('rejects an impossible calendar date instead of silently rolling it over', () => {
     // Date.parse('2026-02-30') yields a valid number (rolls to Mar 2); reject it.
-    expect(validateDate(field(), ctx('2026-02-30'))).toBe('must be a valid date');
+    expect(validateDate(field(), ctx('2026-02-30'))).toBe('Please enter a valid date.');
   });
 
   it('honors required vs optional on an empty value', () => {
-    expect(validateDate(field(true), ctx(''))).toBe('this field is required');
+    expect(validateDate(field(true), ctx(''))).toBe('This field is required.');
     expect(validateDate(field(false), ctx(''))).toBeNull();
   });
 });

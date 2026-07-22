@@ -49,7 +49,7 @@ describe('validateFileExists (P2-2)', () => {
   it('rejects a fabricated (well-formed but non-existent) key', async () => {
     const s3 = { exists: vi.fn(async () => false) };
     await expect(validateFileExists('m_1/form_x/draft_a/resume', s3)).resolves.toBe(
-      'uploaded file was not found',
+      'The uploaded file could not be found.',
     );
   });
 

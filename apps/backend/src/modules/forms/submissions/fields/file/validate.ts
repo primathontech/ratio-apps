@@ -31,20 +31,20 @@ export function validateFile(
   scope: { merchantId: string; formId: string },
 ): string | null {
   if (objectKey === undefined || objectKey === '') {
-    return field.required ? 'a file is required' : null;
+    return field.required ? 'Please attach a file.' : null;
   }
-  if (typeof objectKey !== 'string') return 'must be an uploaded file key';
+  if (typeof objectKey !== 'string') return 'Please attach a valid file.';
   // Exactly four non-empty segments: merchantId / formId / draftId / fieldKey.
   const segments = objectKey.split('/');
   if (segments.length !== 4 || segments.some((s) => s === '')) {
-    return 'file does not belong to this form';
+    return 'This file does not belong to this form.';
   }
   const [merchantId, formId, , fieldKey] = segments;
   if (merchantId !== scope.merchantId || formId !== scope.formId) {
-    return 'file does not belong to this form';
+    return 'This file does not belong to this form.';
   }
   if (fieldKey !== field.key) {
-    return 'file was not uploaded for this field';
+    return 'This file was not uploaded for this field.';
   }
   return null;
 }
@@ -69,5 +69,5 @@ export async function validateFileExists(
   objectKey: string,
   s3: ObjectExistenceChecker,
 ): Promise<string | null> {
-  return (await s3.exists(objectKey)) ? null : 'uploaded file was not found';
+  return (await s3.exists(objectKey)) ? null : 'The uploaded file could not be found.';
 }
