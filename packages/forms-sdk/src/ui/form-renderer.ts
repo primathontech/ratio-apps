@@ -428,6 +428,14 @@ export class RatioForm extends LitElement {
       }
       .rf-phone-prefix {
         flex: none;
+        /* Center "+91" on both axes. The prefix stretches to the input's
+           min-height via the flex row, but as a <span> it wouldn't center its
+           own text — without this the label sits at the top of the box. Flex
+           centering is height- and radius-independent, so it holds whether the
+           box renders as a rectangle (small radius) or a circle (pill radius). */
+        display: flex;
+        align-items: center;
+        justify-content: center;
         padding: var(--wz-pad-y) var(--wz-pad-x);
         border: 1px solid var(--wz-border);
         border-radius: var(--wz-radius);
