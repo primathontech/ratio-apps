@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Forms SDK fixture storefront</title>
+  </head>
+  <body>
+    <main>
+      <h1>Fixture storefront page</h1>
+      <!-- The per-form mount the SDK upgrades to a <ratio-form> renderer. -->
+      <div data-ratio-form="form_fixture_1"></div>
+    </main>
+    <!-- In production the backend serves prelude + widget at /forms/sdk/<merchantId>.js.
+         This fixture reproduces that: config prelude first, then the built widget. -->
+    <script>
+      window.__FORMS_SDK_CONFIG__ = { merchantId: 'm1', apiBase: '/forms' };
+    </script>
+    <script type="module" src="/dist/forms-widget.js"></script>
+  </body>
+</html>

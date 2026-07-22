@@ -53,6 +53,13 @@ const validEnv = {
   RATIO_RP_CLIENT_SECRET: 'rp_secret',
   RATIO_RP_CALLBACK_URL: 'http://localhost:3000/rp/api/v1/oauth/callback',
   RATIO_RP_ADMIN_BASE_URL: 'http://localhost:5174',
+  // `forms` app keys (derived from the APPS tuple — required by the schema).
+  RATIO_FORMS_DATABASE_URL: 'mysql://app:app@localhost:3306/forms_app',
+  RATIO_FORMS_DATA_ENCRYPTION_KEY: Buffer.alloc(32).toString('base64'),
+  RATIO_FORMS_CLIENT_ID: 'forms_id',
+  RATIO_FORMS_CLIENT_SECRET: 'forms_secret',
+  RATIO_FORMS_CALLBACK_URL: 'http://localhost:3000/forms/api/v1/oauth/callback',
+  RATIO_FORMS_ADMIN_BASE_URL: 'http://localhost:5174',
 };
 
 describe('envSchema', () => {

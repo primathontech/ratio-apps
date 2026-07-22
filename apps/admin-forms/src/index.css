@@ -1,0 +1,87 @@
+/*
+ * Admin global stylesheet.
+ *
+ * Component styles come from @primathonos/orion (Ant Design + Orion theme),
+ * which uses CSS-in-JS (no global CSS required). This file owns body resets,
+ * page-level layout helpers, and antd font-family override to Inter.
+ *
+ * Inter here dresses the admin CHROME only. The form preview renders inside the
+ * `<ratio-form>` element's shadow root (`:host { all: initial }`), so this font
+ * never reaches it: the SDK injects whichever Google Font the merchant picked
+ * at document scope, and the preview honors it like the live storefront does.
+ */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+
+:root {
+  /*
+   * Muted/secondary text token. Orion's secondary Typography resolves via
+   * antd's colorTextDescription (~#9b9b9c on white, roughly 3:1) which fails
+   * WCAG AA. This pins secondary text to Orion's colorTextSecondary (#5f6368,
+   * ~6:1 on white / ~5.8:1 on the #f8f8f8 table header) so every muted string
+   * shares one readable token instead of ad-hoc light grays.
+   */
+  --admin-text-muted: #5f6368;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  background: #fafafa;
+}
+
+/* Darken secondary Typography to the readable muted token (WCAG AA).
+   !important overrides Ant Design's CSS-in-JS color. */
+.ant-typography.ant-typography-secondary {
+  color: var(--admin-text-muted) !important;
+}
+
+.container {
+  max-width: 1024px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem;
+}
+
+@media (max-width: 600px) {
+  .container {
+    padding: 1rem 0.75rem;
+  }
+}
+
+/* Mobile tweaks for Ant Design surfaces used across the admin */
+@media (max-width: 600px) {
+  .ant-card-head {
+    padding: 0 12px;
+  }
+  .ant-card-head-wrapper {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 8px 0;
+  }
+  .ant-card-extra {
+    /* biome-ignore lint: required to override Ant Design defaults */
+    margin-left: 0 !important;
+    /* biome-ignore lint: required to override Ant Design defaults */
+    padding-left: 0 !important;
+    white-space: normal;
+  }
+  .ant-card-body {
+    padding: 16px 12px;
+  }
+  /* Let event-map table scroll horizontally without crushing cells */
+  .event-map-table .ant-table {
+    font-size: 13px;
+  }
+  .event-map-table .ant-table-cell {
+    /* biome-ignore lint: required to override Ant Design defaults */
+    padding: 8px !important;
+  }
+}

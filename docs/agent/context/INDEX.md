@@ -20,6 +20,7 @@ See [learnings.md](./learnings.md).
 - [meta — CONTEXT.md](../apps/meta/CONTEXT.md) — Facebook Pixel + Conversions API + Catalog Sync
 - [posthog — CONTEXT.md](../apps/posthog/CONTEXT.md) — PostHog product analytics
 - [moengage — CONTEXT.md](../apps/moengage/CONTEXT.md) — MoEngage customer engagement
+- [forms — CONTEXT.md](../apps/forms/CONTEXT.md) — Form Builder (first-party app: drag-and-drop builder admin + public submission intake + storefront form SDK)
 - [wizzy — CONTEXT.md](../apps/wizzy/CONTEXT.md) — Wizzy AI Search (catalog sync + storefront search SDK)
 
 ## Change journals

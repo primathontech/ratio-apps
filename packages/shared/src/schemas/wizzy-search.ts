@@ -124,9 +124,7 @@ export type WizzySearchResult = z.infer<typeof wizzySearchResultSchema>;
  */
 export const wizzyTrendingResultSchema = z.object({
   payload: z.object({
-    queries: z
-      .array(z.union([z.string(), z.object({}).passthrough()]))
-      .default([]),
+    queries: z.array(z.union([z.string(), z.object({}).passthrough()])).default([]),
   }),
 });
 
