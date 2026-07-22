@@ -514,6 +514,7 @@ describe('appearanceSchema (theme contract)', () => {
     expect(parsed.colors.buttonText).toBe('#ffffff');
     expect(parsed.typography.fontFamily).toBe('system');
     expect(parsed.typography.baseSize).toBe(14);
+    expect(parsed.typography.customGoogleFont).toBeUndefined();
     expect(parsed.layout.radius).toBe(10);
     expect(parsed.layout.density).toBe('comfortable');
     expect(parsed.layout.maxWidth).toBe(640);
@@ -717,6 +718,52 @@ describe('appearanceSchema (theme contract)', () => {
     expect(appearanceSchema.safeParse({ typography: { fontFamily: 'comic-sans' } }).success).toBe(
       false,
     );
+  });
+
+  it('accepts a valid custom Google font name', () => {
+    expect(appearanceSchema.parse({ typography: { customGoogleFont: 'Figtree' } }).typography
+      .customGoogleFont).toBe('Figtree');
+    // spaces and hyphens are allowed inside the name.
+    expect(appearanceSchema.parse({ typography: { customGoogleFont: 'Source Serif 4' } }).typography
+      .customGoogleFont).toBe('Source Serif 4');
+    expect(appearanceSchema.parse({ typography: { customGoogleFont: 'PT Sans-Caption' } }).typography
+      .customGoogleFont).toBe('PT Sans-Caption');
+  });
+
+  it('rejects a custom Google font name with injection characters', () => {
+    for (const bad of [
+      'Bad"; url(x)',
+      "Evil'",
+      'foo}',
+      'foo{',
+      'a<b',
+      'a>b',
+      'foo;',
+      'foo,bar',
+      'url(x)',
+      '@import',
+      'back\\slash',
+      'line\nbreak',
+    ]) {
+      expect(
+        appearanceSchema.safeParse({ typography: { customGoogleFont: bad } }).success,
+      ).toBe(false);
+    }
+  });
+
+  it('enforces length bounds on the custom Google font name', () => {
+    // empty (after trim) fails the min-length / leading-char requirement.
+    expect(appearanceSchema.safeParse({ typography: { customGoogleFont: '' } }).success).toBe(false);
+    expect(appearanceSchema.safeParse({ typography: { customGoogleFont: ' ' } }).success).toBe(
+      false,
+    );
+    // 50 chars is the max; 51 is rejected.
+    expect(
+      appearanceSchema.safeParse({ typography: { customGoogleFont: 'A'.repeat(50) } }).success,
+    ).toBe(true);
+    expect(
+      appearanceSchema.safeParse({ typography: { customGoogleFont: 'A'.repeat(51) } }).success,
+    ).toBe(false);
   });
 
   it('enforces numeric bounds on layout + typography', () => {

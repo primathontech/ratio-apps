@@ -2,7 +2,13 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { appearanceSchema, FORM_FONT_FAMILIES, type FormAppearance } from '@ratio-app/shared';
 import { describe, expect, it } from 'vitest';
-import { GOOGLE_FONT_HREF, safeCssUrl, themeVars } from './theme';
+import {
+  customGoogleFontHref,
+  GOOGLE_FONT_HREF,
+  safeCssUrl,
+  sanitizeFontName,
+  themeVars,
+} from './theme';
 
 /** Build a fully-defaulted appearance, optionally overriding a group. */
 function appearance(overrides: Record<string, unknown> = {}): FormAppearance {
@@ -151,6 +157,22 @@ describe('themeVars', () => {
     expect(css).toContain("--wz-font: 'Inter'");
     const serif = themeVars(appearance({ typography: { fontFamily: 'merriweather' } }));
     expect(serif).toContain("'Merriweather'");
+  });
+
+  it('lets a custom Google font win over the preset family, over the system fallback', () => {
+    const css = themeVars(
+      appearance({ typography: { fontFamily: 'inter', customGoogleFont: 'Figtree' } }),
+    );
+    expect(css).toContain(
+      "--wz-font: 'Figtree', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+    );
+    // The preset family is not used when a custom name is present.
+    expect(css).not.toContain("--wz-font: 'Inter'");
+  });
+
+  it('leaves the font stack on the enum path when no custom font is set', () => {
+    const css = themeVars(appearance({ typography: { fontFamily: 'inter' } }));
+    expect(css).toContain("--wz-font: 'Inter'");
   });
 
   it('emits a darkened primary-hover derived from the primary', () => {
@@ -380,5 +402,37 @@ describe('GOOGLE_FONT_HREF', () => {
 
   it('does not carry an entry for the system stack', () => {
     expect((GOOGLE_FONT_HREF as Record<string, string>).system).toBeUndefined();
+  });
+});
+
+describe('customGoogleFontHref', () => {
+  it('builds an https Google Fonts URL with spaces encoded as +', () => {
+    expect(customGoogleFontHref('Figtree')).toBe(
+      'https://fonts.googleapis.com/css2?family=Figtree&display=swap',
+    );
+    expect(customGoogleFontHref('Source Serif 4')).toBe(
+      'https://fonts.googleapis.com/css2?family=Source+Serif+4&display=swap',
+    );
+  });
+
+  it('re-sanitizes at the SDK layer so no injection survives (defense in depth)', () => {
+    // Anything outside [A-Za-z0-9 -] is stripped before the URL is composed.
+    expect(customGoogleFontHref('Bad"; url(x)')).toBe(
+      'https://fonts.googleapis.com/css2?family=Bad+urlx&display=swap',
+    );
+    expect(customGoogleFontHref('')).toBeNull();
+    expect(customGoogleFontHref(undefined)).toBeNull();
+    expect(customGoogleFontHref('"();{}')).toBeNull();
+  });
+});
+
+describe('sanitizeFontName', () => {
+  it('keeps plain names and strips unsafe characters', () => {
+    expect(sanitizeFontName('Figtree')).toBe('Figtree');
+    expect(sanitizeFontName('PT Sans-Caption')).toBe('PT Sans-Caption');
+    expect(sanitizeFontName('Bad"; url(x)')).toBe('Bad urlx');
+    expect(sanitizeFontName('  spaced   out  ')).toBe('spaced out');
+    expect(sanitizeFontName('')).toBeNull();
+    expect(sanitizeFontName('"();{}')).toBeNull();
   });
 });

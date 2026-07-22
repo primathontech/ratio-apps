@@ -185,6 +185,20 @@ export function DesignSettings({ appearance, dispatch }: Props) {
                     onChange={(value) => patch({ typography: { baseSize: value as number } })}
                   />
                 </Row>
+                <Row label="Custom Google font (name)">
+                  <Input
+                    aria-label="Custom Google font"
+                    placeholder="e.g. Figtree"
+                    value={typography.customGoogleFont ?? ''}
+                    style={{ width: '100%' }}
+                    onChange={(e) =>
+                      patch({ typography: { customGoogleFont: e.target.value.trim() || undefined } })
+                    }
+                  />
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    Overrides the preset above; must be on Google Fonts.
+                  </Typography.Text>
+                </Row>
               </div>
             ),
           },

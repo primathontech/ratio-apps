@@ -680,6 +680,23 @@ describe('ratio-form web fonts', () => {
     expect(document.head.querySelectorAll('#ratio-font-inter')).toHaveLength(1);
   });
 
+  it('injects a document-level <link> built from a custom Google font name', async () => {
+    await mount({
+      schema: {
+        status: 200,
+        body: {
+          data: kitchenSinkSchema({
+            appearance: appearanceWith({ typography: { customGoogleFont: 'Figtree' } }),
+          }),
+        },
+      },
+    });
+    const link = document.getElementById('ratio-font-custom-Figtree') as HTMLLinkElement | null;
+    expect(link).toBeTruthy();
+    expect(link?.rel).toBe('stylesheet');
+    expect(link?.href).toContain('family=Figtree');
+  });
+
   it('injects no font link for the system default', async () => {
     await mount();
     expect(document.head.querySelector('link[id^="ratio-font-"]')).toBeNull();
