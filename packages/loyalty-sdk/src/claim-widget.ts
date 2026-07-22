@@ -7,7 +7,7 @@ import type { LoyaltyClaimResponse, LoyaltyQrState, LoyaltyQrStatus } from '@rat
 import { css, html, LitElement, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { LoyaltyClient, LoyaltyClientError } from './client';
-import { getKwikPassToken, onLoggedIn, requestLogin } from './kwikpass';
+import { clearKwikPassToken, getKwikPassToken, onLoggedIn, requestLogin } from './kwikpass';
 
 /** Window event dispatched after a successful credit. */
 export const CLAIM_SUCCESS_EVENT = 'loyalty:claim:success';
@@ -45,7 +45,7 @@ export class LoyaltyClaimWidget extends LitElement {
   @state() private result?: LoyaltyClaimResponse;
   @state() private errorMessage = '';
 
-  /** Only re-trigger the login CTA ONCE after an `invalid_signature` claim. */
+  /** Only auto-re-prompt KwikPass login ONCE after an `invalid_session` claim. */
   private retriedLogin = false;
   private loginUnsub: (() => void) | undefined;
 
@@ -118,11 +118,15 @@ export class LoyaltyClaimWidget extends LitElement {
     this.phase = 'claiming';
     try {
       const res = await this.client.claim(this.code, token);
-      if (res.status === 'invalid_signature' && !this.retriedLogin) {
-        // Stale/foreign token (the BFF's re-signed request was rejected):
-        // re-trigger the login CTA, but only once.
+      if (res.status === 'invalid_session' && !this.retriedLogin) {
+        // The shopper's KwikPass session is stale/expired — the BFF couldn't
+        // resolve a verified phone. Drop the dead token and re-prompt login
+        // once; the resume-on-`user-loggedin` path retries the claim with the
+        // fresh token. (`invalid_signature`, by contrast, is a server/config
+        // error and falls straight through to a terminal message below.)
         this.retriedLogin = true;
-        this.emitError('invalid_signature');
+        this.emitError('invalid_session');
+        clearKwikPassToken();
         this.startLogin();
         return;
       }
@@ -147,6 +151,16 @@ export class LoyaltyClaimWidget extends LitElement {
       this.errorMessage = 'Something went wrong while claiming. Please try again.';
       this.emitError(err instanceof LoyaltyClientError ? `http_${err.status}` : 'network_error');
     }
+  }
+
+  /**
+   * Manual "log in & claim" retry offered after a terminal `invalid_session`:
+   * reset the one-shot guard, drop any dead token, and re-open KwikPass login.
+   */
+  private retryLogin(): void {
+    this.retriedLogin = false;
+    clearKwikPassToken();
+    this.startLogin();
   }
 
   private emitError(reason: string): void {
@@ -223,8 +237,16 @@ export class LoyaltyClaimWidget extends LitElement {
         `;
       case 'unavailable':
         return html`<p class="muted">${STATE_MESSAGES[r.state === 'active' ? 'paused' : r.state]}</p>`;
+      case 'invalid_session':
+        // A fresh login still didn't yield a usable session — offer a manual
+        // "log in & claim" retry rather than dead-ending.
+        return html`
+          <p class="error">Your login session has expired. Please log in to claim.</p>
+          <button class="cta" @click=${() => this.retryLogin()}>Log in &amp; claim</button>
+        `;
       default:
-        return html`<p class="error">We could not verify your session. Please try again later.</p>`;
+        // `invalid_signature` — a server/config error, not shopper-recoverable.
+        return html`<p class="error">We couldn't verify this reward right now. Please try again later.</p>`;
     }
   }
 

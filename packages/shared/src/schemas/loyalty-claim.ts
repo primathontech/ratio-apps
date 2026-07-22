@@ -76,7 +76,13 @@ export const loyaltyClaimResponseSchema = z.discriminatedUnion('status', [
     status: z.literal('unavailable'),
     state: loyaltyQrStateSchema,
   }),
+  // The backend rejected a properly-signed request (secret mismatch, clock
+  // skew, or merchantId mismatch). NOT shopper-recoverable via re-login.
   z.object({ status: z.literal('invalid_signature') }),
+  // The storefront BFF could not resolve a verified phone from the shopper's
+  // KwikPass token (stale/expired/missing session, or GoKwik rejected it).
+  // Shopper-recoverable: the widget re-prompts KwikPass login and retries.
+  z.object({ status: z.literal('invalid_session') }),
 ]);
 
 export type LoyaltyClaimResponse = z.infer<typeof loyaltyClaimResponseSchema>;

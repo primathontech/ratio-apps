@@ -189,29 +189,83 @@ describe('<loyalty-claim-widget>', () => {
       window.removeEventListener('loyalty:claim:error', onError);
     });
 
-    it('invalid_signature re-triggers the login CTA exactly once, then renders terminal', async () => {
+    it('invalid_session re-prompts KwikPass login exactly once, then renders terminal', async () => {
       setToken('stale-token');
       const onLoginRequest = vi.fn();
       window.addEventListener('loyalty:login:request', onLoginRequest);
-      const client = stubClient(activeStatus, { status: 'invalid_signature' });
+      const client = stubClient(activeStatus, { status: 'invalid_session' });
       const el = await mount(client);
 
-      // 1st invalid_signature → re-trigger login once
+      // 1st invalid_session → drop the stale token and re-prompt login once
       await el.onClaimClick();
       await el.updateComplete;
       expect(onLoginRequest).toHaveBeenCalledTimes(1);
       expect(shadowText(el).toLowerCase()).toContain('log in');
+      // the dead token was cleared so the resume path can't read it back
+      expect(window.localStorage.getItem('KWIKUSERTOKEN')).toBeNull();
 
-      // login completes but the claim is invalid_signature AGAIN → terminal copy
+      // fresh login → resume with the new token, still invalid_session → terminal
+      setToken('fresh-token');
       window.dispatchEvent(new CustomEvent('user-loggedin'));
       await el.updateComplete;
       await Promise.resolve();
       await el.updateComplete;
 
       expect(client.claim).toHaveBeenCalledTimes(2);
-      expect(onLoginRequest).toHaveBeenCalledTimes(1); // NOT re-triggered a second time
-      expect(shadowText(el).toLowerCase()).toContain('could not verify your session');
+      expect(client.claim).toHaveBeenLastCalledWith(CODE, 'fresh-token');
+      expect(onLoginRequest).toHaveBeenCalledTimes(1); // NOT auto-re-prompted again
+      const text = shadowText(el).toLowerCase();
+      expect(text).toContain('session has expired');
+      // terminal invalid_session offers a manual "log in & claim" retry button
+      expect(el.shadowRoot?.querySelector('button.cta')).not.toBeNull();
       window.removeEventListener('loyalty:login:request', onLoginRequest);
+    });
+
+    it('the terminal invalid_session retry button re-prompts login again', async () => {
+      setToken('stale-token');
+      const onLoginRequest = vi.fn();
+      window.addEventListener('loyalty:login:request', onLoginRequest);
+      const el = await mount(stubClient(activeStatus, { status: 'invalid_session' }));
+
+      // auto re-prompt (1), fresh login, still invalid → terminal with button
+      await el.onClaimClick();
+      await el.updateComplete;
+      setToken('fresh-token');
+      window.dispatchEvent(new CustomEvent('user-loggedin'));
+      await el.updateComplete;
+      await Promise.resolve();
+      await el.updateComplete;
+
+      // user taps the manual retry → login is re-prompted (2)
+      const retry = el.shadowRoot?.querySelector('button.cta') as HTMLButtonElement;
+      retry.click();
+      await el.updateComplete;
+      expect(onLoginRequest).toHaveBeenCalledTimes(2);
+      expect(shadowText(el).toLowerCase()).toContain('log in');
+      window.removeEventListener('loyalty:login:request', onLoginRequest);
+    });
+
+    it('invalid_signature renders a terminal error immediately (no login re-prompt)', async () => {
+      setToken('gk-token');
+      const onLoginRequest = vi.fn();
+      const onError = vi.fn();
+      window.addEventListener('loyalty:login:request', onLoginRequest);
+      window.addEventListener('loyalty:claim:error', onError);
+      const client = stubClient(activeStatus, { status: 'invalid_signature' });
+      const el = await mount(client);
+
+      await el.onClaimClick();
+      await el.updateComplete;
+
+      expect(client.claim).toHaveBeenCalledTimes(1); // no retry
+      expect(onLoginRequest).not.toHaveBeenCalled(); // config error, not a session issue
+      expect(shadowText(el).toLowerCase()).toContain("couldn't verify this reward");
+      expect((onError.mock.calls[0]?.[0] as CustomEvent).detail).toEqual({
+        code: CODE,
+        reason: 'invalid_signature',
+      });
+      window.removeEventListener('loyalty:login:request', onLoginRequest);
+      window.removeEventListener('loyalty:claim:error', onError);
     });
 
     it('renders the terminal message for an unavailable claim', async () => {

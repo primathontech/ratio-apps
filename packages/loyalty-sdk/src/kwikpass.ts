@@ -68,6 +68,23 @@ export function getKwikPassToken(): string | null {
 }
 
 /**
+ * Drop every stored KwikPass token (cookie + localStorage, all env variants).
+ * Called before re-prompting login after a stale/expired session, so the
+ * resume path doesn't immediately read the same dead token back.
+ */
+export function clearKwikPassToken(): void {
+  for (const key of KWIKPASS_TOKEN_KEYS) {
+    try {
+      window.localStorage.removeItem(key);
+    } catch {
+      // Safari private mode throws — ignore.
+    }
+    // Expire the cookie on the current path and host.
+    document.cookie = `${key}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+  }
+}
+
+/**
  * Ask the host page to open the KwikPass login modal: dispatch
  * `loyalty:login:request` (for the Shopkit wrapper widget) AND call
  * `window.handleCustomLogin(false)` directly as the non-wrapper fallback.
