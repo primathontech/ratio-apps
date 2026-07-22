@@ -116,6 +116,12 @@ const baseEnv = z.object({
   RP_OS_ADMIN_EMAIL: emptyAsUndefined(z.string().email()),
   RP_OS_ADMIN_PASSWORD: emptyAsUndefined(z.string().min(1)),
   RP_OS_ADMIN_NAME: emptyAsUndefined(z.string().min(1)),
+  // RP_PLATFORM_KILL_SWITCH_ENABLED: platform-wide emergency kill switch for the
+  // /rp/shopify/* compatibility API (PRD §11). Default 'true' (on) — flip to
+  // 'false' to make every /rp/shopify/* route return 503, independent of any
+  // per-merchant `returnExchangeEnabled` setting (which only hides the
+  // storefront button, not the API itself).
+  RP_PLATFORM_KILL_SWITCH_ENABLED: z.enum(['true', 'false']).default('true'),
 
   // ─── meta app: Meta Graph API base for Conversions API dispatch ───────────
   // Defaults to the real Graph API; override with a local mock URL for testing.

@@ -5,6 +5,7 @@ import {
   Logger,
   UnauthorizedException,
   BadRequestException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { FastifyRequest } from 'fastify';
@@ -60,6 +61,16 @@ export class RpRequestGuard implements CanActivate {
   ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
+    // Platform-wide emergency kill switch (PRD §11) — checked before the token/
+    // merchant lookup so a disabled deployment never touches the DB or leaks
+    // whether a store is installed.
+    const compatEnabled = this.config.get('RP_PLATFORM_KILL_SWITCH_ENABLED' as never, {
+      infer: true,
+    }) as string;
+    if (compatEnabled === 'false') {
+      throw new ServiceUnavailableException('Return Prime compatibility API is disabled');
+    }
+
     const req = ctx.switchToHttp().getRequest<RpRequest>();
     const token = req.headers['x-shopify-access-token'] as string | undefined;
     const expected = this.config.get('OS_RP_TOKEN', { infer: true });
