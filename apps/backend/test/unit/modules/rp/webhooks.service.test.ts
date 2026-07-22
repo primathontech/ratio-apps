@@ -15,6 +15,13 @@ import { RpWebhooksService } from '../../../../src/modules/rp/webhooks/webhooks.
  * adapter must also call RP's `POST /shopify-webhook/v1/os-uninstall` (the deactivation
  * counterpart to the existing `os-install` onboarding call), the same way `forward()`
  * already relays product webhooks to `${RP_BASE_URL}/shopify-webhook/v1/{topic}`.
+ *
+ * `setMerchantActiveStatus` is the shared implementation behind both the real OS
+ * `app/uninstalled` webhook (always `active=false`, via `handleAppUninstalled`) and the
+ * merchant's own pause/resume toggle in admin-rp (either direction, via
+ * `RpAdminController`). RP's `os-uninstall` endpoint doubles as the reactivate call too
+ * (an `active` flag in the body selects the direction) — OS has no OAuth/billing
+ * reinstall flow to hang a real "reactivate" event off of, unlike real Shopify.
  */
 const CONFIG_VALUES: Record<string, string> = {
   RP_BASE_URL: 'https://devapi.returnprime.co',
@@ -23,13 +30,13 @@ const CONFIG_VALUES: Record<string, string> = {
 
 function makeService(overrides: {
   findByMerchantId?: ReturnType<typeof vi.fn>;
-  deactivate?: ReturnType<typeof vi.fn>;
+  setActive?: ReturnType<typeof vi.fn>;
 } = {}) {
   const merchants = {
     findByMerchantId: overrides.findByMerchantId ?? vi.fn(),
-    deactivate: overrides.deactivate ?? vi.fn().mockResolvedValue(undefined),
+    setActive: overrides.setActive ?? vi.fn().mockResolvedValue(undefined),
   };
-  // transformer / orderSync are unused by handleAppUninstalled — plain stubs.
+  // transformer / orderSync are unused by these methods — plain stubs.
   const transformer = {};
   const config = { get: (key: string) => CONFIG_VALUES[key] };
   const orderSync = {};
@@ -51,35 +58,35 @@ describe('RpWebhooksService.handleAppUninstalled', () => {
 
   it('deactivates the merchant when OS reports the app was uninstalled', async () => {
     const findByMerchantId = vi.fn().mockResolvedValue({ merchantId: 'm1', domain: 'store.dev.gokwik.io' });
-    const deactivate = vi.fn().mockResolvedValue(undefined);
-    const service = makeService({ findByMerchantId, deactivate });
+    const setActive = vi.fn().mockResolvedValue(undefined);
+    const service = makeService({ findByMerchantId, setActive });
 
     await service.handleAppUninstalled('m1');
 
-    expect(deactivate).toHaveBeenCalledWith('m1');
+    expect(setActive).toHaveBeenCalledWith('m1', false);
   });
 
   it('is a no-op when the merchant is not found (unknown/stale merchant id)', async () => {
     const findByMerchantId = vi.fn().mockResolvedValue(undefined);
-    const deactivate = vi.fn();
-    const service = makeService({ findByMerchantId, deactivate });
+    const setActive = vi.fn();
+    const service = makeService({ findByMerchantId, setActive });
 
     await service.handleAppUninstalled('unknown');
 
-    expect(deactivate).not.toHaveBeenCalled();
+    expect(setActive).not.toHaveBeenCalled();
   });
 
   it('is a no-op when merchantId is missing', async () => {
-    const deactivate = vi.fn();
-    const service = makeService({ deactivate });
+    const setActive = vi.fn();
+    const service = makeService({ setActive });
 
     await service.handleAppUninstalled('');
 
-    expect(deactivate).not.toHaveBeenCalled();
+    expect(setActive).not.toHaveBeenCalled();
   });
 
   describe('relaying the uninstall to RP itself', () => {
-    it('calls RP\'s os-uninstall endpoint with the internal token and store domain', async () => {
+    it('calls RP\'s os-uninstall endpoint with the internal token, store domain, and active:false', async () => {
       const findByMerchantId = vi.fn().mockResolvedValue({ merchantId: 'm1', domain: 'store.dev.gokwik.io' });
       const service = makeService({ findByMerchantId });
 
@@ -90,7 +97,7 @@ describe('RpWebhooksService.handleAppUninstalled', () => {
         expect.objectContaining({
           method: 'POST',
           headers: expect.objectContaining({ 'X-OS-Internal-Token': 'rp-test-token' }),
-          body: JSON.stringify({ merchant_id: 'store.dev.gokwik.io' }),
+          body: JSON.stringify({ merchant_id: 'store.dev.gokwik.io', active: false }),
         }),
       );
     });
@@ -103,5 +110,68 @@ describe('RpWebhooksService.handleAppUninstalled', () => {
 
       expect(fetch).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('RpWebhooksService.setMerchantActiveStatus', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 })));
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('sets active=true locally and relays active:true to RP (merchant self-service resume)', async () => {
+    const setActive = vi.fn().mockResolvedValue(undefined);
+    const service = makeService({ setActive });
+
+    await service.setMerchantActiveStatus('m1', 'store.dev.gokwik.io', true);
+
+    expect(setActive).toHaveBeenCalledWith('m1', true);
+    expect(fetch).toHaveBeenCalledWith(
+      'https://devapi.returnprime.co/shopify-webhook/v1/os-uninstall',
+      expect.objectContaining({
+        body: JSON.stringify({ merchant_id: 'store.dev.gokwik.io', active: true }),
+      }),
+    );
+  });
+
+  it('sets active=false locally and relays active:false to RP (merchant self-service pause)', async () => {
+    const setActive = vi.fn().mockResolvedValue(undefined);
+    const service = makeService({ setActive });
+
+    await service.setMerchantActiveStatus('m1', 'store.dev.gokwik.io', false);
+
+    expect(setActive).toHaveBeenCalledWith('m1', false);
+    expect(fetch).toHaveBeenCalledWith(
+      'https://devapi.returnprime.co/shopify-webhook/v1/os-uninstall',
+      expect.objectContaining({
+        body: JSON.stringify({ merchant_id: 'store.dev.gokwik.io', active: false }),
+      }),
+    );
+  });
+
+  it('still updates locally even when RP is not configured, but skips the relay', async () => {
+    const setActive = vi.fn().mockResolvedValue(undefined);
+    const merchants = { findByMerchantId: vi.fn(), setActive };
+    const config = { get: () => undefined };
+    const service = new RpWebhooksService(
+      merchants as never,
+      {} as never,
+      config as never,
+      {} as never,
+    );
+
+    await service.setMerchantActiveStatus('m1', 'store.dev.gokwik.io', true);
+
+    expect(setActive).toHaveBeenCalledWith('m1', true);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('does not throw when the RP relay fails — local state change already succeeded', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('boom', { status: 500 })));
+    const setActive = vi.fn().mockResolvedValue(undefined);
+    const service = makeService({ setActive });
+
+    await expect(service.setMerchantActiveStatus('m1', 'store.dev.gokwik.io', true)).resolves.toBeUndefined();
+    expect(setActive).toHaveBeenCalledWith('m1', true);
   });
 });
