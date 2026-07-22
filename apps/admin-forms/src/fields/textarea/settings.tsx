@@ -27,12 +27,13 @@ export function TextareaValidationSettings({
             onChange={(e) => set({ ...validation, minLength: parseIntOr(e.target.value) })}
           />
         </SettingRow>
-        <SettingRow label={`Max length (≤ ${FORM_TEXTAREA_HARD_MAX_LENGTH})`} style={{ flex: 1 }}>
+        <SettingRow label="Max length" style={{ flex: 1 }}>
           <Input
             aria-label="Max length"
             type="number"
             min={1}
             max={FORM_TEXTAREA_HARD_MAX_LENGTH}
+            placeholder={`≤ ${FORM_TEXTAREA_HARD_MAX_LENGTH}`}
             value={validation.maxLength ?? ''}
             onChange={(e) => {
               const parsed = parseIntOr(e.target.value);
