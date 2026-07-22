@@ -10,9 +10,9 @@ const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
  * all of which then round-trip verbatim into data_json / CSV / webhook.
  */
 export function validateDate(_field: FieldOfType<'date'>, value: unknown): ServerValidateResult {
-  if (typeof value !== 'string') return { error: 'must be a date in YYYY-MM-DD format' };
+  if (typeof value !== 'string') return { error: 'Please enter a date in YYYY-MM-DD format.' };
   const m = ISO_DATE.exec(value.trim());
-  if (!m) return { error: 'must be a date in YYYY-MM-DD format' };
+  if (!m) return { error: 'Please enter a date in YYYY-MM-DD format.' };
   const year = Number(m[1]);
   const month = Number(m[2]);
   const day = Number(m[3]);
@@ -20,7 +20,7 @@ export function validateDate(_field: FieldOfType<'date'>, value: unknown): Serve
   // through a UTC date and checking the components survive unchanged.
   const dt = new Date(Date.UTC(year, month - 1, day));
   if (dt.getUTCFullYear() !== year || dt.getUTCMonth() !== month - 1 || dt.getUTCDate() !== day) {
-    return { error: 'must be a valid calendar date' };
+    return { error: 'Please enter a valid date.' };
   }
   return { value: `${m[1]}-${m[2]}-${m[3]}` };
 }

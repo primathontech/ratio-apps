@@ -83,6 +83,12 @@ export const baseFieldShape = {
   suffix: z.string().max(8).optional(),
   helpText: z.string().max(200).optional(),
   showCounter: z.boolean().default(false),
+  // Production validation messages — merchant-authored, schema-driven so both
+  // the SDK client validators and the backend server validators read the same
+  // value and return the identical string. `errorMessage` (when set) replaces
+  // the humanized default for ANY failure on this field (required/pattern/
+  // format/bounds); absent ⇒ the humanized default is shown.
+  errorMessage: z.string().max(500).optional(),
 };
 
 // Content blocks share only key + width — no label/required/validation. Keeping

@@ -145,7 +145,7 @@ describe('SchemaValidatorService — new P0 field types (radio / checkbox / numb
     it('rejects a missing required selection', () => {
       const result = run(schema, {});
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.errors.plan).toBe('this field is required');
+      if (!result.ok) expect(result.errors.plan).toBe('This field is required.');
     });
   });
 
@@ -166,13 +166,13 @@ describe('SchemaValidatorService — new P0 field types (radio / checkbox / numb
     it('rejects an unticked required box (false)', () => {
       const result = run(required, { consent: false });
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.errors.consent).toBe('this field is required');
+      if (!result.ok) expect(result.errors.consent).toBe('This field is required.');
     });
 
     it('rejects a non-boolean value', () => {
       const result = run(required, { consent: 'yes' });
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.errors.consent).toBe('must be a boolean');
+      if (!result.ok) expect(result.errors.consent).toBe('Please provide a valid response.');
     });
 
     it('accepts an unticked optional box and keeps the false value', () => {
@@ -208,13 +208,13 @@ describe('SchemaValidatorService — new P0 field types (radio / checkbox / numb
     it('rejects a non-numeric value', () => {
       const result = run(schema, { qty: 'abc' });
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.errors.qty).toBe('must be a number');
+      if (!result.ok) expect(result.errors.qty).toBe('Please enter a number.');
     });
 
     it('rejects a decimal when integer is required', () => {
       const result = run(schema, { qty: 2.5 });
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.errors.qty).toBe('must be a whole number');
+      if (!result.ok) expect(result.errors.qty).toBe('Please enter a whole number.');
     });
 
     it('enforces min and max bounds', () => {
@@ -253,19 +253,19 @@ describe('SchemaValidatorService — P1 field types (url / rating / hidden, §4)
     it('rejects a non-url string', () => {
       const result = run(schema, { site: 'not a url' });
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.errors.site).toBe('must be a valid URL');
+      if (!result.ok) expect(result.errors.site).toBe('Please enter a valid URL.');
     });
 
     it('rejects a non-http(s) scheme', () => {
       const result = run(schema, { site: 'javascript:alert(1)' });
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.errors.site).toBe('must be a valid http or https URL');
+      if (!result.ok) expect(result.errors.site).toBe('Please enter a valid http or https URL.');
     });
 
     it('rejects a non-string value', () => {
       const result = run(schema, { site: 42 });
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.errors.site).toBe('must be a string');
+      if (!result.ok) expect(result.errors.site).toBe('Please enter a valid URL.');
     });
 
     it('skips an empty optional url without error', () => {
@@ -298,19 +298,19 @@ describe('SchemaValidatorService — P1 field types (url / rating / hidden, §4)
     it('rejects 0 (below the 1 floor)', () => {
       const result = run(schema, { score: 0 });
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.errors.score).toBe('must be between 1 and 5');
+      if (!result.ok) expect(result.errors.score).toBe('Please choose a rating between 1 and 5.');
     });
 
     it('rejects a value above max', () => {
       const result = run(schema, { score: 6 });
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.errors.score).toBe('must be between 1 and 5');
+      if (!result.ok) expect(result.errors.score).toBe('Please choose a rating between 1 and 5.');
     });
 
     it('rejects a non-integer', () => {
       const result = run(schema, { score: 3.5 });
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.errors.score).toBe('must be a whole number');
+      if (!result.ok) expect(result.errors.score).toBe('Please enter a whole number.');
     });
 
     it('honors a custom max', () => {
@@ -360,7 +360,7 @@ describe('SchemaValidatorService — P1 field types (url / rating / hidden, §4)
       expect(result.ok).toBe(false);
       if (result.ok) return;
       // Only the required text field errors; blocks are silent.
-      expect(result.errors.name).toBe('this field is required');
+      expect(result.errors.name).toBe('This field is required.');
       for (const key of ['section', 'rule', 'note', 'banner']) {
         expect(key in result.errors).toBe(false);
       }
@@ -398,7 +398,7 @@ describe('SchemaValidatorService — P1 field types (url / rating / hidden, §4)
     it('rejects a value that is not a multiple of step', () => {
       const result = run(schema, { qty: 3 });
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.errors.qty).toBe('must be a multiple of 5');
+      if (!result.ok) expect(result.errors.qty).toBe('Please enter a multiple of 5.');
     });
 
     it('measures the step from min, not from zero', () => {
@@ -449,7 +449,7 @@ describe('SchemaValidatorService — P1 field types (url / rating / hidden, §4)
     it('rejects duplicate selections', () => {
       const result = run(schema, { ch: ['email', 'email'] });
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.errors.ch).toBe('selections must not contain duplicates');
+      if (!result.ok) expect(result.errors.ch).toBe('Please remove duplicate selections.');
     });
 
     it('rejects more selections than defined options', () => {
@@ -477,7 +477,7 @@ describe('SchemaValidatorService — P1 field types (url / rating / hidden, §4)
     it('rejects an input longer than the regex-input cap without running the regex', () => {
       const result = run(schema, { code: 'a'.repeat(1001) });
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.errors.code).toBe('does not match the required pattern');
+      if (!result.ok) expect(result.errors.code).toBe('Please enter a valid value.');
     });
   });
 
@@ -523,7 +523,7 @@ describe('SchemaValidatorService — P1 field types (url / rating / hidden, §4)
         scope,
       );
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.errors.avatar).toBe('file was not uploaded for this field');
+      if (!result.ok) expect(result.errors.avatar).toBe('This file was not uploaded for this field.');
     });
 
     it('rejects a key with the wrong segment count', () => {
@@ -537,7 +537,7 @@ describe('SchemaValidatorService — P1 field types (url / rating / hidden, §4)
         scope,
       );
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.errors.resume).toBe('file does not belong to this form');
+      if (!result.ok) expect(result.errors.resume).toBe('This file does not belong to this form.');
     });
   });
 
@@ -567,7 +567,7 @@ describe('SchemaValidatorService — P1 field types (url / rating / hidden, §4)
     it('rejects a non-string value', () => {
       const result = run(schema, { utm_source: { nested: true } });
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.errors.utm_source).toBe('must be a string');
+      if (!result.ok) expect(result.errors.utm_source).toBe('Please provide a valid value.');
     });
 
     it('rejects an over-long captured value (DoS guard)', () => {
@@ -582,7 +582,7 @@ describe('SchemaValidatorService — P1 field types (url / rating / hidden, §4)
       ];
       const result = run(required, {});
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.errors.ref).toBe('this field is required');
+      if (!result.ok) expect(result.errors.ref).toBe('This field is required.');
     });
   });
 });

@@ -60,11 +60,17 @@ export class SchemaValidatorService {
       // no data_json entry. Any stray submitted value is silently dropped.
       if (!isCollectableField(field)) continue;
 
+      // Merchant-authored custom message (§ production validation): when set it
+      // replaces the humanized default for ANY failure on this field. The SDK
+      // client validator applies the identical override, so client and server
+      // return the same string.
+      const custom = field.errorMessage;
+
       if (field.type === 'file') {
         const objectKey = files?.[field.key];
         const err = validateFile(field, objectKey, scope);
         if (err) {
-          errors[field.key] = err;
+          errors[field.key] = custom ?? err;
         } else if (objectKey) {
           outFiles[field.key] = objectKey;
         }
@@ -73,12 +79,12 @@ export class SchemaValidatorService {
 
       const value = fields[field.key];
       if (this.isEmpty(value)) {
-        if (field.required) errors[field.key] = 'this field is required';
+        if (field.required) errors[field.key] = custom ?? 'This field is required.';
         continue;
       }
       const result = this.validateValue(field, value);
       if (result.error !== undefined) {
-        errors[field.key] = result.error;
+        errors[field.key] = custom ?? result.error;
       } else {
         data[field.key] = result.value;
       }

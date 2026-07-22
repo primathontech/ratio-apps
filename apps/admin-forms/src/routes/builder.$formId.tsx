@@ -1,7 +1,8 @@
 import {
-  closestCenter,
   DndContext,
   type DragEndEvent,
+  type DragOverEvent,
+  MeasuringStrategy,
   PointerSensor,
   useDroppable,
   useSensor,
@@ -44,11 +45,11 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { type Dispatch, useEffect, useReducer, useState } from 'react';
 import { CanvasField } from '@/components/CanvasField';
 import { DesignSettings } from '@/components/DesignSettings';
-import { FieldPalette, PALETTE_PREFIX } from '@/components/FieldPalette';
+import { FieldPalette } from '@/components/FieldPalette';
 import { LivePreview } from '@/components/LivePreview';
 // Per-field settings panels (Phase 0 refactor): TypeSpecificSettings dispatches
 // through this registry; each panel lives in @/fields/<type>/settings.tsx.
-import { SettingRow, SettingRowGroup } from '@/fields/_shared/controls';
+import { FieldMessagesSettings, SettingRow, SettingRowGroup } from '@/fields/_shared/controls';
 import { fieldSettingsRegistry } from '@/fields/registry';
 import { useForm, useToggleFormStatus, useUpdateForm } from '@/hooks/useForms';
 import { useWebhookTest } from '@/hooks/useWebhookTest';
@@ -61,6 +62,14 @@ import {
   FIELD_TYPE_LABELS,
   toFormInput,
 } from '@/lib/builder-state';
+import {
+  CANVAS_DROPPABLE_ID,
+  canvasCollisionDetection,
+  isPaletteId,
+  paletteFieldType,
+  resolvePaletteIndex,
+  resolveReorder,
+} from '@/lib/dnd';
 
 export const Route = createFileRoute('/builder/$formId')({
   component: BuilderRoute,
@@ -109,27 +118,28 @@ export function BuilderScreen({ formId }: { formId: string }) {
 
   const status = form.data.status;
 
+  // Live reorder while dragging one row over another: the list shifts in real
+  // time in BOTH directions. `resolveReorder` returns null on a palette source,
+  // the container, or an unchanged position, so a settled drag never re-dispatches
+  // (dnd-kit only fires onDragOver when `over` changes → no feedback loop).
+  const onDragOver = (event: DragOverEvent) => {
+    const { active, over } = event;
+    const move = resolveReorder(String(active.id), over ? String(over.id) : null, state.fields);
+    if (move) dispatch({ type: 'reorderField', ...move });
+  };
+
+  // Field-to-field reorders are already committed live in onDragOver, so onDragEnd
+  // only handles palette drops: insert the new field at the hovered row's index,
+  // or append when dropped on the container / empty canvas / past the last row.
   const onDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     const activeId = String(active.id);
-    if (activeId.startsWith(PALETTE_PREFIX)) {
-      const fieldType = activeId.slice(PALETTE_PREFIX.length) as FormFieldType;
-      const overKey = over ? String(over.id) : null;
-      const index =
-        overKey && overKey !== 'builder-canvas'
-          ? state.fields.findIndex((f) => f.key === overKey)
-          : state.fields.length;
-      dispatch({
-        type: 'addField',
-        fieldType,
-        index: index === -1 ? state.fields.length : index,
-      });
-      return;
-    }
-    if (!over || active.id === over.id) return;
-    const from = state.fields.findIndex((f) => f.key === activeId);
-    const to = state.fields.findIndex((f) => f.key === String(over.id));
-    if (from !== -1 && to !== -1) dispatch({ type: 'reorderField', from, to });
+    if (!isPaletteId(activeId)) return;
+    dispatch({
+      type: 'addField',
+      fieldType: paletteFieldType(activeId) as FormFieldType,
+      index: resolvePaletteIndex(over ? String(over.id) : null, state.fields),
+    });
   };
 
   const onSave = () => {
@@ -216,7 +226,16 @@ export function BuilderScreen({ formId }: { formId: string }) {
       )}
       {update.error && <Alert type="error" showIcon message={(update.error as Error).message} />}
 
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={canvasCollisionDetection}
+        // Live reorder mutates the list mid-drag, so droppable rects must be
+        // re-measured continuously (default is measure-once-at-drag-start);
+        // otherwise collision runs against stale positions and `over` lags.
+        measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
+        onDragOver={onDragOver}
+        onDragEnd={onDragEnd}
+      >
         <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <FieldPalette dispatch={dispatch} />
           <Canvas state={state} dispatch={dispatch} />
@@ -270,7 +289,7 @@ export function BuilderScreen({ formId }: { formId: string }) {
 }
 
 function Canvas({ state, dispatch }: { state: BuilderState; dispatch: Dispatch<BuilderAction> }) {
-  const { setNodeRef } = useDroppable({ id: 'builder-canvas' });
+  const { setNodeRef } = useDroppable({ id: CANVAS_DROPPABLE_ID });
   return (
     <Card title="Form canvas" style={{ flex: '2 1 320px', minWidth: 280 }}>
       <div ref={setNodeRef} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -384,6 +403,8 @@ function FieldSettings({
         {'required' in field && (isAdornable(field.type) || supportsCounter(field.type)) && (
           <AdornmentSettings field={field} dispatch={dispatch} />
         )}
+        {/* Production validation messages — help text + custom error, for every input field. */}
+        {'required' in field && <FieldMessagesSettings field={field} dispatch={dispatch} />}
         {'required' in field && <AdvancedStyleSettings field={field} dispatch={dispatch} />}
       </Space>
     </Card>
@@ -428,15 +449,6 @@ function AdornmentSettings({
           </SettingRow>
         </SettingRowGroup>
       )}
-      <SettingRow label="Help text">
-        <Input
-          aria-label="Help text"
-          maxLength={200}
-          placeholder="Shown below the field"
-          value={field.helpText ?? ''}
-          onChange={(e) => patch({ helpText: e.target.value || undefined })}
-        />
-      </SettingRow>
       {supportsCounter(field.type) && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Switch

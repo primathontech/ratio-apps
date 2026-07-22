@@ -216,6 +216,9 @@ describe('BuilderScreen', () => {
     fireEvent.change(screen.getByLabelText('Help text'), {
       target: { value: 'Enter your legal name' },
     });
+    fireEvent.change(screen.getByLabelText('Custom error message'), {
+      target: { value: 'Please enter your full legal name.' },
+    });
     fireEvent.click(screen.getByLabelText('Show character counter'));
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => {
@@ -225,6 +228,9 @@ describe('BuilderScreen', () => {
       const field = parsed.success && parsed.data.schema[0];
       expect(field && 'prefix' in field && field.prefix).toBe('$');
       expect(field && 'helpText' in field && field.helpText).toBe('Enter your legal name');
+      expect(field && 'errorMessage' in field && field.errorMessage).toBe(
+        'Please enter your full legal name.',
+      );
       expect(field && 'showCounter' in field && field.showCounter).toBe(true);
     });
   });

@@ -5,7 +5,7 @@ export function validateDropdown(
   value: unknown,
 ): ServerValidateResult {
   if (typeof value !== 'string' || !field.options.includes(value)) {
-    return { error: 'must be one of the configured options' };
+    return { error: 'Please choose one of the available options.' };
   }
   return { value };
 }
