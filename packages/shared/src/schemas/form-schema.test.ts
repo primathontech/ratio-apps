@@ -405,6 +405,7 @@ describe('per-field style override (§2.2) and adornments (§2.3)', () => {
       expect(parsed.prefix).toBeUndefined();
       expect(parsed.suffix).toBeUndefined();
       expect(parsed.helpText).toBeUndefined();
+      expect(parsed.errorMessage).toBeUndefined();
       expect(parsed.showCounter).toBe(false);
     }
   });
@@ -433,18 +434,20 @@ describe('per-field style override (§2.2) and adornments (§2.3)', () => {
     ).toBe(false);
   });
 
-  it('accepts prefix/suffix/helpText/showCounter within bounds', () => {
+  it('accepts prefix/suffix/helpText/errorMessage/showCounter within bounds', () => {
     const parsed = formFieldSchema.parse({
       ...numberField,
       prefix: '$',
       suffix: '.00',
       helpText: 'Enter an amount in USD.',
+      errorMessage: 'Please enter a valid amount.',
       showCounter: true,
     });
     if (parsed.type === 'number') {
       expect(parsed.prefix).toBe('$');
       expect(parsed.suffix).toBe('.00');
       expect(parsed.helpText).toBe('Enter an amount in USD.');
+      expect(parsed.errorMessage).toBe('Please enter a valid amount.');
       expect(parsed.showCounter).toBe(true);
     }
   });
@@ -453,6 +456,9 @@ describe('per-field style override (§2.2) and adornments (§2.3)', () => {
     expect(formFieldSchema.safeParse({ ...textField, prefix: 'a'.repeat(9) }).success).toBe(false);
     expect(formFieldSchema.safeParse({ ...textField, suffix: 'a'.repeat(9) }).success).toBe(false);
     expect(formFieldSchema.safeParse({ ...textField, helpText: 'a'.repeat(201) }).success).toBe(
+      false,
+    );
+    expect(formFieldSchema.safeParse({ ...textField, errorMessage: 'a'.repeat(501) }).success).toBe(
       false,
     );
     expect(formFieldSchema.safeParse({ ...textField, showCounter: 'yes' }).success).toBe(false);

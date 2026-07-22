@@ -8,6 +8,6 @@ export function validateEmail(
   ctx: FieldValidateCtx,
 ): string | null {
   const value = ctx.values[field.key];
-  if (isEmpty(value)) return field.required ? 'this field is required' : null;
-  return EMAIL_RE.test(String(value)) ? null : 'must be a valid email address';
+  if (isEmpty(value)) return field.required ? 'This field is required.' : null;
+  return EMAIL_RE.test(String(value)) ? null : 'Please enter a valid email address.';
 }

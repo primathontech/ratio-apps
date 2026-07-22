@@ -26,9 +26,11 @@ import type { FormFieldType } from '@shared/schemas/form-schema';
 import { type Dispatch, type ReactNode, useMemo } from 'react';
 import type { BuilderAction } from '@/lib/builder-state';
 import { FIELD_TYPE_LABELS } from '@/lib/builder-state';
+// PALETTE_PREFIX now lives with the rest of the dnd wiring; re-exported here so
+// existing importers keep working.
+import { PALETTE_PREFIX } from '@/lib/dnd';
 
-/** Draggable id prefix marking a palette source (vs a canvas field key). */
-export const PALETTE_PREFIX = 'palette:';
+export { PALETTE_PREFIX };
 
 /** A small glyph per field type so the palette scans by shape, not just text. */
 const FIELD_TYPE_ICONS: Record<FormFieldType, ReactNode> = {
