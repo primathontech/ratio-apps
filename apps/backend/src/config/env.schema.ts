@@ -90,6 +90,33 @@ const baseEnv = z.object({
   // placeholder (sync still records SYNCED, but GMC flags a URL mismatch).
   GMC_STORE_URL: emptyAsUndefined(z.string()),
 
+  // ─── return-prime adapter: shared secret + RP server URL ─────────────────
+  // RP_MONGO_URL: MongoDB connection string for RP's database.
+  // Used by RpOrderSyncService to upsert orders received from GoKwik OS webhooks.
+  // Optional — if unset, order sync is disabled (RP fetches on demand instead).
+  RP_MONGO_URL: emptyAsUndefined(z.string().min(1)),
+  // OS_RP_TOKEN: same name and value on both sides of the OS↔RP relationship
+  // (deliberately separate from RP's own general INTERNAL_API_TOKEN, which
+  // gates unrelated internal ops tooling — a leak or rotation on either side
+  // shouldn't affect the other's blast radius). Used to validate inbound RP
+  // requests and to authenticate our register call. Optional in baseEnv so
+  // other modules can boot without it; validated at runtime by RpRequestGuard
+  // when rp module is enabled.
+  OS_RP_TOKEN: emptyAsUndefined(z.string().min(1)),
+  // RP_BASE_URL: Return Prime server base URL (no trailing slash).
+  RP_BASE_URL: emptyAsUndefined(z.string().url()),
+  // OS_ORDER_BASE_URL / OS_ITEM_BASE_URL: GoKwik OpenStore service base URLs.
+  // Used by the RP adapter for refund and product lookups that the Ratio
+  // ecosystem API does not yet expose. Optional so other modules aren't forced
+  // to declare them.
+  OS_ORDER_BASE_URL: emptyAsUndefined(z.string().url()),
+  OS_ITEM_BASE_URL: emptyAsUndefined(z.string().url()),
+  // RP_OS_ADMIN_*: credentials used when calling RP BE /os-install from the
+  // admin-rp SPA registration flow. Optional — defaults to derived values.
+  RP_OS_ADMIN_EMAIL: emptyAsUndefined(z.string().email()),
+  RP_OS_ADMIN_PASSWORD: emptyAsUndefined(z.string().min(1)),
+  RP_OS_ADMIN_NAME: emptyAsUndefined(z.string().min(1)),
+
   // ─── meta app: Meta Graph API base for Conversions API dispatch ───────────
   // Defaults to the real Graph API; override with a local mock URL for testing.
   // Declared here so @nestjs/config keeps it on process.env (unknown keys are

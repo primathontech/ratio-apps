@@ -34,6 +34,7 @@
     "google-auth-library": "^10.7.0",
     "ioredis": "^5.4.2",
     "kysely": "^0.29.2",
+    "mongodb": "^7.5.0",
     "mysql2": "^3.22.3",
     "nestjs-pino": "^4.6.1",
     "pino": "^10.3.1",
