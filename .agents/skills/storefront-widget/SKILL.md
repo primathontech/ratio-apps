@@ -109,8 +109,8 @@ The `V1` wrapper (reference implementation:
   `src/integrations/kwikpass-custom/utils.tsx` (`KWIKPASS_TOKEN_KEYS`). A
   customer's verified phone is NOT client-exposed — resolve it **server-side**
   via `GET {customerApiBase}/v1/storefront/customers/profile` with headers
-  `gk-access-token` + `gk-merchant-id` (vendor backend does this; never trust a
-  client-supplied phone).
+  `gk-access-token` + `gk-merchant-id`. **Do this in the storefront BFF, not the
+  vendor backend** — see the BFF-signing pattern below.
 - **No returnUrl / redirect-after-login exists** — KwikPass login is an
   in-place modal, so "resume after login" = listen for `user-loggedin`.
 - **Third-party scripts** load via the `src/integrations/` pattern (dynamic
@@ -121,6 +121,45 @@ The `V1` wrapper (reference implementation:
   (`ALLOWED_ORIGINS`) for any endpoint the SDK calls from the browser;
   `/<slug>/sdk/*` bundle+config routes are CORS `*` by convention.
 
+## Identity-bearing widgets — the BFF-signing pattern (recommended)
+
+When a widget's action depends on the customer's verified identity (a claim, a
+redemption, anything phone-keyed), do **not** ship the KwikPass token to the
+vendor backend and have the backend resolve identity. Instead keep KwikPass and
+identity resolution entirely inside the storefront, and make the browser talk
+**only to its own origin**:
+
+1. **Browser → same-origin BFF.** The widget's SDK client targets
+   `window.location.origin` and calls the storefront's own API routes
+   (`src/app/api/<feature>/*` in Next.js App Router; `runtime = "nodejs"` so
+   `crypto` is available). It sends the action payload + the KwikPass token —
+   never a phone. No CORS, no ngrok, no cross-origin bundle for the API calls
+   (the loader/claim *bundles* are still fetched cross-origin from `/<slug>/sdk/*`).
+2. **BFF resolves identity.** The route reads the KwikPass token, resolves the
+   verified phone via the GoKwik customer-profile API (headers above), and
+   masks the phone in any logs.
+3. **BFF signs per-merchant and forwards.** The route computes
+   `sig = HMAC_SHA256(canonicalString, <FEATURE>_CLAIM_SECRET)` (hex) over a
+   canonical string with a fresh `ts`, and `POST`s `{merchantId, phone, ts, sig, …}`
+   to the vendor backend. The secret is **server-only** (never `NEXT_PUBLIC_*`).
+4. **Vendor backend verifies only.** It recomputes the HMAC with the merchant's
+   stored secret, compares **constant-time** (`crypto.timingSafeEqual`, with
+   length guards), enforces a small timestamp window (e.g. ±5 min) against
+   replay, and checks `body.merchantId` matches the resource's merchant. It
+   imports zero KwikPass/GoKwik code. The signing string, digest encoding, and
+   window must be **byte-identical** on both sides.
+
+The vendor backend stores a per-merchant secret (generated at install, e.g.
+`randomBytes(32).toString('base64')`, rotatable from the admin Settings screen;
+the raw secret is never returned by any read endpoint — expose only a
+`claimSecretSet: boolean`). Worked example: loyalty QR claim
+(`packages/loyalty-sdk` + wellversed-2.0 `src/app/api/loyalty/*` +
+`apps/backend/src/modules/loyalty/qr/claim-signature.service.ts`).
+
+Prefer this over the browser-calls-vendor-backend model for anything
+identity-bearing: the trust boundary is the storefront's, KwikPass stays where
+it already lives, and the vendor backend never holds a third-party dependency.
+
 ## Checklist for a new app's storefront widget
 
 - [ ] SDK: global + `init(containerId | null, config) → cleanup`, self-init
@@ -129,6 +168,9 @@ The `V1` wrapper (reference implementation:
 - [ ] Cheap gate; `loadSdkOnce`; init + cleanup; skeleton if inline.
 - [ ] Registry entry + template placement (page section vs root-level).
 - [ ] `NEXT_PUBLIC_<FEATURE>_*` envs documented.
-- [ ] Storefront origin in the backend's `ALLOWED_ORIGINS`.
+- [ ] Storefront origin in the backend's `ALLOWED_ORIGINS` (only if the browser
+      calls the vendor backend directly — not needed with the BFF-signing pattern).
+- [ ] Identity-bearing action? Use the BFF-signing pattern: same-origin BFF
+      resolves the phone + HMAC-signs per-merchant; backend verifies only.
 - [ ] Wrapper ships as a separate PR to the storefront repo — tracked in the
       build's STATE.json notes, outside this monorepo's CI.
