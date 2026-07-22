@@ -56,7 +56,16 @@ function syncListButtons(): void {
       ? new URL(href, location.origin).pathname.match(detailPattern)?.[1]
       : undefined;
     if (!orderId) return;
-    if (link.nextElementSibling?.tagName === 'RP-RETURN-BUTTON') return;
+    // Re-verify the existing sibling still points at THIS row's order — not just that
+    // some button is present. A framework that reuses a row's DOM node in place while
+    // changing its href (unkeyed list reconciliation on reorder/pagination) would
+    // otherwise leave a stale button pointing at whatever order it was first created
+    // for, silently routing the shopper into the wrong order's return flow.
+    const existing = link.nextElementSibling;
+    if (existing?.tagName === 'RP-RETURN-BUTTON') {
+      if (existing.getAttribute('order-id') === orderId) return;
+      existing.remove();
+    }
     const el = document.createElement('rp-return-button');
     el.setAttribute('order-id', orderId);
     link.insertAdjacentElement('afterend', el);
