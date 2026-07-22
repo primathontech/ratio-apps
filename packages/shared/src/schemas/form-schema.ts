@@ -211,6 +211,16 @@ const appearanceTypographySchema = z
   .object({
     fontFamily: z.enum(FORM_FONT_FAMILIES).default('system'),
     baseSize: z.number().int().min(12).max(20).default(14), // px; today ~14
+    // Optional Google Font family name. Allow-list only — a letter/digit start
+    // then letters, digits, spaces, hyphens (no quotes/parens/;/{}/<>/url()) so
+    // the value can never break out of the font-family CSS declaration or the
+    // Google Fonts URL. When set (non-empty) it wins over fontFamily.
+    customGoogleFont: z
+      .string()
+      .trim()
+      .max(50) // cheap DoS guard
+      .regex(/^[A-Za-z0-9][A-Za-z0-9 -]{0,49}$/, 'Must be a plain font family name')
+      .optional(),
   })
   .prefault({});
 

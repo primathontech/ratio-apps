@@ -31,7 +31,7 @@ import type {
   FieldRenderCtx,
   FieldValidateCtx,
 } from './fields/types';
-import { baseStyles, GOOGLE_FONT_HREF, themeVars } from './theme';
+import { baseStyles, customGoogleFontHref, GOOGLE_FONT_HREF, sanitizeFontName, themeVars } from './theme';
 
 /** Defensive hex re-check for the per-field accent (§2.2); the schema already
  * guarantees hex, so this only confines what reaches the inline style. */
@@ -701,15 +701,27 @@ export class RatioForm extends LitElement {
 
   /**
    * Web fonts inside a shadow root only resolve when loaded at document scope,
-   * so inject one guarded `<link>` per family into `document.head`. The href
-   * comes from a fixed enum-keyed map — the merchant never supplies a URL.
+   * so inject one guarded `<link>` per family into `document.head`. A set
+   * customGoogleFont wins over the preset family; its href is SDK-built from a
+   * re-sanitized name (never a merchant URL), and the preset path still uses
+   * the fixed enum-keyed map — the merchant never supplies a URL either way.
    */
   private maybeInjectFont(): void {
-    const family = this.appearance?.typography?.fontFamily;
+    const typography = this.appearance?.typography;
+    const custom = sanitizeFontName(typography?.customGoogleFont);
+    if (custom) {
+      // id must be whitespace-free (HTML5), so slug the spaces out.
+      this.injectFontLink(`ratio-font-custom-${custom.replace(/ /g, '-')}`, customGoogleFontHref(custom));
+      return;
+    }
+    const family = typography?.fontFamily;
     if (!family || family === 'system') return;
-    const href = GOOGLE_FONT_HREF[family];
+    this.injectFontLink(`ratio-font-${family}`, GOOGLE_FONT_HREF[family]);
+  }
+
+  /** Inject a single deduped stylesheet `<link>` at document scope. */
+  private injectFontLink(id: string, href: string | null): void {
     if (!href) return;
-    const id = `ratio-font-${family}`;
     if (document.getElementById(id)) return;
     const link = document.createElement('link');
     link.id = id;

@@ -60,6 +60,31 @@ describe('DesignSettings', () => {
     });
   });
 
+  it('dispatches a custom Google font change scoped to the typography group', () => {
+    const dispatch = vi.fn();
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />);
+    fireEvent.click(screen.getByText('Typography'));
+    const input = screen.getByLabelText('Custom Google font');
+    expect(input).toBeInTheDocument();
+    fireEvent.change(input, { target: { value: 'Figtree' } });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateAppearance',
+      patch: { typography: { customGoogleFont: 'Figtree' } },
+    });
+  });
+
+  it('clears the custom Google font to undefined on an empty input', () => {
+    const dispatch = vi.fn();
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />);
+    fireEvent.click(screen.getByText('Typography'));
+    const input = screen.getByLabelText('Custom Google font');
+    fireEvent.change(input, { target: { value: '   ' } });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateAppearance',
+      patch: { typography: { customGoogleFont: undefined } },
+    });
+  });
+
   it('renders a mini form thumbnail per preset', () => {
     renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={vi.fn()} />);
     for (const preset of FORM_APPEARANCE_PRESETS) {

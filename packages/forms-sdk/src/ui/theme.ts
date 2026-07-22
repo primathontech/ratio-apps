@@ -48,6 +48,42 @@ export const GOOGLE_FONT_HREF: Record<Exclude<FontFamily, 'system'>, string> = {
   merriweather: 'https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700&display=swap',
 };
 
+/**
+ * Re-sanitize a merchant-supplied custom Google Font name at the SDK layer
+ * (defense in depth — the shared schema already allow-lists it). Strips
+ * anything outside `[A-Za-z0-9 -]` and collapses whitespace, then rejects the
+ * empty result. The clean name is safe to interpolate into both the
+ * font-family CSS declaration and the Google Fonts URL — no quotes, parens,
+ * `;`, braces, or `url()` can survive. Returns null when nothing usable remains.
+ */
+export function sanitizeFontName(name: string | undefined): string | null {
+  if (!name) return null;
+  const clean = name.replace(/[^A-Za-z0-9 -]/g, '').trim().replace(/\s+/g, ' ');
+  return clean.length > 0 ? clean : null;
+}
+
+/**
+ * Build the Google Fonts stylesheet URL for a custom family name. The SDK, not
+ * the merchant, composes the URL from a re-sanitized name (spaces → `+`), so
+ * nothing dynamic reaches the injected `<link href>` — same invariant as the
+ * fixed {@link GOOGLE_FONT_HREF} map. Returns null when the name is not usable.
+ */
+export function customGoogleFontHref(name: string | undefined): string | null {
+  const clean = sanitizeFontName(name);
+  if (!clean) return null;
+  const family = clean.replace(/ /g, '+');
+  // No :wght axis — a merchant can type any family, and css2 returns HTTP 400
+  // (no CSS) if a requested weight doesn't exist for that font. Omitting it
+  // loads the family's default face (always resolves); bold is synthesized.
+  return `https://fonts.googleapis.com/css2?family=${family}&display=swap`;
+}
+
+/** Font-family stack for a custom family name, over the shared system fallback. */
+export function customFontStack(name: string | undefined): string | null {
+  const clean = sanitizeFontName(name);
+  return clean ? `'${clean}', ${SYSTEM_FONT}` : null;
+}
+
 // Density → field gap + vertical input padding + card padding (px). pad-x
 // stays constant.
 const DENSITY: Record<
@@ -215,7 +251,9 @@ export function themeVars(appearance?: FormsThemeInput): string {
     `--wz-error: ${c?.error ?? '#c0392b'}; ` +
     `--wz-btn-text: ${c?.buttonText ?? '#fff'}; ` +
     `--wz-radius: ${radius}; ` +
-    `--wz-font: ${FONT_STACKS[t?.fontFamily ?? 'system']}; ` +
+    // A set customGoogleFont wins over the preset fontFamily; both fall back to
+    // the shared system stack. The name is re-sanitized before it reaches CSS.
+    `--wz-font: ${customFontStack(t?.customGoogleFont) ?? FONT_STACKS[t?.fontFamily ?? 'system']}; ` +
     `--wz-font-size: ${t?.baseSize ?? 14}px; ` +
     `--wz-gap: ${gap}px; ` +
     `--wz-pad-y: ${padY}px; ` +
