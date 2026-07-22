@@ -17,6 +17,8 @@ import { FormsMerchantTokenGuard, FormsWebhookSignatureGuard } from './guards';
 import { FORMS_DB_TOKEN, FormsKyselyModule } from './kysely.module';
 import { FormsMerchantsController } from './merchants/merchants.controller';
 import { FormsOAuthController } from './oauth/oauth.controller';
+import { FormsEmbedController } from './sdk/embed.controller';
+import { FormsEmbedService } from './sdk/embed.service';
 import { FormsSdkController } from './sdk/sdk.controller';
 import { FormsSdkService } from './sdk/sdk.service';
 import { FormsRecaptchaService } from './spam/recaptcha.service';
@@ -67,6 +69,7 @@ export {
     FormsConfigController,
     FormsController,
     FormsSdkController,
+    FormsEmbedController,
     PublicSubmissionsController,
     SubmissionsController,
     UploadsController,
@@ -78,6 +81,7 @@ export {
     FormsConfigService,
     FormsService,
     FormsSdkService,
+    FormsEmbedService,
     FormsBootstrap,
     FormsAppUninstalledHandler,
     // Public intake chain (TRD §2): rate limit → form state → spam →
