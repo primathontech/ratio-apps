@@ -175,8 +175,16 @@ export class RpTransformerService {
     // though real images exist in `images[]`.
     const primaryImageId = images[0]?.id ?? null;
     const variants = Array.isArray(ratioProduct.variants)
-      ? (ratioProduct.variants as Rec[]).map((v) => ({
-          id: Number(this.numericId(String(v.id ?? ''))),
+      ? (ratioProduct.variants as Rec[]).map((v) => {
+        const variantId = Number(this.numericId(String(v.id ?? '')));
+        return {
+          id: variantId,
+          // OS has no separate inventory-item entity — a variant's stock IS its inventory
+          // record, unlike Shopify where they're distinct ids. RP's exchange-reserve flow
+          // (reserveExchangeInventoryOnShopify) reads this straight off its cached product
+          // object and round-trips it back to /rp/shopify/inventory_levels/adjust, so it
+          // must be the same hashed id `resolveRealId('variant', …)` can reverse.
+          inventory_item_id: variantId,
           product_id: id,
           title: v.title,
           sku: v.sku,
@@ -205,7 +213,8 @@ export class RpTransformerService {
           option2: v.option2 ?? null,
           option3: v.option3 ?? null,
           image_id: primaryImageId,
-        }))
+        };
+      })
       : [];
 
     // RP's exchange product search requires published_at != null and status active.

@@ -39,4 +39,17 @@ describe('RpTransformerService.shopifyProduct', () => {
     expect(variants).toHaveLength(1);
     expect(variants[0].inventory_management).toBeNull();
   });
+
+  // RP's exchange-reserve flow (reserveExchangeInventoryOnShopify in
+  // return_prime_public) reads inventory_item_id straight off its cached product
+  // object, then round-trips it back to /rp/shopify/inventory_levels/adjust —
+  // that endpoint only works if this id matches variant.id (both hashed the same
+  // way), since OS has no separate inventory-item entity to give a distinct id.
+  it('sets inventory_item_id to the same (hashed) value as the variant id', () => {
+    const result = service.shopifyProduct(osProduct());
+    const variants = result.variants as Array<Record<string, unknown>>;
+
+    expect(variants[0].inventory_item_id).toBe(variants[0].id);
+    expect(variants[0].inventory_item_id).not.toBeUndefined();
+  });
 });
