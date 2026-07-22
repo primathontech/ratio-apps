@@ -202,6 +202,12 @@ async function bootstrap(): Promise<void> {
       reply.header('Access-Control-Allow-Origin', '*');
       reply.removeHeader('access-control-allow-credentials');
     }
+    // The iframe embed page must be frameable on any site. Strip helmet's
+    // X-Frame-Options here (onSend runs after helmet), leaving the embed
+    // route's own `frame-ancestors *` CSP as the sole frame policy.
+    if (req.url.startsWith('/forms/embed/')) {
+      reply.removeHeader('x-frame-options');
+    }
     done();
   });
 
