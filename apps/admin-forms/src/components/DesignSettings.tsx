@@ -8,6 +8,7 @@ import {
   Select,
   Slider,
   Switch,
+  Tag,
   Typography,
   UndoOutlined,
 } from '@primathonos/orion';
@@ -32,7 +33,7 @@ import {
 } from '@shared/schemas/form-schema';
 import type { Dispatch } from 'react';
 import { type AppearancePatch, type BuilderAction, DEFAULT_APPEARANCE } from '@/lib/builder-state';
-import { contrastRatio } from '@/lib/contrast';
+import { bestTextOn, type ContrastState, gradeContrast, scrimmed } from '@/lib/contrast';
 import { type AppearancePreset, FORM_APPEARANCE_PRESETS } from '@/lib/presets';
 
 /** Color tokens, in edit order, with the label shown next to each picker. */
@@ -81,20 +82,34 @@ const COLUMN_MODE_LABELS: Record<(typeof FORM_COLUMN_MODES)[number], string> = {
   auto: 'Auto',
 };
 
-/** Pairs worth checking, with their WCAG threshold. */
-const CONTRAST_PAIRS: {
-  fg: keyof FormAppearance['colors'];
-  bg: keyof FormAppearance['colors'];
+type ColorToken = keyof FormAppearance['colors'];
+
+/** `fix` = token to flip black/white (text pairs); `pageAware` = resolve scrim/gradient/image. */
+interface ContrastPair {
+  fg: ColorToken;
+  bg: ColorToken;
   label: string;
-  threshold: number;
-}[] = [
-  { fg: 'text', bg: 'background', label: 'Text on background', threshold: 4.5 },
-  { fg: 'text', bg: 'pageBackground', label: 'Text on page', threshold: 4.5 },
-  { fg: 'text', bg: 'surface', label: 'Text on surface', threshold: 4.5 },
-  { fg: 'muted', bg: 'background', label: 'Muted on background', threshold: 4.5 },
-  { fg: 'buttonText', bg: 'primary', label: 'Button text on primary', threshold: 4.5 },
-  { fg: 'border', bg: 'background', label: 'Border on background', threshold: 3 },
+  kind: 'text' | 'nonText';
+  fix?: ColorToken;
+  pageAware?: boolean;
+}
+
+const CONTRAST_PAIRS: ContrastPair[] = [
+  { fg: 'text', bg: 'background', label: 'Text on form', kind: 'text', fix: 'text' },
+  { fg: 'text', bg: 'pageBackground', label: 'Text on page', kind: 'text', fix: 'text', pageAware: true },
+  { fg: 'text', bg: 'surface', label: 'Text on inputs', kind: 'text', fix: 'text' },
+  { fg: 'muted', bg: 'background', label: 'Muted text on form', kind: 'text', fix: 'muted' },
+  { fg: 'buttonText', bg: 'primary', label: 'Button text', kind: 'text', fix: 'buttonText' },
+  { fg: 'border', bg: 'background', label: 'Field border', kind: 'nonText' },
+  { fg: 'primary', bg: 'background', label: 'Focus ring', kind: 'nonText' },
 ];
+
+/** Advisory styling per state — colourblind-safe (glyph + word carry meaning). */
+const CONTRAST_STATE: Record<ContrastState, { glyph: string; word: string; color: string }> = {
+  good: { glyph: '●', word: 'Good contrast', color: '#067647' },
+  ok: { glyph: '◐', word: 'Large text only', color: '#b54708' },
+  low: { glyph: '▲', word: 'Low contrast', color: '#b54708' },
+};
 
 interface Props {
   /** Resolved appearance (defaults filled) — never partial. */
@@ -128,7 +143,7 @@ export function DesignSettings({ appearance, dispatch }: Props) {
     });
 
   return (
-    <Card title="Design">
+    <Card title="Design" className="design-settings">
       <PresetRow onApply={applyPreset} onReset={resetToDefault} />
       <Collapse
         accordion
@@ -140,18 +155,46 @@ export function DesignSettings({ appearance, dispatch }: Props) {
             label: 'Colors',
             children: (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {COLOR_TOKENS.map(({ key, label }) => (
-                  <Row key={key} label={label}>
-                    <ColorPicker
-                      aria-label={`${label} color`}
-                      value={colors[key]}
-                      format="hex"
-                      showText
-                      onChangeComplete={(c) => patch({ colors: { [key]: c.toHexString() } })}
-                    />
-                  </Row>
-                ))}
-                <ContrastReport colors={colors} />
+                {/* Exactly two swatches per row (e.g. Primary + Form background),
+                    each filling its half — a single column left the panel
+                    half-empty and very tall. */}
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                    gap: 12,
+                  }}
+                >
+                  {COLOR_TOKENS.map(({ key, label }) => (
+                    <div
+                      key={key}
+                      style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}
+                    >
+                      <Typography.Text
+                        title={label}
+                        style={{
+                          fontSize: 13,
+                          // Keep every label on one line so the two pickers in a
+                          // row align on the same baseline (a wrapped label would
+                          // push its neighbour's swatch up).
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                      >
+                        {label}
+                      </Typography.Text>
+                      <ColorPicker
+                        aria-label={`${label} color`}
+                        value={colors[key]}
+                        format="hex"
+                        showText
+                        onChangeComplete={(c) => patch({ colors: { [key]: c.toHexString() } })}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <ContrastReport appearance={appearance} patch={patch} />
               </div>
             ),
           },
@@ -621,7 +664,14 @@ function PresetRow({
           Reset to default
         </Button>
       </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+      <div
+        style={{
+          display: 'grid',
+          // Even columns that fill the panel width (flex-wrap left-packed them).
+          gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))',
+          gap: 8,
+        }}
+      >
         {FORM_APPEARANCE_PRESETS.map((preset) => (
           <button
             key={preset.id}
@@ -769,27 +819,119 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-function ContrastReport({ colors }: { colors: FormAppearance['colors'] }) {
+/** Effective background for a pair, honouring scrim/gradient; note when it's an image. */
+function resolvePairBg(pair: ContrastPair, appearance: FormAppearance): { bg: string; note?: string } {
+  const { colors, background } = appearance;
+  if (!pair.pageAware || background.type === 'solid') {
+    const base = colors[pair.bg];
+    if (pair.pageAware && background.scrim > 0) return { bg: scrimmed(base, background.scrim) };
+    return { bg: base };
+  }
+  if (background.type === 'image') {
+    return {
+      bg: colors[pair.bg],
+      note: 'Depends on your background image — a scrim of 0.35+ keeps text readable.',
+    };
+  }
+  // gradient: measure the worse (lower-contrast) of the two scrim-composited stops.
+  const s = background.scrim;
+  const stopBg = (hex: string) => (s > 0 ? scrimmed(hex, s) : hex);
+  const from = stopBg(background.gradientFrom ?? colors.pageBackground);
+  const to = stopBg(background.gradientTo ?? colors.pageBackground);
+  const fromR = gradeContrast(colors[pair.fg], from).ratio ?? Number.POSITIVE_INFINITY;
+  const toR = gradeContrast(colors[pair.fg], to).ratio ?? Number.POSITIVE_INFINITY;
+  return { bg: fromR <= toR ? from : to };
+}
+
+/** Advisory accessibility report (THEMING-SPEC §5): warns, never blocks; offers a one-click fix. */
+function ContrastReport({
+  appearance,
+  patch,
+}: {
+  appearance: FormAppearance;
+  patch: (p: AppearancePatch) => void;
+}) {
+  const { colors } = appearance;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
-      <Typography.Text strong style={{ fontSize: 13 }}>
-        Contrast (WCAG)
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
+      <Typography.Text
+        strong
+        style={{ fontSize: 13 }}
+        title="About 1 in 12 people have low vision or colour-blindness. Higher contrast keeps your form readable for everyone. These checks never block saving."
+      >
+        Accessibility
       </Typography.Text>
       {CONTRAST_PAIRS.map((pair) => {
-        const ratio = contrastRatio(colors[pair.fg], colors[pair.bg]);
-        const pass = ratio !== null && ratio >= pair.threshold;
+        const fg = colors[pair.fg];
+        const { bg, note } = resolvePairBg(pair, appearance);
+        const grade = gradeContrast(fg, bg, { nonText: pair.kind === 'nonText' });
+        const st = CONTRAST_STATE[grade.state];
+        const canFix = pair.kind === 'text' && grade.state !== 'good' && pair.fix !== undefined;
         return (
           <div
-            key={pair.label}
-            style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12 }}
+            key={`${pair.fg}-${pair.bg}`}
+            style={{ display: 'flex', flexDirection: 'column', gap: 2 }}
           >
-            <span>{pair.label}</span>
-            <span
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span
+                aria-hidden
+                style={{
+                  flex: '0 0 auto',
+                  width: 30,
+                  height: 20,
+                  borderRadius: 4,
+                  background: bg,
+                  color: fg,
+                  border: pair.kind === 'nonText' ? `2px solid ${fg}` : `1px solid ${colors.border}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  lineHeight: 1,
+                }}
+              >
+                {pair.kind === 'text' ? 'Aa' : ''}
+              </span>
+              <span style={{ fontSize: 12, flex: 1 }}>{pair.label}</span>
+              <span
+                style={{ fontSize: 12, color: 'var(--admin-text-muted, #5f6368)', fontVariantNumeric: 'tabular-nums' }}
+              >
+                {grade.ratio === null ? 'n/a' : `${grade.ratio.toFixed(2)}:1`}
+              </span>
+            </div>
+            <div
               data-testid={`contrast-${pair.fg}-${pair.bg}`}
-              style={{ color: pass ? '#067647' : '#c0392b', fontWeight: 600 }}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, paddingLeft: 38, fontSize: 12 }}
             >
-              {ratio === null ? 'n/a' : `${ratio.toFixed(2)}:1`} {pass ? 'AA' : 'fail'}
-            </span>
+              <span aria-hidden style={{ color: st.color }}>
+                {st.glyph}
+              </span>
+              <span style={{ color: st.color }}>{st.word}</span>
+              {grade.chip && (
+                <Tag
+                  bordered={false}
+                  style={{ marginInlineEnd: 0, fontSize: 11, lineHeight: '16px', padding: '0 6px' }}
+                >
+                  {grade.chip}
+                </Tag>
+              )}
+              {canFix && (
+                <Button
+                  type="link"
+                  size="small"
+                  style={{ padding: 0, height: 'auto', fontSize: 12 }}
+                  onClick={() => pair.fix && patch({ colors: { [pair.fix]: bestTextOn(bg) } })}
+                >
+                  Fix
+                </Button>
+              )}
+            </div>
+            {note && (
+              <span style={{ paddingLeft: 38, fontSize: 11, color: 'var(--admin-text-muted, #5f6368)' }}>
+                {note}
+              </span>
+            )}
           </div>
         );
       })}

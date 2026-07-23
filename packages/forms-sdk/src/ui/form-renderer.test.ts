@@ -268,6 +268,13 @@ describe('ratio-form submit flow', () => {
     expect(shadow(el).querySelector('[data-state="success"]')?.textContent).toContain(
       'Thanks — got it!',
     );
+    // The host reflects the status so the card shrinks to hug the message.
+    expect(el.getAttribute('data-state')).toBe('success');
+  });
+
+  it('does not reflect data-state while the fillable form is showing', async () => {
+    const { el } = await mount();
+    expect(el.getAttribute('data-state')).toBeNull();
   });
 
   it('disables the submit button after the first click (submit-once)', async () => {
