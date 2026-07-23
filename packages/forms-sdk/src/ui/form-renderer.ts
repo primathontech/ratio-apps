@@ -535,17 +535,42 @@ export class RatioForm extends LitElement {
         width: 1px;
         height: 1px;
       }
+      /* A status screen is a self-contained, centred confirmation column — not
+         the form layout. */
       .rf-status {
-        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        padding: 28px 24px;
         border-radius: var(--wz-radius);
         background: var(--wz-subtle);
         color: var(--wz-muted);
         font-size: var(--wz-font-size);
+        text-align: center;
+      }
+      .rf-status-icon {
+        color: var(--wz-primary);
+        flex: 0 0 auto;
+      }
+      .rf-status-msg {
+        margin: 0;
+        line-height: 1.5;
       }
       .rf-success {
-        background: color-mix(in srgb, var(--wz-primary) 12%, var(--wz-bg));
+        background: color-mix(in srgb, var(--wz-primary) 8%, var(--wz-bg));
         color: var(--wz-fg);
-        border: 1px solid color-mix(in srgb, var(--wz-primary) 35%, transparent);
+        border: 1px solid color-mix(in srgb, var(--wz-primary) 28%, transparent);
+      }
+      /* A status screen shrinks the card to a comfortable confirmation width
+         (never wider than the form) and drops the form intro so the message
+         stands alone, centred. */
+      :host([data-state]) .rf-card {
+        max-width: min(26rem, var(--wz-max-width));
+        text-align: center;
+      }
+      :host([data-state]) .rf-head {
+        display: none;
       }
       .rf-form-error {
         color: var(--wz-error);
@@ -895,6 +920,9 @@ export class RatioForm extends LitElement {
     this.reflectAttr('data-cols', l?.columns && l.columns !== '1' ? l.columns : null);
     // §2.6 — frosted card only over an image backdrop with a blur radius.
     this.reflectAttr('data-card-blur', this.cardBlurActive ? 'on' : null);
+    // Status screens shrink the card; the form (ready/submitting) keeps full width.
+    const isStatusScreen = this.status !== 'ready' && this.status !== 'submitting';
+    this.reflectAttr('data-state', isStatusScreen ? this.status : null);
   }
 
   private reflectAttr(name: string, value: string | null): void {
@@ -990,7 +1018,17 @@ export class RatioForm extends LitElement {
         </div>`;
       case 'success':
         return html`<div class="rf-status rf-success" data-state="success">
-          ${this.schema?.successMessage ?? 'Thank you!'}
+          <svg
+            class="rf-status-icon"
+            viewBox="0 0 24 24"
+            width="44"
+            height="44"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="11" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.35"></circle>
+            <path d="M7 12.4l3.3 3.3L17 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+          <p class="rf-status-msg">${this.schema?.successMessage ?? 'Thank you!'}</p>
         </div>`;
       default:
         return this.renderForm();

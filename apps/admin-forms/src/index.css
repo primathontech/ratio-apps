@@ -85,3 +85,29 @@ body,
     padding: 8px !important;
   }
 }
+
+/* Design tab Segmented controls fill the narrow panel with equal cells and clip
+   the selected pill to its track (antd's inline-block default overflowed). */
+.design-settings .ant-segmented {
+  display: flex;
+  width: 100%;
+  overflow: hidden;
+}
+.design-settings .ant-segmented .ant-segmented-item {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.design-settings .ant-segmented .ant-segmented-item-label {
+  padding-inline: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Colour swatch chips fill their 2-up grid cell (so none overflow / clip at the
+   panel edge) and left-align their swatch+hex — antd centres the trigger
+   content, which looked gappy once stretched. */
+.design-settings .ant-color-picker-trigger {
+  width: 100%;
+  justify-content: flex-start;
+}
