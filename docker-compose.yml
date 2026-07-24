@@ -77,12 +77,18 @@ services:
       RATIO_POSTHOG_DATABASE_URL: mysql://app:app@mysql:3306/posthog_app
       RATIO_MOENGAGE_DATABASE_URL: mysql://app:app@mysql:3306/moengage_app
       RATIO_WIZZY_DATABASE_URL: mysql://app:app@mysql:3306/wizzy_app
+      RATIO_LOYALTY_DATABASE_URL: mysql://app:app@mysql:3306/loyalty_app
       # Inside the compose network, reach the broker/cache by SERVICE NAME, not
       # localhost (127.0.0.1 inside the container is the container itself). These
       # override the localhost values in .env, which are correct only for a
       # backend run as a local host process.
       SQS_ENDPOINT: http://elasticmq:9324
       REDIS_URL: redis://redis:6385
+      # loyalty bulk-ops + exports consumers and the daily-snapshot tick. Safe
+      # to run in the single compose backend (consumers idempotent, snapshot
+      # Redis-locked). Exports need S3 — set LOYALTY_EXPORT_S3_BUCKET + an
+      # S3_ENDPOINT (e.g. a MinIO service) in .env to exercise them locally.
+      LOYALTY_WORKER_ENABLED: "true"
       WEBHOOK_SIGNATURE_OPTIONAL: "true"
       # Fallback storefront domain for GMC product links when a merchant hasn't
       # set one in the admin (config "Store URL"). MUST match the store verified
