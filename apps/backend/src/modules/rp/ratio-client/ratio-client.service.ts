@@ -76,15 +76,27 @@ export class RpRatioClientService {
   async patchOrder(merchantId: string, orderId: string, body: unknown): Promise<unknown> {
     const base = this.config.get('OS_ORDER_BASE_URL', { infer: true }) as string;
     if (!base) throw new Error('OS_ORDER_BASE_URL is not configured');
-    const order = ((body as Record<string, unknown>)?.order ?? body) as unknown;
-    const res = await fetch(`${base}/api/v1/admin/orders/${encodeURIComponent(orderId)}`, {
+    // RP sends back whatever id it was shown (often the order_number, e.g. "500"), not
+    // necessarily OS's real "ordr_..." id — same resolution createRefund/calculateRefund
+    // already do. Without it, OS 404s on the literal order_number string.
+    const osId = await this.resolveOsOrderId(merchantId, orderId);
+    const order = { ...((body as Record<string, unknown>)?.order ?? body) as Record<string, unknown> };
+    // RP's markOsOrderReturned.js builds tags as a JS array (buildReturnedTags dedupes into
+    // [...new Set([...])]) — matching Shopify's own REST tags convention loosely, but OS's
+    // UpdateOrderDto strictly types tags as a comma-separated string and throws an unhandled
+    // 500 ("An error occurred while updating the order") on an array instead of a clean 400.
+    // Confirmed live: the identical array reproduces the same 500 against OS directly.
+    if (Array.isArray(order.tags)) {
+      order.tags = (order.tags as unknown[]).map((t) => String(t).trim()).filter(Boolean).join(', ');
+    }
+    const res = await fetch(`${base}/api/v1/admin/orders/${encodeURIComponent(osId)}`, {
       method: 'PATCH',
       headers: { 'gk-merchant-id': merchantId, 'Content-Type': 'application/json' },
       body: JSON.stringify(order),
     });
     if (!res.ok) {
       const errBody = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      this.logger.error({ merchantId, orderId, status: res.status, body: errBody }, 'OS order service error (patch)');
+      this.logger.error({ merchantId, orderId, osId, status: res.status, body: errBody }, 'OS order service error (patch)');
       throw new HttpException(
         { message: `OS order service patch failed`, os: errBody },
         res.status,
@@ -138,7 +150,19 @@ export class RpRatioClientService {
     if (!res.ok) {
       this.logger.error({ merchantId, productId, status: res.status }, 'OS item service error');
     }
-    return res.json();
+    const body = (await res.json()) as Record<string, unknown>;
+    // Diagnostic for the product-id-resolution fix: OS can respond 200 with an empty/
+    // placeholder product (id 0, no variants) for an id it doesn't recognize — e.g. when
+    // products.service.ts's Mongo resolution didn't find a match and fell back to the
+    // still-hashed id. That case has no non-2xx status to trip the error log above, so
+    // it's otherwise invisible. Log the requested id and what came back either way.
+    const product = (body?.product ?? body?.data ?? body) as Record<string, unknown> | undefined;
+    const looksReal = !!product?.id && product.id !== 0 && product.id !== '0';
+    this.logger.log(
+      { merchantId, productId, status: res.status, looksReal, returnedId: product?.id },
+      'OS item service product lookup',
+    );
+    return body;
   }
 
   /**

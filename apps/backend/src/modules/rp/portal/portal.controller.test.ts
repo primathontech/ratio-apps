@@ -55,27 +55,24 @@ describe('RpPortalController.portal', () => {
   describe('healthy portal', () => {
     it('redirects to the RP_PORTAL_URL dev/self-hosted target when set', async () => {
       process.env.RP_PORTAL_URL = 'https://dev-rp.example/';
-      const { controller, portalHealth } = makeController({ healthy: true });
+      const { controller } = makeController({ healthy: true });
       const reply = makeReply();
 
       await controller.portal(reply, 'sandbox.dev.gokwik.io');
 
-      expect(portalHealth.checkHealthy).toHaveBeenCalledWith('https://dev-rp.example/sandbox.dev.gokwik.io');
-      expect(reply.redirect).toHaveBeenCalledWith('https://dev-rp.example/sandbox.dev.gokwik.io');
+      expect(reply.redirect).toHaveBeenCalledWith('https://dev-rp.example/sandbox.dev.gokwik.io', 302);
       expect(reply.send).not.toHaveBeenCalled();
     });
 
     it('redirects to the RP_BASE_URL hosted-portal target when RP_PORTAL_URL is unset', async () => {
-      const { controller, portalHealth } = makeController({ healthy: true, baseUrl: 'https://api.returnprime.co' });
+      const { controller } = makeController({ healthy: true, baseUrl: 'https://api.returnprime.co' });
       const reply = makeReply();
 
       await controller.portal(reply, 'sandbox.dev.gokwik.io');
 
-      expect(portalHealth.checkHealthy).toHaveBeenCalledWith(
-        'https://api.returnprime.co/os/v1/customer-portal?shop=sandbox.dev.gokwik.io',
-      );
       expect(reply.redirect).toHaveBeenCalledWith(
         'https://api.returnprime.co/os/v1/customer-portal?shop=sandbox.dev.gokwik.io',
+        302,
       );
       expect(reply.send).not.toHaveBeenCalled();
     });
@@ -97,12 +94,18 @@ describe('RpPortalController.portal', () => {
       expect(getOrder).toHaveBeenCalledWith('m1', 'ordr_XXXX');
       expect(reply.redirect).toHaveBeenCalledWith(
         'https://api.returnprime.co/os/v1/customer-portal?shop=sandbox.dev.gokwik.io&order=%231234',
+        302,
       );
     });
   });
 
+  // The health-check gate is temporarily disabled in the controller (see its
+  // "TEMPORARILY DISABLED" comments) — it was in an observed race with the client-side
+  // self-heal MutationObserver, unrelated to this server-side probe itself. These tests
+  // document the pre-existing gated behavior and are skipped, not deleted, so re-enabling
+  // the `checkHealthy` call is a one-line flip back to a fully-covered behavior.
   describe('unhealthy portal', () => {
-    it('sends inline fallback HTML instead of redirecting (RP_PORTAL_URL branch)', async () => {
+    it.skip('sends inline fallback HTML instead of redirecting (RP_PORTAL_URL branch)', async () => {
       process.env.RP_PORTAL_URL = 'https://dev-rp.example/';
       const { controller } = makeController({ healthy: false });
       const reply = makeReply();
@@ -114,7 +117,7 @@ describe('RpPortalController.portal', () => {
       expect(reply.send).toHaveBeenCalledWith(expect.stringContaining('temporarily unavailable'));
     });
 
-    it('sends inline fallback HTML instead of redirecting (RP_BASE_URL branch)', async () => {
+    it.skip('sends inline fallback HTML instead of redirecting (RP_BASE_URL branch)', async () => {
       const { controller } = makeController({ healthy: false, baseUrl: 'https://api.returnprime.co' });
       const reply = makeReply();
 
@@ -123,6 +126,20 @@ describe('RpPortalController.portal', () => {
       expect(reply.redirect).not.toHaveBeenCalled();
       expect(reply.type).toHaveBeenCalledWith('text/html');
       expect(reply.send).toHaveBeenCalledWith(expect.stringContaining('temporarily unavailable'));
+    });
+
+    it('currently always redirects even when the health service reports unhealthy (bypass verification)', async () => {
+      const { controller, portalHealth } = makeController({ healthy: false, baseUrl: 'https://api.returnprime.co' });
+      const reply = makeReply();
+
+      await controller.portal(reply, 'sandbox.dev.gokwik.io');
+
+      expect(portalHealth.checkHealthy).not.toHaveBeenCalled();
+      expect(reply.redirect).toHaveBeenCalledWith(
+        'https://api.returnprime.co/os/v1/customer-portal?shop=sandbox.dev.gokwik.io',
+        302,
+      );
+      expect(reply.send).not.toHaveBeenCalled();
     });
   });
 });

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { hashId } from '../id-mapping/hash-id';
 
 type Rec = Record<string, unknown>;
 
@@ -6,30 +7,12 @@ type Rec = Record<string, unknown>;
 export class RpTransformerService {
   /**
    * Map any OS id (Shopify-style numeric, OS-native 18-digit, or UUID) to a stable
-   * JS-SAFE integer string. Shopify-style ids (already ≤ MAX_SAFE_INTEGER) pass through
-   * unchanged so they stay consistent with order line items. Larger numeric ids and
-   * UUIDs are reduced modulo MAX_SAFE_INTEGER — deterministic and within the safe range
-   * RP's numeric id fields + Joi `number` validation require.
+   * JS-SAFE integer string. Delegates to the shared canonical hash (id-mapping/hash-id.ts)
+   * so every code path that mints a Shopify-shape id from a real OS id — this transformer,
+   * normalize-order.ts — produces the exact same hash for the exact same real id.
    */
   numericId(value: string): string {
-    if (!value) return '0';
-    const direct = Number(value);
-    if (!isNaN(direct) && Number.isInteger(direct) && direct > 0 && direct <= Number.MAX_SAFE_INTEGER) {
-      return String(direct);
-    }
-    const MAX = BigInt(Number.MAX_SAFE_INTEGER);
-    try {
-      if (/^\d+$/.test(value)) {
-        const n = BigInt(value) % MAX;
-        return (n === 0n ? 1n : n).toString();
-      }
-      const hex = value.replace(/-/g, '').replace(/[^0-9a-f]/gi, '');
-      if (!hex) return '0';
-      const n = BigInt('0x' + hex) % MAX;
-      return (n === 0n ? 1n : n).toString();
-    } catch {
-      return '0';
-    }
+    return hashId(value);
   }
 
   /** 89900 (paise) → "899.00" (rupees string) */

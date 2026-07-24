@@ -15,52 +15,14 @@ import type { FastifyRequest } from 'fastify';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { configureApp } from './config/configure-app';
-import { loadEnv } from './config/env.schema';
 import { resolveEnabledModules } from './config/enabled-modules';
+import { loadEnv } from './config/env.schema';
 import { HealthRegistry } from './core/health/health-registry.service';
+import { buildCorsOriginChecker } from './core/common/cors';
 
-type CorsOriginType = string | boolean | RegExp;
-type CorsOriginCallback = (err: Error | null, origin: CorsOriginType | CorsOriginType[]) => void;
-type CorsOriginFn = (origin: string | undefined, callback: CorsOriginCallback) => void;
-
-function buildCorsOriginChecker(rawAllowed: string): CorsOriginFn {
-  // Trust boundary: every host matched here is considered first-party. The
-  // wildcard form `https://*.gokwik.in` matches any subdomain by exact suffix
-  // (NOT substring) — so `evilgokwik.in` is NOT accepted because the proto
-  // prefix must be `https://` and the host portion must END with `.gokwik.in`
-  // (leading dot included via the `slice('https://*'.length)` math below).
-  //
-  // CAVEAT: if marketing or a 3rd-party tenant ever hosts on a `gokwik.in`
-  // subdomain (e.g. `partner.gokwik.in`) the wildcard implicitly trusts them.
-  // Audit the allowlist when onboarding tenants who control DNS under
-  // gokwik.in / gokwik.io.
-  const patterns = rawAllowed
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((p) => {
-      if (!p.startsWith('https://*.') && !p.startsWith('http://*.')) {
-        return { kind: 'exact' as const, value: p };
-      }
-      const proto = p.startsWith('https://') ? 'https://' : 'http://';
-      // `suffix` includes the leading dot, e.g. `.gokwik.in`. Combined with
-      // the `origin.startsWith(proto)` check below this is a true suffix
-      // match — `evilgokwik.in` fails because it doesn't end with the dotted
-      // suffix `.gokwik.in`.
-      const suffix = p.slice(`${proto}*`.length);
-      return { kind: 'suffix' as const, proto, suffix };
-    });
-
-  return (origin, cb) => {
-    if (!origin) return cb(null, true);
-    for (const p of patterns) {
-      if (p.kind === 'exact' && p.value === origin) return cb(null, true);
-      if (p.kind === 'suffix' && origin.startsWith(p.proto) && origin.endsWith(p.suffix))
-        return cb(null, true);
-    }
-    cb(null, false);
-  };
-}
+// CORS origin allowlist logic lives in core/common/cors.ts so the forms CSV
+// export (which hijacks the raw response and must reapply CORS itself) shares
+// exactly the same matcher — no drift between the two.
 
 async function bootstrap(): Promise<void> {
   // Validate env synchronously before Nest starts — catches bad config with a
@@ -119,6 +81,12 @@ async function bootstrap(): Promise<void> {
   //   /<app>/sdk/<id>.js                — 600/min per (IP, merchantId)
   //   /<app>/api/v1/oauth/webhook        — 200/min per IP
   //   /<app>/api/v1/oauth/callback       — 10/min per IP
+  //   /<app>/public/v1/ writes (POST/...) — 10/min per IP (public storefront
+  //                                         form submissions + presigned
+  //                                         uploads — the coarse DoS floor
+  //                                         above the app-level 5-per-10-min
+  //                                         business limiter; GET schema
+  //                                         reads stay in the default bucket)
   //   /<app>/api/  writes (PUT/POST/...)  — 20/min per IP (was per IP+merchantId;
   //                                         the merchantId came from the
   //                                         Authorization header, which an
@@ -139,6 +107,7 @@ async function bootstrap(): Promise<void> {
   const SDK_RE = new RegExp(`^/(${slugAlt})/sdk/([A-Za-z0-9_-]{1,128})\\.js(?:\\?|$)`);
   const OAUTH_CALLBACK_RE = new RegExp(`^/(${slugAlt})/api/v1/oauth/callback(?:\\?|$)`);
   const OAUTH_WEBHOOK_RE = new RegExp(`^/(${slugAlt})/api/v1/oauth/webhook(?:\\?|$)`);
+  const PUBLIC_SUBMIT_RE = new RegExp(`^/(${slugAlt})/public/v1/`);
   const API_WRITE_RE = new RegExp(`^/(${slugAlt})/api/`);
 
   function classify(url: string, method: string): { max: number; kind: 'ip' | 'sdk' } {
@@ -150,6 +119,16 @@ async function bootstrap(): Promise<void> {
     if (SDK_RE.test(url)) return { max: 600, kind: 'sdk' };
     if (OAUTH_WEBHOOK_RE.test(url)) return { max: 200, kind: 'ip' };
     if (OAUTH_CALLBACK_RE.test(url)) return { max: 10, kind: 'ip' };
+    if (
+      PUBLIC_SUBMIT_RE.test(url) &&
+      method !== 'GET' &&
+      method !== 'HEAD' &&
+      method !== 'OPTIONS'
+    ) {
+      // Public storefront writes (form submissions, presigned uploads): the
+      // edge DoS floor. Schema GETs fall through to the default bucket.
+      return { max: 10, kind: 'ip' };
+    }
     if (API_WRITE_RE.test(url) && method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
       return { max: 20, kind: 'ip' };
     }
@@ -197,6 +176,41 @@ async function bootstrap(): Promise<void> {
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
 
+  // Shopper-facing `/<app>/public/v1/*` endpoints are called from MERCHANT
+  // storefronts — arbitrary origins that can never be enumerated in
+  // ALLOWED_ORIGINS. They are unauthenticated by design (reCAPTCHA/honeypot +
+  // rate limits guard them; no cookies/credentials involved), so they get
+  // wildcard CORS: answer the preflight here (Nest routes have no OPTIONS
+  // handler → 404 otherwise) and stamp ACAO on actual responses via onSend
+  // (which runs after the CORS plugin, so the wildcard wins for these paths).
+  const fastify = app.getHttpAdapter().getInstance();
+  fastify.addHook('onRequest', (req, reply, done) => {
+    if (req.method === 'OPTIONS' && PUBLIC_SUBMIT_RE.test(req.url)) {
+      reply
+        .header('Access-Control-Allow-Origin', '*')
+        .header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        .header('Access-Control-Allow-Headers', 'content-type, ngrok-skip-browser-warning')
+        .header('Access-Control-Max-Age', '86400')
+        .code(204)
+        .send();
+      return;
+    }
+    done();
+  });
+  fastify.addHook('onSend', (req, reply, _payload, done) => {
+    if (PUBLIC_SUBMIT_RE.test(req.url)) {
+      reply.header('Access-Control-Allow-Origin', '*');
+      reply.removeHeader('access-control-allow-credentials');
+    }
+    // The iframe embed page must be frameable on any site. Strip helmet's
+    // X-Frame-Options here (onSend runs after helmet), leaving the embed
+    // route's own `frame-ancestors *` CSP as the sole frame policy.
+    if (req.url.startsWith('/forms/embed/')) {
+      reply.removeHeader('x-frame-options');
+    }
+    done();
+  });
+
   app.enableShutdownHooks();
 
   // Flip /ready from `503 booting` to live probe aggregation BEFORE listen()
@@ -205,6 +219,21 @@ async function bootstrap(): Promise<void> {
   // Marking before listen() also closes the microtask window between
   // listen-resolved and markBooted-called where /ready would have lied.
   app.get(HealthRegistry).markBooted();
+
+  // Opt-in single-origin admin serving (dev-tunnel deployments): when
+  // SERVE_FORMS_ADMIN_DIST points at a built admin SPA, mount it under
+  // /admin-forms/ so one public URL covers both the API and the admin.
+  // The admin uses HASH routing, so only index.html at the prefix is needed —
+  // no SPA fallback rewrites. Default off; production keeps the admin on its
+  // own static hosting.
+  if (process.env.SERVE_FORMS_ADMIN_DIST) {
+    const { default: fastifyStatic } = await import('@fastify/static');
+    await app.register(fastifyStatic as never, {
+      root: process.env.SERVE_FORMS_ADMIN_DIST,
+      prefix: '/admin-forms/',
+      decorateReply: false,
+    } as never);
+  }
 
   await app.listen({ port: env.PORT, host: '0.0.0.0' });
 
