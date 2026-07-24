@@ -6,6 +6,7 @@ import {
   PrimaryButton,
   Result,
   Spin,
+  Switch,
   Typography,
 } from '@primathonos/orion';
 import { useEffect, useState } from 'react';
@@ -33,12 +34,14 @@ function centered(children: React.ReactNode) {
   );
 }
 
-function RegisterScreen() {
+export function RegisterScreen() {
   const [loading, setLoading] = useState(false);
   const [domainLoading, setDomainLoading] = useState(true);
   const [registered, setRegistered] = useState(false);
   const [merchantDomain, setMerchantDomain] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [active, setActive] = useState(true);
+  const [statusLoading, setStatusLoading] = useState(false);
   const [form] = Form.useForm<{
     store_domain: string;
     admin_email: string;
@@ -47,9 +50,10 @@ function RegisterScreen() {
   }>();
 
   useEffect(() => {
-    api<{ domain: string; registered: boolean }>('GET', '/api/admin/merchants/me')
+    api<{ domain: string; registered: boolean; active: boolean }>('GET', '/api/admin/merchants/me')
       .then((me) => {
         setMerchantDomain(me.domain);
+        setActive(me.active);
         if (me.registered) {
           setRegistered(true);
         } else {
@@ -62,6 +66,24 @@ function RegisterScreen() {
       .catch(() => {})
       .finally(() => setDomainLoading(false));
   }, [form]);
+
+  async function handleStatusChange(next: boolean) {
+    // Pausing blocks every /rp/shopify/* call for this store and locks the merchant out
+    // of the RP dashboard (same as a real Shopify uninstall) — confirm before doing that,
+    // resuming is the safe direction so it goes straight through.
+    if (!next && !window.confirm('Pause Return Prime for this store? Return/exchange requests will stop working until you turn it back on.')) {
+      return;
+    }
+    setStatusLoading(true);
+    try {
+      const res = await api<{ active: boolean }>('POST', '/api/admin/status', { active: next });
+      setActive(res.active);
+    } catch (err) {
+      setError(err instanceof ApiException ? err.message : 'Could not update status. Please try again.');
+    } finally {
+      setStatusLoading(false);
+    }
+  }
 
   async function handleRegister(values: {
     store_domain: string;
@@ -114,6 +136,26 @@ function RegisterScreen() {
             ) : null
           }
         />
+        <Card style={{ marginTop: 24 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <Typography.Text strong>Return Prime enabled</Typography.Text>
+              <div>
+                <Typography.Text type="secondary">
+                  {active
+                    ? 'Return and exchange requests are active for this store.'
+                    : 'Paused — return/exchange requests are blocked and the RP dashboard login is disabled for this store.'}
+                </Typography.Text>
+              </div>
+            </div>
+            <Switch checked={active} loading={statusLoading} onChange={handleStatusChange} />
+          </div>
+        </Card>
+        {error && (
+          <Typography.Text type="danger" style={{ display: 'block', marginTop: 16 }}>
+            {error}
+          </Typography.Text>
+        )}
         <div style={{ marginTop: 24 }}>
           <Typography.Text strong>Storefront SDK snippet</Typography.Text>
           <pre

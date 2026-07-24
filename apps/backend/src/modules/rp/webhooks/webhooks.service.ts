@@ -61,14 +61,29 @@ export class RpWebhooksService {
       this.logger.warn({ merchantId }, 'app uninstalled event: merchant not found — dropping');
       return;
     }
-    await this.merchants.deactivate(merchantId);
-    this.logger.log({ merchantId, domain: merchant.domain }, 'app uninstalled — merchant deactivated');
+    await this.setMerchantActiveStatus(merchantId, merchant.domain, false);
+  }
+
+  /**
+   * Sets a merchant's active status both locally (`return_prime_merchants.active`, what
+   * `RpRequestGuard` gates on) and on RP's own side (`StoreDetail.active`, what RP's
+   * `sessionChecker.js` gates portal login on). Single source of truth for the two places
+   * this state is mirrored — used by the real OS `app/uninstalled` webhook path (above,
+   * always `active=false`) and by the merchant's own pause/resume toggle in admin-rp
+   * (either direction). RP's `os-uninstall` webhook doubles as the reactivate call too:
+   * OS has no OAuth/billing reinstall flow to hang a real "reactivate" event off of the
+   * way real Shopify's charge-activation step does, so the same endpoint takes an
+   * `active` flag instead of needing a second one.
+   */
+  async setMerchantActiveStatus(merchantId: string, domain: string, active: boolean): Promise<void> {
+    await this.merchants.setActive(merchantId, active);
+    this.logger.log({ merchantId, domain, active }, 'merchant active status updated locally');
 
     const baseUrl = this.config.get('RP_BASE_URL', { infer: true }) as string | undefined;
     const token = this.config.get('OS_RP_TOKEN', { infer: true }) as string | undefined;
 
     if (!baseUrl || !token) {
-      this.logger.error({ merchantId }, 'RP not configured — skipping uninstall relay');
+      this.logger.error({ merchantId, active }, 'RP not configured — skipping status relay');
       return;
     }
 
@@ -79,18 +94,18 @@ export class RpWebhooksService {
           'Content-Type': 'application/json',
           'X-OS-Internal-Token': token,
         },
-        body: JSON.stringify({ merchant_id: merchant.domain }),
+        body: JSON.stringify({ merchant_id: domain, active }),
       });
 
       if (!res.ok) {
         const text = await res.text().catch(() => '');
         this.logger.error(
-          { merchantId, domain: merchant.domain, status: res.status, body: text },
-          'RP uninstall relay failed',
+          { merchantId, domain, active, status: res.status, body: text },
+          'RP status relay failed',
         );
       }
     } catch (err) {
-      this.logger.error({ merchantId, domain: merchant.domain, err }, 'RP uninstall relay threw');
+      this.logger.error({ merchantId, domain, active, err }, 'RP status relay threw');
     }
   }
 

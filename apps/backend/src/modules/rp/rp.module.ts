@@ -12,6 +12,8 @@ import { RpDiscountsController } from './discounts/discounts.controller';
 import { RpDiscountsService } from './discounts/discounts.service';
 import { RpRequestGuard, RpWebhookSignatureGuard } from './guards';
 import { RpIdMappingService } from './id-mapping/id-mapping.service';
+import { RpInventoryController } from './inventory/inventory.controller';
+import { RpInventoryService } from './inventory/inventory.service';
 import { RpKyselyModule } from './kysely.module';
 import { RpMerchantsService } from './merchants/merchants.service';
 import { RpRatioTokenProvider } from './oauth/ratio-token.provider';
@@ -47,10 +49,12 @@ import { RpSdkController } from './sdk/sdk.controller';
     RpPortalController,
     RpConfigController,
     RpSdkController,
+    RpInventoryController,
   ],
   providers: [
     RpMerchantsService,
     RpIdMappingService,
+    RpInventoryService,
     RpTransformerService,
     RpWebhooksService,
     RpOrderSyncService,

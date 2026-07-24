@@ -190,6 +190,49 @@ export class RpRatioClientService {
     return { products, hasNext };
   }
 
+  /**
+   * Fetch a single variant from the OS Item Service — used to read its current
+   * inventory quantity before an adjust (OS's own inventory endpoint sets an
+   * ABSOLUTE quantity, not a delta, so the caller must read-then-write).
+   */
+  async getVariant(merchantId: string, variantId: string): Promise<Record<string, unknown>> {
+    const base = this.config.get('OS_ITEM_BASE_URL', { infer: true }) as string;
+    if (!base) throw new Error('OS_ITEM_BASE_URL is not configured');
+    const res = await fetch(`${base}/api/v1/admin/variants/${encodeURIComponent(variantId)}`, {
+      headers: { 'gk-merchant-id': merchantId, 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) {
+      const errBody = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      this.logger.error(
+        { merchantId, variantId, status: res.status, body: errBody },
+        'OS item service error (get variant)',
+      );
+      throw new HttpException({ message: 'OS item service get variant failed', os: errBody }, res.status);
+    }
+    const body = (await res.json()) as Record<string, unknown>;
+    return (body?.data ?? body) as Record<string, unknown>;
+  }
+
+  /** Set a variant's inventory to an ABSOLUTE quantity via the OS Item Service. */
+  async setVariantInventory(merchantId: string, variantId: string, quantity: number): Promise<unknown> {
+    const base = this.config.get('OS_ITEM_BASE_URL', { infer: true }) as string;
+    if (!base) throw new Error('OS_ITEM_BASE_URL is not configured');
+    const url = `${base}/api/v1/admin/variants/${encodeURIComponent(variantId)}/inventory?quantity=${encodeURIComponent(String(quantity))}`;
+    const res = await fetch(url, {
+      method: 'PUT',
+      headers: { 'gk-merchant-id': merchantId, 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) {
+      const errBody = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      this.logger.error(
+        { merchantId, variantId, quantity, status: res.status, body: errBody },
+        'OS item service error (set inventory)',
+      );
+      throw new HttpException({ message: 'OS item service set inventory failed', os: errBody }, res.status);
+    }
+    return res.json();
+  }
+
   // ── Refunds (GoKwik OS Order Service) ────────────────────────────────────
 
   async calculateRefund(merchantId: string, orderId: string, body: unknown): Promise<unknown> {

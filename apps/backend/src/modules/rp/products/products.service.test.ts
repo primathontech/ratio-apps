@@ -15,16 +15,17 @@ function makeService(opts: {
   getProduct?: ReturnType<typeof vi.fn>;
 }) {
   const resolveRealId = vi.fn().mockResolvedValue(opts.resolvedRealId ?? null);
+  const hashAndPersist = vi.fn().mockResolvedValue('hashed');
   const ratioClient = {
     getProduct: opts.getProduct ?? vi.fn().mockResolvedValue({ product: { id: 'real-os-id' } }),
   } as unknown as RpRatioClientService;
   const transformer = {
     shopifyProduct: vi.fn((p: unknown) => p),
   } as unknown as RpTransformerService;
-  const idMapping = { resolveRealId } as unknown as RpIdMappingService;
+  const idMapping = { resolveRealId, hashAndPersist } as unknown as RpIdMappingService;
 
   const service = new RpProductsService(ratioClient, transformer, idMapping);
-  return { service, ratioClient, resolveRealId };
+  return { service, ratioClient, resolveRealId, hashAndPersist };
 }
 
 describe('RpProductsService.getProduct — hashed product ID resolution', () => {
@@ -58,5 +59,52 @@ describe('RpProductsService.getProduct — hashed product ID resolution', () => 
     await service.getProduct('m1', 'shop.example', '1107513967307445');
 
     expect(ratioClient.getProduct).toHaveBeenCalledWith('m1', 'shop.example', '1107513967307445');
+  });
+});
+
+// RP's exchange-reserve flow (return_prime_public's reserveExchangeInventoryOnShopify)
+// reads a variant's inventory_item_id straight off its cached product object and later
+// round-trips it back to /rp/shopify/inventory_levels/adjust, which resolves it via this
+// same id-mapping table. Without persisting here, a product RP only learned about via a
+// direct GET (not a product-create/update webhook, which already persists) would have no
+// mapping row to resolve — the adjust call would silently operate on the wrong variant.
+describe('RpProductsService.getProduct — variant id mapping persistence', () => {
+  it('persists a hash mapping for every variant on the fetched product', async () => {
+    const { service, hashAndPersist } = makeService({
+      getProduct: vi.fn().mockResolvedValue({
+        product: {
+          id: 'real-os-id',
+          variants: [{ id: 'variant-real-1' }, { id: 'variant-real-2' }],
+        },
+      }),
+    });
+
+    await service.getProduct('m1', 'shop.example', 'hashed-product-id');
+
+    expect(hashAndPersist).toHaveBeenCalledWith('variant', 'variant-real-1');
+    expect(hashAndPersist).toHaveBeenCalledWith('variant', 'variant-real-2');
+  });
+
+  it('does nothing when the product has no variants array', async () => {
+    const { service, hashAndPersist } = makeService({
+      getProduct: vi.fn().mockResolvedValue({ product: { id: 'real-os-id' } }),
+    });
+
+    await service.getProduct('m1', 'shop.example', 'hashed-product-id');
+
+    expect(hashAndPersist).not.toHaveBeenCalled();
+  });
+
+  it('skips variants with a null/undefined id', async () => {
+    const { service, hashAndPersist } = makeService({
+      getProduct: vi.fn().mockResolvedValue({
+        product: { id: 'real-os-id', variants: [{ id: null }, { id: 'variant-real-1' }] },
+      }),
+    });
+
+    await service.getProduct('m1', 'shop.example', 'hashed-product-id');
+
+    expect(hashAndPersist).toHaveBeenCalledTimes(1);
+    expect(hashAndPersist).toHaveBeenCalledWith('variant', 'variant-real-1');
   });
 });

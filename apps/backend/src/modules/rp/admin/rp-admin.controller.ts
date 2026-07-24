@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Post,
   Get,
@@ -12,6 +13,7 @@ import type { FastifyRequest } from 'fastify';
 import type { Env } from '../../../config/env.schema';
 import { RpMerchantsService } from '../merchants/merchants.service';
 import { RpCatalogSyncService } from '../orders/catalog-sync.service';
+import { RpWebhooksService } from '../webhooks/webhooks.service';
 
 function resolveMerchantId(req: FastifyRequest): string | null {
   const auth = req.headers.authorization;
@@ -32,6 +34,7 @@ export class RpAdminController {
     private readonly merchants: RpMerchantsService,
     private readonly config: ConfigService<Env, true>,
     private readonly catalogSync: RpCatalogSyncService,
+    private readonly webhooks: RpWebhooksService,
   ) {}
 
   @Get('merchants/me')
@@ -50,6 +53,29 @@ export class RpAdminController {
       // domain has been updated from the GoKwik merchant-id fallback.
       registered: merchant.domain !== merchant.merchantId,
     };
+  }
+
+  /**
+   * Merchant self-service pause/resume — not the platform-wide ops kill switch
+   * (RP_PLATFORM_KILL_SWITCH_ENABLED). Turning this off blocks every /rp/shopify/* call for
+   * THIS merchant only (RpRequestGuard's findByDomain filters on `active`) and mirrors
+   * the same state into RP's own StoreDetail.active, so a merchant who tries to log
+   * into the RP dashboard directly is blocked exactly as after a real Shopify uninstall
+   * — see RpWebhooksService.setMerchantActiveStatus. Uses resolveMerchantId's raw
+   * findByMerchantId (no active filter), so a merchant can always come back to this
+   * endpoint to resume even while paused.
+   */
+  @Post('status')
+  async setStatus(@Req() req: FastifyRequest, @Body() body: { active?: boolean }) {
+    const merchantId = resolveMerchantId(req);
+    if (!merchantId) throw new UnauthorizedException('merchant session required');
+
+    const merchant = await this.merchants.findByMerchantId(merchantId);
+    if (!merchant) throw new UnauthorizedException('merchant not installed');
+
+    const active = Boolean(body?.active);
+    await this.webhooks.setMerchantActiveStatus(merchantId, merchant.domain, active);
+    return { active };
   }
 
   @Post('register')

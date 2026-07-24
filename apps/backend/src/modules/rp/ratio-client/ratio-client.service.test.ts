@@ -174,3 +174,77 @@ describe('RpRatioClientService.patchOrder', () => {
     }
   });
 });
+
+describe('RpRatioClientService.getVariant', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('fetches a variant by id from the OS item service and unwraps the data envelope', async () => {
+    const okBody = { data: { id: 'var-1', inventory_quantity: 7 } };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(okBody),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const svc = makeService();
+    const result = await svc.getVariant('gk-merchant', 'var-1');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://os-order.test/api/v1/admin/variants/var-1',
+      expect.objectContaining({ headers: { 'gk-merchant-id': 'gk-merchant', 'Content-Type': 'application/json' } }),
+    );
+    expect(result).toEqual({ id: 'var-1', inventory_quantity: 7 });
+  });
+
+  it('throws an HttpException on a non-ok response', async () => {
+    const errorBody = { message: 'not found' };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: false, status: 404, json: () => Promise.resolve(errorBody) }),
+    );
+
+    const svc = makeService();
+    try {
+      await svc.getVariant('gk-merchant', 'missing');
+      throw new Error('expected getVariant to throw');
+    } catch (err) {
+      expect(err).toBeInstanceOf(HttpException);
+      expect((err as HttpException).getStatus()).toBe(404);
+    }
+  });
+});
+
+describe('RpRatioClientService.setVariantInventory', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('PUTs the absolute quantity as a query param', async () => {
+    const okBody = { id: 'var-1', inventory_quantity: 12 };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(okBody),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const svc = makeService();
+    const result = await svc.setVariantInventory('gk-merchant', 'var-1', 12);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://os-order.test/api/v1/admin/variants/var-1/inventory?quantity=12',
+      expect.objectContaining({ method: 'PUT', headers: { 'gk-merchant-id': 'gk-merchant', 'Content-Type': 'application/json' } }),
+    );
+    expect(result).toEqual(okBody);
+  });
+
+  it('throws an HttpException on a non-ok response', async () => {
+    const errorBody = { message: 'variant not found' };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: false, status: 404, json: () => Promise.resolve(errorBody) }),
+    );
+
+    const svc = makeService();
+    await expect(svc.setVariantInventory('gk-merchant', 'missing', 5)).rejects.toThrow(HttpException);
+  });
+});

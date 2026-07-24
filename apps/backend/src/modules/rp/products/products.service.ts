@@ -28,6 +28,17 @@ export class RpProductsService {
 
     const raw = await this.ratioClient.getProduct(merchantId, domain, resolvedId) as Record<string, unknown>;
     const product = (raw?.product ?? raw?.data ?? raw) as Record<string, unknown>;
+
+    // Persist variant hash mappings here too, not just on the webhook-forward path — RP's
+    // exchange-reserve flow later round-trips a variant's hashed inventory_item_id back to
+    // /rp/shopify/inventory_levels/adjust, which needs this row to resolve it to the real
+    // OS variant id. Without it, a product RP only ever learned about via a direct GET
+    // (not a product-create/update webhook) would have no mapping to resolve.
+    const variants = Array.isArray(product?.variants) ? (product.variants as Record<string, unknown>[]) : [];
+    await Promise.all(
+      variants.filter((v) => v.id != null).map((v) => this.idMapping.hashAndPersist('variant', String(v.id))),
+    );
+
     const shaped = this.transformer.shopifyProduct(product);
 
     // If OS returned a real product, ensure its id in the response is the hashed
