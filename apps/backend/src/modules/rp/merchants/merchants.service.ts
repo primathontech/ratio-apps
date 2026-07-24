@@ -84,6 +84,20 @@ export class RpMerchantsService {
       .execute();
   }
 
+  /**
+   * Set only after RP's os-install has genuinely returned a 2xx — never as a side
+   * effect of merely attempting registration. `RpAdminController.me()` reads this
+   * (not `domain !== merchantId`) to decide register-vs-configured, so a failed
+   * os-install can never look like a completed registration on the next page load.
+   */
+  async setRpRegistered(merchantId: string, registered: boolean): Promise<void> {
+    await this.handle.db
+      .updateTable('return_prime_merchants')
+      .set({ rpRegistered: registered, updatedAt: sql`CURRENT_TIMESTAMP(3)` })
+      .where('merchantId', '=', merchantId)
+      .execute();
+  }
+
   async updateTokens(
     merchantId: string,
     data: { accessTokenEnc: string; refreshTokenEnc: string; expiresAt: Date },

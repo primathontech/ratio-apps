@@ -49,9 +49,10 @@ export class RpAdminController {
       id: merchant.merchantId,
       domain: merchant.domain,
       active: merchant.active,
-      // True once the merchant has completed the registration form and the
-      // domain has been updated from the GoKwik merchant-id fallback.
-      registered: merchant.domain !== merchant.merchantId,
+      // Set only after RP's os-install genuinely returned 2xx (see register() below)
+      // — never inferred from `domain` alone, which used to get updated regardless
+      // of whether the RP-side call that followed then succeeded or failed.
+      registered: Boolean(merchant.rpRegistered),
     };
   }
 
@@ -90,18 +91,29 @@ export class RpAdminController {
     const token = this.config.get('OS_RP_TOKEN', { infer: true }) as string | undefined;
 
     if (!baseUrl || !token) {
-      throw new BadGatewayException('RP integration not configured');
+      this.logger.error(
+        { merchantId, side: 'rp-adapter', reason: 'misconfigured', hasBaseUrl: !!baseUrl, hasToken: !!token },
+        'os-install: RP_BASE_URL/OS_RP_TOKEN not configured',
+      );
+      throw new BadGatewayException({
+        message: 'RP integration not configured',
+        error_code: 'RP_NOT_CONFIGURED',
+        side: 'rp-adapter',
+        reason: 'misconfigured',
+      });
     }
 
     const body = (req.body ?? {}) as Record<string, unknown>;
 
-    // If merchant provided their actual store domain, update it in the DB.
-    // (GoKwik OAuth only returns merchant_id, not the store URL, so the auth
-    // callback stores merchantId as domain — the registration form corrects it.)
+    // Compute the intended store domain WITHOUT persisting it yet. (GoKwik OAuth
+    // only returns merchant_id, not the store URL, so the auth callback stores
+    // merchantId as domain — the registration form corrects it.) Persisting this
+    // before RP confirms used to be the exact bug: a failed os-install still left
+    // `domain` updated, and the old `registered` check (`domain !== merchantId`)
+    // then showed "configured" on the next page load despite RP never confirming
+    // anything. Both `domain` and `rpRegistered` are now written together, only
+    // after a genuine 2xx from RP — see the success branch below.
     const storeDomain = (body.store_domain as string | undefined)?.trim() || merchant.domain;
-    if (storeDomain !== merchant.domain) {
-      await this.merchants.updateDomain(merchantId, storeDomain);
-    }
 
     const adminEmail =
       (body.admin_email as string | undefined) ??
@@ -116,6 +128,7 @@ export class RpAdminController {
       (this.config.get('RP_OS_ADMIN_NAME' as never, { infer: true }) as string | undefined) ??
       'Admin';
 
+    let res: Response;
     try {
       const payload = JSON.stringify({
         merchant_id: storeDomain,
@@ -127,7 +140,7 @@ export class RpAdminController {
         platform: 'os',
       });
 
-      const res = await fetch(`${baseUrl}/shopify-webhook/v1/os-install`, {
+      res = await fetch(`${baseUrl}/shopify-webhook/v1/os-install`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -136,24 +149,69 @@ export class RpAdminController {
         },
         body: payload,
       });
-
-      const installBody = (await res.json()) as Record<string, unknown>;
-      if (!res.ok) {
-        this.logger.error({ domain: storeDomain, status: res.status, installBody }, 'os-install failed');
-        throw new BadGatewayException('RP registration failed');
-      }
-
-      // Registration succeeded — kick off the OS→RP catalog import so RP has products
-      // for the exchange picker. Fire-and-forget: never block/fail the register response.
-      this.catalogSync
-        .syncCatalog(merchantId)
-        .catch((err) => this.logger.error({ merchantId, err }, 'catalog sync trigger failed'));
-
-      return { registered: true, domain: storeDomain, status: installBody.status ?? installBody.message };
     } catch (err) {
-      if (err instanceof BadGatewayException) throw err;
-      this.logger.error({ domain: storeDomain, err }, 'os-install threw');
-      throw new BadGatewayException('RP registration failed');
+      // We never reached RP at all (DNS failure, connection refused, timeout) —
+      // distinct from RP reaching us and rejecting the request. Nothing persisted.
+      this.logger.error(
+        { merchantId, domain: storeDomain, side: 'rp-adapter', reason: 'network_error', err },
+        'os-install: could not reach RP',
+      );
+      throw new BadGatewayException({
+        message: 'Could not reach Return Prime — check RP_BASE_URL / network connectivity.',
+        error_code: 'RP_UNREACHABLE',
+        side: 'rp-adapter',
+        reason: 'network_error',
+      });
     }
+
+    let installBody: Record<string, unknown>;
+    try {
+      installBody = (await res.json()) as Record<string, unknown>;
+    } catch (err) {
+      this.logger.error(
+        { merchantId, domain: storeDomain, side: 'rp-adapter', reason: 'invalid_response', status: res.status, err },
+        'os-install: RP response was not valid JSON',
+      );
+      throw new BadGatewayException({
+        message: 'Return Prime returned an unreadable response.',
+        error_code: 'RP_INVALID_RESPONSE',
+        side: 'rp-adapter',
+        reason: 'invalid_response',
+      });
+    }
+
+    if (!res.ok) {
+      // RP was reached and explicitly rejected the request — surface exactly what
+      // it said, not a blanket message every time.
+      const rpMessage = (installBody.message as string | undefined) ?? (installBody.messageCode as string | undefined);
+      this.logger.error(
+        { merchantId, domain: storeDomain, side: 'return-prime', reason: 'rejected', status: res.status, installBody },
+        'os-install: RP rejected registration',
+      );
+      throw new BadGatewayException({
+        message: rpMessage ? `Return Prime rejected registration: ${rpMessage}` : 'Return Prime rejected registration.',
+        error_code: 'RP_REJECTED',
+        side: 'return-prime',
+        reason: 'rejected',
+        rp: installBody,
+      });
+    }
+
+    // Only now — a genuine confirmed 2xx from RP — persist domain + registered.
+    if (storeDomain !== merchant.domain) {
+      await this.merchants.updateDomain(merchantId, storeDomain);
+    }
+    await this.merchants.setRpRegistered(merchantId, true);
+    this.logger.log({ merchantId, domain: storeDomain }, 'os-install: RP confirmed registration');
+
+    // Registration succeeded — kick off the OS→RP catalog import so RP has products
+    // for the exchange picker. Fire-and-forget: never block/fail the register response.
+    this.catalogSync
+      .syncCatalog(merchantId)
+      .catch((err) =>
+        this.logger.error({ merchantId, side: 'rp-adapter', reason: 'catalog_sync_failed', err }, 'catalog sync trigger failed'),
+      );
+
+    return { registered: true, domain: storeDomain, status: installBody.status ?? installBody.message };
   }
 }

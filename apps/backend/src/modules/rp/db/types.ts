@@ -9,6 +9,10 @@ export interface ReturnPrimeMerchantsTable {
   expiresAt: Date;
   active: Generated<boolean>;
   returnExchangeEnabled: Generated<boolean>;
+  // True only after RP's os-install has genuinely confirmed this merchant (a real
+  // 2xx response) — NOT inferred from `domain` having been updated, which happens
+  // regardless of whether the RP-side call that follows succeeds or fails.
+  rpRegistered: Generated<boolean>;
   installedAt: Generated<Date>;
   createdAt: Generated<Date>;
   updatedAt: Generated<Date>;
