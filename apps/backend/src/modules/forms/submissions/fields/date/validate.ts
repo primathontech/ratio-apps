@@ -9,7 +9,7 @@ const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
  * "2026", "July 2026", and "12/31/2026", and rolls "2026-02-30" over to March,
  * all of which then round-trip verbatim into data_json / CSV / webhook.
  */
-export function validateDate(_field: FieldOfType<'date'>, value: unknown): ServerValidateResult {
+export function validateDate(field: FieldOfType<'date'>, value: unknown): ServerValidateResult {
   if (typeof value !== 'string') return { error: 'Please enter a date in YYYY-MM-DD format.' };
   const m = ISO_DATE.exec(value.trim());
   if (!m) return { error: 'Please enter a date in YYYY-MM-DD format.' };
@@ -22,5 +22,16 @@ export function validateDate(_field: FieldOfType<'date'>, value: unknown): Serve
   if (dt.getUTCFullYear() !== year || dt.getUTCMonth() !== month - 1 || dt.getUTCDate() !== day) {
     return { error: 'Please enter a valid date.' };
   }
-  return { value: `${m[1]}-${m[2]}-${m[3]}` };
+  const canonical = `${m[1]}-${m[2]}-${m[3]}`;
+  // Optional [min,max] bounds must be re-checked server-side (the client is not
+  // authoritative). Lexical compare is exact for the canonical ISO shape, and the
+  // messages match the SDK validator. `defaultTo` is client-only — never used here.
+  const v = field.validation;
+  if (v?.min !== undefined && canonical < v.min) {
+    return { error: `Please enter a date on or after ${v.min}.` };
+  }
+  if (v?.max !== undefined && canonical > v.max) {
+    return { error: `Please enter a date on or before ${v.max}.` };
+  }
+  return { value: canonical };
 }

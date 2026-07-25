@@ -1,4 +1,4 @@
-import { html, type TemplateResult } from 'lit';
+import { html, nothing, type TemplateResult } from 'lit';
 import type { ControlFieldOf, FieldRenderCtx } from '../types';
 
 export function renderUrl(field: ControlFieldOf<'url'>, ctx: FieldRenderCtx): TemplateResult {
@@ -9,6 +9,7 @@ export function renderUrl(field: ControlFieldOf<'url'>, ctx: FieldRenderCtx): Te
       name=${field.key}
       type="url"
       inputmode="url"
+      maxlength=${field.validation?.maxLength ?? nothing}
       placeholder=${ctx.ph(field, field.placeholder ?? 'https://')}
       aria-invalid=${ctx.invalid}
       aria-describedby=${ctx.describedBy}
