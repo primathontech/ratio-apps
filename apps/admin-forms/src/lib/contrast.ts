@@ -24,6 +24,9 @@ type Rgb = [number, number, number];
 /** Parse `#rgb`/`#rrggbb`/`#rrggbbaa` to 0-255 channels; null on garbage. */
 function parseHex(hex: string): Rgb | null {
   const m = hex.trim().replace(/^#/, '');
+  // Reject any non-hex char up front — Number.parseInt is lenient (parseInt
+  // ('0g', 16) === 0), so without this a malformed channel parses to garbage.
+  if (!/^[0-9a-fA-F]+$/.test(m)) return null;
   let r: string;
   let g: string;
   let b: string;
@@ -97,34 +100,6 @@ export function blendOver(topHex: string, alpha: number, bottomHex: string): str
 /** The effective background after a black scrim at `scrim` opacity over `bg`. */
 export function scrimmed(bgHex: string, scrim: number): string {
   return blendOver('#000000', scrim, bgHex) ?? bgHex;
-}
-
-interface ThresholdOpts {
-  level?: 'AA' | 'AAA';
-  /** Large text (≥24px or ≥18.66px bold) — drops the text bar to the large tier. */
-  large?: boolean;
-  /** Non-text UI component (border, focus ring, icon) — flat 3:1. */
-  nonText?: boolean;
-}
-
-function thresholdFor({ level = 'AA', large = false, nonText = false }: ThresholdOpts): number {
-  if (nonText) return WCAG.NON_TEXT;
-  if (level === 'AAA') return large ? WCAG.AAA_LARGE : WCAG.AAA_NORMAL;
-  return large ? WCAG.AA_LARGE : WCAG.AA_NORMAL;
-}
-
-/**
- * Whether a pair clears its threshold. Back-compatible: pass a number for a raw
- * threshold, or `{ level, large, nonText }` to resolve the WCAG tier.
- */
-export function meetsContrast(
-  fg: string,
-  bg: string,
-  opt: number | ThresholdOpts = WCAG.AA_NORMAL,
-): boolean {
-  const threshold = typeof opt === 'number' ? opt : thresholdFor(opt);
-  const ratio = contrastRatio(fg, bg);
-  return ratio !== null && ratio >= threshold;
 }
 
 /** Black or white — whichever has the higher contrast on `bg`. The auto-fix. */
