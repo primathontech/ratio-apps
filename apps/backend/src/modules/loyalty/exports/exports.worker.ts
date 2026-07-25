@@ -168,12 +168,13 @@ export class ExportsWorker implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     try {
       const url = await this.s3.presignGetUrl(bucket, s3Key, EMAIL_LINK_EXPIRES_S);
-      await this.email.send(
+      await this.email.send({
         to,
-        `Your loyalty customer export is ready (${rowCount} rows)`,
-        `<p>Your loyalty customer export (${rowCount} rows) is ready.</p>` +
+        subject: `Your loyalty customer export is ready (${rowCount} rows)`,
+        html:
+          `<p>Your loyalty customer export (${rowCount} rows) is ready.</p>` +
           `<p><a href="${url}">Download the CSV (gzip)</a> — the link expires in 7 days.</p>`,
-      );
+      });
       await this.handle.db
         .updateTable('loyalty_exports')
         .set({ emailedAt: new Date(), updatedAt: new Date() })
