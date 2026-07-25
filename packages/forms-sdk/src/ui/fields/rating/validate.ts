@@ -7,7 +7,9 @@ export function validateRating(
   const value = ctx.values[field.key];
   if (isEmpty(value)) return field.required ? 'This field is required.' : null;
   const n = Number(value);
-  return Number.isInteger(n) && n >= 1 && n <= field.max
+  // min absent ⇒ 1 (1-based); 0 enables a 0-based scale (e.g. 0–10 NPS).
+  const min = field.min ?? 1;
+  return Number.isInteger(n) && n >= min && n <= field.max
     ? null
-    : `Please choose a rating between 1 and ${field.max}.`;
+    : `Please choose a rating between ${min} and ${field.max}.`;
 }

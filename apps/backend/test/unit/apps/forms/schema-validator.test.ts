@@ -276,6 +276,55 @@ describe('SchemaValidatorService — P1 field types (url / rating / hidden, §4)
       expect(result.ok).toBe(true);
       if (result.ok) expect('site' in result.data).toBe(false);
     });
+
+    it('normalizes a bare domain to https and stores the normalized value', () => {
+      const result = run(schema, { site: 'example.com' });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.data.site).toBe('https://example.com');
+    });
+
+    it('requireHttps rejects an http URL', () => {
+      const https: FormField[] = [
+        {
+          key: 'site',
+          type: 'url',
+          label: 'Website',
+          required: true,
+          validation: { requireHttps: true },
+        },
+      ];
+      const result = run(https, { site: 'http://example.com' });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.site).toBe('Please enter a valid https URL.');
+    });
+
+    it('requireHttps accepts an https URL', () => {
+      const https: FormField[] = [
+        {
+          key: 'site',
+          type: 'url',
+          label: 'Website',
+          required: true,
+          validation: { requireHttps: true },
+        },
+      ];
+      expect(run(https, { site: 'https://example.com' }).ok).toBe(true);
+    });
+
+    it('enforces maxLength', () => {
+      const capped: FormField[] = [
+        {
+          key: 'site',
+          type: 'url',
+          label: 'Website',
+          required: true,
+          validation: { requireHttps: false, maxLength: 15 },
+        },
+      ];
+      const result = run(capped, { site: 'https://example.com/too/long' });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.site).toBe('Please enter no more than 15 characters.');
+    });
   });
 
   describe('rating', () => {
@@ -319,6 +368,42 @@ describe('SchemaValidatorService — P1 field types (url / rating / hidden, §4)
       ];
       expect(run(wide, { score: 10 }).ok).toBe(true);
       expect(run(wide, { score: 11 }).ok).toBe(false);
+    });
+
+    it('allows a 0-based scale when min is 0 (0–10 NPS)', () => {
+      const nps: FormField[] = [
+        {
+          key: 'score',
+          type: 'rating',
+          label: 'How likely',
+          required: true,
+          min: 0,
+          max: 10,
+          icon: 'star',
+          display: 'numbers',
+          lowLabel: 'Not likely',
+          highLabel: 'Very likely',
+        },
+      ];
+      expect(run(nps, { score: 0 }).ok).toBe(true);
+      expect(run(nps, { score: 10 }).ok).toBe(true);
+    });
+
+    it('rejects a value below a 0-based min with the min..max message', () => {
+      const nps: FormField[] = [
+        {
+          key: 'score',
+          type: 'rating',
+          label: 'How likely',
+          required: true,
+          min: 0,
+          max: 10,
+          icon: 'star',
+        },
+      ];
+      const result = run(nps, { score: -1 });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.score).toBe('Please choose a rating between 0 and 10.');
     });
   });
 
@@ -411,9 +496,7 @@ describe('SchemaValidatorService — P1 field types (url / rating / hidden, §4)
   });
 
   describe('date (P2-5 — strict ISO + normalization)', () => {
-    const schema: FormField[] = [
-      { key: 'd', type: 'date', label: 'Date', required: true },
-    ];
+    const schema: FormField[] = [{ key: 'd', type: 'date', label: 'Date', required: true }];
 
     it('accepts a strict ISO date and stores it canonically', () => {
       const result = run(schema, { d: '2026-03-01' });
@@ -421,14 +504,53 @@ describe('SchemaValidatorService — P1 field types (url / rating / hidden, §4)
       if (result.ok) expect(result.data.d).toBe('2026-03-01');
     });
 
-    it.each(['2026', 'July 2026', '2026-02-30', '12/31/2026', '2026-13-01', '2026-00-10'])(
-      'rejects the non-ISO / impossible date %s',
-      (value) => {
-        const result = run(schema, { d: value });
-        expect(result.ok).toBe(false);
-        if (!result.ok) expect(result.errors.d).toBeDefined();
+    it.each([
+      '2026',
+      'July 2026',
+      '2026-02-30',
+      '12/31/2026',
+      '2026-13-01',
+      '2026-00-10',
+    ])('rejects the non-ISO / impossible date %s', (value) => {
+      const result = run(schema, { d: value });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.d).toBeDefined();
+    });
+  });
+
+  describe('date.bounds (server-side [min,max] enforcement)', () => {
+    const bounded: FormField[] = [
+      {
+        key: 'd',
+        type: 'date',
+        label: 'Date',
+        required: true,
+        validation: { min: '2026-01-01', max: '2026-12-31' },
       },
-    );
+    ];
+
+    it('accepts a date within [min,max] and stores it canonically', () => {
+      const result = run(bounded, { d: '2026-06-15' });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.data.d).toBe('2026-06-15');
+    });
+
+    it('accepts the inclusive boundaries', () => {
+      expect(run(bounded, { d: '2026-01-01' }).ok).toBe(true);
+      expect(run(bounded, { d: '2026-12-31' }).ok).toBe(true);
+    });
+
+    it('rejects a date before min', () => {
+      const result = run(bounded, { d: '2025-12-31' });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.d).toBe('Please enter a date on or after 2026-01-01.');
+    });
+
+    it('rejects a date after max', () => {
+      const result = run(bounded, { d: '2027-01-01' });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.d).toBe('Please enter a date on or before 2026-12-31.');
+    });
   });
 
   describe('multi_select (P2-6 — dedup + count cap)', () => {
@@ -523,7 +645,8 @@ describe('SchemaValidatorService — P1 field types (url / rating / hidden, §4)
         scope,
       );
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.errors.avatar).toBe('This file was not uploaded for this field.');
+      if (!result.ok)
+        expect(result.errors.avatar).toBe('This file was not uploaded for this field.');
     });
 
     it('rejects a key with the wrong segment count', () => {

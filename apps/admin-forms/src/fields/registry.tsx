@@ -1,6 +1,7 @@
 import type { FormFieldType } from '@shared/schemas/form-schema';
 import type { FieldSettingsComponent } from './_shared/controls';
 import { CheckboxConsentSettings } from './checkbox/settings';
+import { DateValidationSettings } from './date/settings';
 import { DividerSettings } from './divider/settings';
 import { DropdownSettings } from './dropdown/settings';
 import { FileValidationSettings } from './file/settings';
@@ -21,7 +22,7 @@ import { UrlSettings } from './url/settings';
  * Admin per-field settings registry (Phase 0 refactor). Maps each field type to
  * the settings panel it owns in `./<type>/settings.tsx`; `TypeSpecificSettings`
  * in `builder.$formId.tsx` dispatches through this map instead of a switch.
- * `email`/`date` have no type-specific panel (null). The `as` casts widen each
+ * `email` has no type-specific panel (null). The `as` casts widen each
  * member-typed panel to the field union for the dynamic dispatch (mirrors the
  * SDK/server registry casts).
  */
@@ -32,7 +33,7 @@ export const fieldSettingsRegistry: Record<FormFieldType, FieldSettingsComponent
   phone: PhoneSettings as FieldSettingsComponent,
   dropdown: DropdownSettings as FieldSettingsComponent,
   multi_select: MultiSelectSettings as FieldSettingsComponent,
-  date: null,
+  date: DateValidationSettings as FieldSettingsComponent,
   file: FileValidationSettings as FieldSettingsComponent,
   radio: RadioSettings as FieldSettingsComponent,
   checkbox: CheckboxConsentSettings as FieldSettingsComponent,
