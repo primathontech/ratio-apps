@@ -1,4 +1,3 @@
-import { optionValues } from '@ratio-app/shared/schemas/fields/_shared/base';
 import { type ControlFieldOf, type FieldValidateCtx, isEmpty } from '../types';
 
 export function validateDropdown(
@@ -7,7 +6,7 @@ export function validateDropdown(
 ): string | null {
   const value = ctx.values[field.key];
   if (isEmpty(value)) return field.required ? 'This field is required.' : null;
-  return optionValues(field.options).includes(String(value))
+  return field.options.some((o) => o.value === String(value))
     ? null
     : 'Please choose one of the available options.';
 }

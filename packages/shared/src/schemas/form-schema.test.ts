@@ -731,13 +731,19 @@ describe('appearanceSchema (theme contract)', () => {
   });
 
   it('accepts a valid custom Google font name', () => {
-    expect(appearanceSchema.parse({ typography: { customGoogleFont: 'Figtree' } }).typography
-      .customGoogleFont).toBe('Figtree');
+    expect(
+      appearanceSchema.parse({ typography: { customGoogleFont: 'Figtree' } }).typography
+        .customGoogleFont,
+    ).toBe('Figtree');
     // spaces and hyphens are allowed inside the name.
-    expect(appearanceSchema.parse({ typography: { customGoogleFont: 'Source Serif 4' } }).typography
-      .customGoogleFont).toBe('Source Serif 4');
-    expect(appearanceSchema.parse({ typography: { customGoogleFont: 'PT Sans-Caption' } }).typography
-      .customGoogleFont).toBe('PT Sans-Caption');
+    expect(
+      appearanceSchema.parse({ typography: { customGoogleFont: 'Source Serif 4' } }).typography
+        .customGoogleFont,
+    ).toBe('Source Serif 4');
+    expect(
+      appearanceSchema.parse({ typography: { customGoogleFont: 'PT Sans-Caption' } }).typography
+        .customGoogleFont,
+    ).toBe('PT Sans-Caption');
   });
 
   it('rejects a custom Google font name with injection characters', () => {
@@ -755,15 +761,17 @@ describe('appearanceSchema (theme contract)', () => {
       'back\\slash',
       'line\nbreak',
     ]) {
-      expect(
-        appearanceSchema.safeParse({ typography: { customGoogleFont: bad } }).success,
-      ).toBe(false);
+      expect(appearanceSchema.safeParse({ typography: { customGoogleFont: bad } }).success).toBe(
+        false,
+      );
     }
   });
 
   it('enforces length bounds on the custom Google font name', () => {
     // empty (after trim) fails the min-length / leading-char requirement.
-    expect(appearanceSchema.safeParse({ typography: { customGoogleFont: '' } }).success).toBe(false);
+    expect(appearanceSchema.safeParse({ typography: { customGoogleFont: '' } }).success).toBe(
+      false,
+    );
     expect(appearanceSchema.safeParse({ typography: { customGoogleFont: ' ' } }).success).toBe(
       false,
     );

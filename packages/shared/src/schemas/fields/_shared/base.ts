@@ -306,11 +306,14 @@ export function optionValues(options: readonly FormOption[]): string[] {
   return options.map((o) => o.value);
 }
 
-/** dropdown / multi_select / radio choices — ≥1, ≤200, unique values. */
+/** Upper bound on choices per select field — shared by the schema and the admin editor so they can't drift. */
+export const MAX_OPTIONS = 200;
+
+/** dropdown / multi_select / radio choices — ≥1, ≤MAX_OPTIONS, unique values. */
 export const optionsSchema = z
   .array(optionSchema)
   .min(1, { message: 'at least one option is required' })
-  .max(200, { message: 'at most 200 options' })
+  .max(MAX_OPTIONS, { message: `at most ${MAX_OPTIONS} options` })
   .superRefine((options, ctx) => {
     const seen = new Set<string>();
     options.forEach((option, i) => {
