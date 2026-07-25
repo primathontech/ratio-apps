@@ -42,7 +42,13 @@ function makeReply() {
 describe('FormsEmbedService — form resolution (GET /forms/embed/:formId)', () => {
   it('resolves merchant + name for an existing, non-deleted form (status not gated)', async () => {
     const service = makeService([
-      { id: KNOWN_FORM, merchantId: 'mer_1', name: 'Contact us', status: 'inactive', deletedAt: null },
+      {
+        id: KNOWN_FORM,
+        merchantId: 'mer_1',
+        name: 'Contact us',
+        status: 'inactive',
+        deletedAt: null,
+      },
     ]);
     // status=inactive still resolves — the SDK renders the closed state itself.
     await expect(service.resolve(KNOWN_FORM)).resolves.toEqual({
@@ -53,7 +59,13 @@ describe('FormsEmbedService — form resolution (GET /forms/embed/:formId)', () 
 
   it('returns null for an unknown or soft-deleted form', async () => {
     const service = makeService([
-      { id: 'form_deleted', merchantId: 'mer_1', name: 'Gone', status: 'active', deletedAt: new Date() },
+      {
+        id: 'form_deleted',
+        merchantId: 'mer_1',
+        name: 'Gone',
+        status: 'active',
+        deletedAt: new Date(),
+      },
     ]);
     await expect(service.resolve('form_missing')).resolves.toBeNull();
     await expect(service.resolve('form_deleted')).resolves.toBeNull();
@@ -63,7 +75,13 @@ describe('FormsEmbedService — form resolution (GET /forms/embed/:formId)', () 
 describe('FormsEmbedController — iframe embed page', () => {
   it('200 text/html with the mount div + relative SDK script for a known form', async () => {
     const service = makeService([
-      { id: KNOWN_FORM, merchantId: 'mer_abc', name: 'Contact us', status: 'active', deletedAt: null },
+      {
+        id: KNOWN_FORM,
+        merchantId: 'mer_abc',
+        name: 'Contact us',
+        status: 'active',
+        deletedAt: null,
+      },
     ]);
     const controller = new FormsEmbedController(service);
     const { reply, headers, state } = makeReply();
@@ -80,7 +98,13 @@ describe('FormsEmbedController — iframe embed page', () => {
 
   it('is frameable from any origin — no X-Frame-Options, CSP allows all frame-ancestors', async () => {
     const service = makeService([
-      { id: KNOWN_FORM, merchantId: 'mer_abc', name: 'Contact us', status: 'active', deletedAt: null },
+      {
+        id: KNOWN_FORM,
+        merchantId: 'mer_abc',
+        name: 'Contact us',
+        status: 'active',
+        deletedAt: null,
+      },
     ]);
     const controller = new FormsEmbedController(service);
     const { reply, headers, removed } = makeReply();
@@ -109,7 +133,13 @@ describe('FormsEmbedController — iframe embed page', () => {
 
   it('escapes the form name into the title (no raw HTML injection)', async () => {
     const service = makeService([
-      { id: KNOWN_FORM, merchantId: 'mer_abc', name: '<script>x</script>', status: 'active', deletedAt: null },
+      {
+        id: KNOWN_FORM,
+        merchantId: 'mer_abc',
+        name: '<script>x</script>',
+        status: 'active',
+        deletedAt: null,
+      },
     ]);
     const controller = new FormsEmbedController(service);
     const { reply, state } = makeReply();

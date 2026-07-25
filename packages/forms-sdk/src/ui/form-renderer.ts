@@ -1,5 +1,6 @@
 // Type-only shapes of the shared form-schema contract (no Zod in the bundle).
 import type { FormAppearance, FormField } from '@ratio-app/shared';
+import { resolveHiddenValue } from '@ratio-app/shared/schemas/fields/hidden/constants';
 // Adornment capability matrix (§2.3) — the single source of truth shared with
 // the admin builder, so the two never drift over which types get chips/counters.
 import {
@@ -775,15 +776,27 @@ export class RatioForm extends LitElement {
     document.head.appendChild(tag);
   }
 
-  /** Seed hidden fields from the page URL (UTM capture etc); no visible DOM. */
+  /**
+   * Seed hidden fields from their configured source — URL param (default),
+   * cookie, referrer, landing URL, timestamp, or a fixed constant (§4). The
+   * resolution + fallback + length-clamp logic is the pure, Zod-free
+   * `resolveHiddenValue` shared with the server so verdicts don't drift. No
+   * visible DOM.
+   */
   private captureHiddenValues(): void {
     const fields = this.schema?.schema ?? [];
     if (!fields.some((f) => f.type === 'hidden')) return;
-    const params = new URLSearchParams(window.location.search);
+    const ctx = {
+      search: window.location.search,
+      cookie: typeof document !== 'undefined' ? document.cookie : '',
+      referrer: typeof document !== 'undefined' ? document.referrer : '',
+      href: window.location.href,
+      now: new Date(),
+    };
     const next = { ...this.values };
     for (const field of fields) {
       if (field.type !== 'hidden') continue;
-      const value = params.get(field.paramName);
+      const value = resolveHiddenValue(field, ctx);
       if (value !== null) next[field.key] = value;
     }
     this.values = next;

@@ -57,6 +57,16 @@ export {
   type FormFileAllowedMimeType,
 } from './fields/file/schema';
 export { FORM_HEADING_LEVELS, type FormHeadingLevel } from './fields/heading/schema';
+export {
+  FORM_NUMBER_CURRENCIES,
+  FORM_NUMBER_LOCALES,
+  FORM_NUMBER_MAX_DECIMALS,
+  FORM_NUMBER_STYLES,
+  type FormNumberCurrency,
+  type FormNumberFormat,
+  type FormNumberLocale,
+  type FormNumberStyle,
+} from './fields/number/schema';
 export { FORM_RATING_ICONS, type FormRatingIcon } from './fields/rating/schema';
 export {
   FORM_TEXTAREA_DEFAULT_MAX_LENGTH,

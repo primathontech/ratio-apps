@@ -1,6 +1,9 @@
+import {
+  canonicalizePhone,
+  phoneErrorMessage,
+  resolvePhoneCountries,
+} from '@ratio-app/shared/schemas/fields/phone/constants';
 import { type ControlFieldOf, type FieldValidateCtx, isEmpty } from '../types';
-
-const PHONE_RE = /^(\+91)?[0-9]{10}$/;
 
 export function validatePhone(
   field: ControlFieldOf<'phone'>,
@@ -8,6 +11,15 @@ export function validatePhone(
 ): string | null {
   const value = ctx.values[field.key];
   if (isEmpty(value)) return field.required ? 'This field is required.' : null;
-  const compact = String(value).replace(/[\s-]/g, '');
-  return PHONE_RE.test(compact) ? null : 'Please enter a valid 10-digit phone number.';
+
+  const { codes, defaultCode } = resolvePhoneCountries(
+    field.countries?.allowed,
+    field.countries?.default,
+  );
+  const result = canonicalizePhone(String(value), codes, defaultCode);
+  // Only a dial code selected (no national digits) ⇒ treat like empty so an
+  // optional field passes; a required field still errors.
+  if ('empty' in result) return field.required ? 'This field is required.' : null;
+  if ('error' in result) return phoneErrorMessage(codes, defaultCode);
+  return null;
 }
