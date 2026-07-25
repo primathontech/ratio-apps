@@ -23,6 +23,7 @@ import { getAnonId } from '../anon-id';
 import { FormsClient, FormsClientError, type PublicFormSchema } from '../client';
 // Per-field module registry (Phase 0 refactor): renderControl + validateField
 // dispatch through this map. Zod-free (only lit + type-only shared imports).
+import { todayISO } from './fields/date/render';
 import { fieldControls } from './fields/registry';
 import type {
   ContentBlockField,
@@ -31,7 +32,13 @@ import type {
   FieldRenderCtx,
   FieldValidateCtx,
 } from './fields/types';
-import { baseStyles, customGoogleFontHref, GOOGLE_FONT_HREF, sanitizeFontName, themeVars } from './theme';
+import {
+  baseStyles,
+  customGoogleFontHref,
+  GOOGLE_FONT_HREF,
+  sanitizeFontName,
+  themeVars,
+} from './theme';
 
 /** Defensive hex re-check for the per-field accent (§2.2); the schema already
  * guarantees hex, so this only confines what reaches the inline style. */
@@ -382,6 +389,28 @@ export class RatioForm extends LitElement {
         border-color: var(--wz-error);
         box-shadow: 0 0 0 3px color-mix(in srgb, var(--wz-error) 22%, transparent);
       }
+      /* Autofill (§1.4 I1): Chrome paints its own yellow bg + dark text, which
+         breaks the filled/underlined/dark variants. Re-assert the field's own
+         surface + fg via the inset box-shadow trick. */
+      :is(input, select, textarea):-webkit-autofill,
+      :is(input, select, textarea):-webkit-autofill:hover,
+      :is(input, select, textarea):-webkit-autofill:focus {
+        -webkit-text-fill-color: var(--wz-fg);
+        -webkit-box-shadow: 0 0 0 1000px var(--_fill, var(--wz-surface)) inset;
+        caret-color: var(--wz-fg);
+      }
+      /* Windows High Contrast (§ A8): box-shadow rings/glows aren't painted, so
+         re-express focus + error with real outlines against system colors. */
+      @media (forced-colors: active) {
+        :is(input, select, textarea):focus-visible,
+        .rf-submit:focus-visible {
+          outline: 2px solid CanvasText;
+          outline-offset: 2px;
+        }
+        :is(input, select, textarea)[aria-invalid='true'] {
+          outline: 2px solid Mark;
+        }
+      }
       .rf-error {
         color: var(--wz-error);
         font-size: calc(var(--wz-font-size) - 2px);
@@ -450,6 +479,7 @@ export class RatioForm extends LitElement {
         display: flex;
         align-items: center;
         gap: 8px;
+        min-height: 44px;
         font-size: var(--wz-font-size);
       }
       .rf-check input {
@@ -479,6 +509,7 @@ export class RatioForm extends LitElement {
         justify-content: center;
         gap: 8px;
         padding: var(--wz-btn-pad-y) calc(var(--wz-pad-x) + 8px);
+        min-height: 44px;
         border: none;
         border-radius: var(--wz-btn-radius);
         background: var(--wz-primary);
@@ -499,9 +530,30 @@ export class RatioForm extends LitElement {
         background: var(--wz-primary-hover);
         transform: translateY(1px);
       }
-      .rf-submit[disabled] {
+      /* Busy state uses aria-disabled (not the native disabled attr) so the
+         button keeps keyboard focus + stays in the a11y tree while submitting. */
+      .rf-submit[aria-disabled='true'] {
         opacity: 0.6;
         cursor: not-allowed;
+      }
+      .rf-spin {
+        width: 1em;
+        height: 1em;
+        flex: none;
+        border: 2px solid currentColor;
+        border-right-color: transparent;
+        border-radius: 50%;
+        animation: rf-spin 0.6s linear infinite;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .rf-spin {
+          animation-duration: 1.6s;
+        }
+      }
+      @keyframes rf-spin {
+        to {
+          transform: rotate(360deg);
+        }
       }
       /* Rating: an accessible radio group styled as star/heart glyphs. */
       .rf-rating {
@@ -510,6 +562,10 @@ export class RatioForm extends LitElement {
       }
       .rf-star {
         position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
         cursor: pointer;
         font-size: calc(var(--wz-font-size) + 8px);
         line-height: 1;
@@ -689,6 +745,7 @@ export class RatioForm extends LitElement {
       this.appearance = this.schema.appearance;
       this.status = 'ready';
       this.captureHiddenValues();
+      this.captureDefaultValues();
       this.maybeInjectFont();
       this.maybeInjectRecaptcha();
     } catch (err) {
@@ -732,6 +789,25 @@ export class RatioForm extends LitElement {
     this.values = next;
   }
 
+  /** Seed field-level defaults into submit state (date `defaultTo: 'today'`), so
+   * an untouched-but-prefilled field is actually submitted and clears required. */
+  private captureDefaultValues(): void {
+    const fields = this.schema?.schema ?? [];
+    const next = { ...this.values };
+    let changed = false;
+    for (const field of fields) {
+      if (
+        field.type === 'date' &&
+        field.validation?.defaultTo === 'today' &&
+        this.isEmpty(next[field.key])
+      ) {
+        next[field.key] = todayISO();
+        changed = true;
+      }
+    }
+    if (changed) this.values = next;
+  }
+
   /**
    * Web fonts inside a shadow root only resolve when loaded at document scope,
    * so inject one guarded `<link>` per family into `document.head`. A set
@@ -744,7 +820,10 @@ export class RatioForm extends LitElement {
     const custom = sanitizeFontName(typography?.customGoogleFont);
     if (custom) {
       // id must be whitespace-free (HTML5), so slug the spaces out.
-      this.injectFontLink(`ratio-font-custom-${custom.replace(/ /g, '-')}`, customGoogleFontHref(custom));
+      this.injectFontLink(
+        `ratio-font-custom-${custom.replace(/ /g, '-')}`,
+        customGoogleFontHref(custom),
+      );
       return;
     }
     const family = typography?.fontFamily;
@@ -833,7 +912,16 @@ export class RatioForm extends LitElement {
     const errors = this.validateAll();
     this.fieldErrors = errors;
     this.formError = '';
-    if (Object.keys(errors).length > 0) return;
+    const errorCount = Object.keys(errors).length;
+    if (errorCount > 0) {
+      // Announce the failure (live region) and move focus to the first invalid
+      // control so keyboard/AT users aren't stranded (WCAG 3.3.1 / 2.4.3).
+      this.formError = `Please fix ${errorCount} ${errorCount === 1 ? 'field' : 'fields'} and try again.`;
+      await this.updateComplete;
+      const firstInvalid = this.renderRoot.querySelector<HTMLElement>('[aria-invalid="true"]');
+      firstInvalid?.focus();
+      return;
+    }
 
     this.status = 'submitting';
     try {
@@ -1017,7 +1105,11 @@ export class RatioForm extends LitElement {
           This form could not be loaded.
         </div>`;
       case 'success':
-        return html`<div class="rf-status rf-success" data-state="success">
+        return html`<div
+          class="rf-status rf-success"
+          data-state="success"
+          role="status"
+        >
           <svg
             class="rf-status-icon"
             viewBox="0 0 24 24"
@@ -1063,12 +1155,15 @@ export class RatioForm extends LitElement {
         <button
           type="button"
           class="rf-submit"
-          ?disabled=${this.status === 'submitting'}
+          aria-disabled=${this.status === 'submitting' ? 'true' : nothing}
+          aria-busy=${this.status === 'submitting' ? 'true' : nothing}
           @click=${this.onSubmit}
         >
-          ${this.renderButtonIcon()}${
-            this.status === 'submitting' ? 'Submitting...' : schema.submitLabel
-          }
+          ${
+            this.status === 'submitting'
+              ? html`<span class="rf-spin" aria-hidden="true"></span>`
+              : this.renderButtonIcon()
+          }${this.status === 'submitting' ? 'Submitting...' : schema.submitLabel}
         </button>
       </div>
     `;

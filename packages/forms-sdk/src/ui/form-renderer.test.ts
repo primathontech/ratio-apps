@@ -205,6 +205,17 @@ describe('ratio-form client-side validation', () => {
     expect(posts).toHaveLength(0);
   });
 
+  it('announces a summary (role=alert) and focuses the first invalid field on failed submit', async () => {
+    const { el } = await mount();
+    await submit(el);
+    await el.updateComplete;
+    const summary = shadow(el).querySelector('.rf-form-error');
+    expect(summary?.getAttribute('role')).toBe('alert');
+    expect(summary?.textContent ?? '').toMatch(/fix/i);
+    // Focus moved into the shadow root, onto the first invalid control.
+    expect(shadow(el).activeElement?.getAttribute('aria-invalid')).toBe('true');
+  });
+
   it('validates email format and +91 10-digit phone', async () => {
     const { el } = await mount();
     setInput(el, 'full_name', 'Asha');
@@ -270,6 +281,31 @@ describe('ratio-form submit flow', () => {
     );
     // The host reflects the status so the card shrinks to hug the message.
     expect(el.getAttribute('data-state')).toBe('success');
+    // Success transition is announced to assistive tech.
+    expect(shadow(el).querySelector('[data-state="success"]')?.getAttribute('role')).toBe('status');
+  });
+
+  it('date defaultTo:"today" seeds submit state — an untouched field submits and clears required', async () => {
+    const schema = kitchenSinkSchema({
+      schema: [
+        {
+          key: 'visit_date',
+          type: 'date',
+          label: 'Visit date',
+          required: true,
+          validation: { defaultTo: 'today' },
+        },
+      ] as PublicFormSchema['schema'],
+    });
+    const { el, fetchImpl } = await mount({ schema: { status: 200, body: { data: schema } } });
+    await submit(el);
+    const post = fetchImpl.mock.calls.find((c) => String(c[0]).endsWith('/submissions'));
+    // Required passed without the user touching the field, and today was sent.
+    expect(post).toBeDefined();
+    const body = JSON.parse(String((post?.[1] as RequestInit).body));
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    expect(body.fields.visit_date).toBe(today);
   });
 
   it('does not reflect data-state while the fillable form is showing', async () => {
@@ -312,7 +348,11 @@ describe('ratio-form submit flow', () => {
     button.click();
     await flush(2);
     await el.updateComplete;
-    expect(button.disabled).toBe(true);
+    // Busy state uses aria-disabled/aria-busy (not native disabled) so the
+    // button keeps keyboard focus while submitting.
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    expect(button.getAttribute('aria-busy')).toBe('true');
+    expect(button.disabled).toBe(false);
     // A second submit while in flight must not POST again.
     button.click();
     await flush(2);
@@ -372,8 +412,10 @@ describe('ratio-form submit flow', () => {
     expect(shadow(el).querySelector('[data-error-for="email"]')?.textContent).toContain(
       'valid email',
     );
-    // Form stays interactive for a retry.
-    expect((shadow(el).querySelector('.rf-submit') as HTMLButtonElement).disabled).toBe(false);
+    // Form stays interactive for a retry (no busy state after the error).
+    const retryBtn = shadow(el).querySelector('.rf-submit') as HTMLButtonElement;
+    expect(retryBtn.getAttribute('aria-disabled')).not.toBe('true');
+    expect(retryBtn.getAttribute('aria-busy')).not.toBe('true');
   });
 
   it('surfaces a friendly message on 429 rate limiting', async () => {
@@ -472,9 +514,7 @@ describe('ratio-form P0 field types', () => {
 
     setInput(el, 'qty', '99');
     await submit(el);
-    expect(shadow(el).querySelector('[data-error-for="qty"]')?.textContent).toContain(
-      '10 or less',
-    );
+    expect(shadow(el).querySelector('[data-error-for="qty"]')?.textContent).toContain('10 or less');
   });
 
   it('submits radio value + boolean consent on success', async () => {
