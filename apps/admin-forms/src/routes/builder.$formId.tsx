@@ -18,6 +18,7 @@ import {
   ColorPicker,
   Divider,
   Input,
+  Modal,
   message,
   PrimaryButton,
   Radio,
@@ -41,8 +42,9 @@ import {
   isCollectableFieldType,
   supportsCounter,
 } from '@shared/schemas/form-schema';
+import { buildSamplePayload, buildWebhookCurl } from '@shared/schemas/webhook-sample';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { type Dispatch, useEffect, useReducer, useState } from 'react';
+import { type Dispatch, useEffect, useMemo, useReducer, useState } from 'react';
 import { CanvasField } from '@/components/CanvasField';
 import { DesignSettings } from '@/components/DesignSettings';
 import { FieldPalette } from '@/components/FieldPalette';
@@ -252,6 +254,7 @@ export function BuilderScreen({ formId }: { formId: string }) {
                       <FormSettings
                         state={state}
                         dispatch={dispatch}
+                        formId={formId}
                         onWebhookTest={() =>
                           webhookTest.mutate(undefined, {
                             onSuccess: (result) =>
@@ -558,17 +561,47 @@ function TypeSpecificSettings({
 function FormSettings({
   state,
   dispatch,
+  formId,
   onWebhookTest,
   webhookTestPending,
   webhookTestResult,
 }: {
   state: BuilderState;
   dispatch: Dispatch<BuilderAction>;
+  formId: string;
   onWebhookTest: () => void;
   webhookTestPending: boolean;
   webhookTestResult: { statusCode: number | null } | null;
 }) {
   const patch = (p: Partial<BuilderState['meta']>) => dispatch({ type: 'updateMeta', patch: p });
+  const [payloadOpen, setPayloadOpen] = useState(false);
+  // Generated from LIVE builder state (even unsaved edits) via the same shared
+  // builder the server uses for the real delivery, so the preview can't drift.
+  const samplePayload = useMemo(
+    () =>
+      buildSamplePayload(state.fields, {
+        merchantId: 'your_merchant_id',
+        formId,
+        formName: state.meta.name || 'Untitled form',
+        submissionId: 'sub_example',
+        submittedAt: '2026-01-01T00:00:00.000Z',
+      }),
+    [state.fields, state.meta.name, formId],
+  );
+  const curl = useMemo(
+    () =>
+      buildWebhookCurl(
+        state.meta.webhookUrl.trim() || 'https://your-endpoint.example/webhook',
+        samplePayload,
+      ),
+    [state.meta.webhookUrl, samplePayload],
+  );
+  const copy = (text: string, what: string) => {
+    void navigator.clipboard.writeText(text).then(
+      () => void message.success(`${what} copied`),
+      () => void message.error('Copy failed — select and copy manually'),
+    );
+  };
   return (
     <Card title="Form settings">
       <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
@@ -636,14 +669,19 @@ function FormSettings({
             onChange={(e) => patch({ webhookUrl: e.target.value })}
           />
           <div style={{ marginTop: 8 }}>
-            <Button
-              size="small"
-              disabled={!state.meta.webhookUrl.trim()}
-              loading={webhookTestPending}
-              onClick={onWebhookTest}
-            >
-              Send test payload
-            </Button>
+            <Space size="small">
+              <Button
+                size="small"
+                disabled={!state.meta.webhookUrl.trim()}
+                loading={webhookTestPending}
+                onClick={onWebhookTest}
+              >
+                Send test payload
+              </Button>
+              <Button size="small" onClick={() => setPayloadOpen(true)}>
+                Preview payload & cURL
+              </Button>
+            </Space>
             {webhookTestResult && (
               <Typography.Text style={{ display: 'block', marginTop: 4 }}>
                 {webhookTestResult.statusCode === null
@@ -658,6 +696,43 @@ function FormSettings({
               Tests the saved webhook URL. Save first if you just changed it.
             </Typography.Text>
           </div>
+          <Modal
+            title="form.submitted payload"
+            open={payloadOpen}
+            onCancel={() => setPayloadOpen(false)}
+            width={640}
+            footer={[
+              <Button
+                key="json"
+                onClick={() => copy(JSON.stringify(samplePayload, null, 2), 'JSON')}
+              >
+                Copy JSON
+              </Button>,
+              <PrimaryButton key="curl" onClick={() => copy(curl, 'cURL')}>
+                Copy as cURL
+              </PrimaryButton>,
+            ]}
+          >
+            <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+              This is exactly what your endpoint receives on every submission, generated from the
+              form's current fields. Each key is a field key; select fields send the option{' '}
+              <em>value</em>, number/rating send numbers, checkboxes a boolean. It updates as you
+              edit the form.
+            </Typography.Paragraph>
+            <pre
+              style={{
+                maxHeight: 360,
+                overflow: 'auto',
+                background: 'var(--color-fill-quaternary, #f5f5f5)',
+                padding: 12,
+                borderRadius: 6,
+                fontSize: 12,
+                whiteSpace: 'pre',
+              }}
+            >
+              {curl}
+            </pre>
+          </Modal>
         </SettingRow>
       </Space>
     </Card>
