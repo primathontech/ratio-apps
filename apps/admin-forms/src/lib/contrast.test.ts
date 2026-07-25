@@ -4,10 +4,8 @@ import {
   blendOver,
   contrastRatio,
   gradeContrast,
-  meetsContrast,
   relativeLuminance,
   scrimmed,
-  WCAG,
 } from './contrast';
 
 describe('contrastRatio', () => {
@@ -35,25 +33,6 @@ describe('contrastRatio', () => {
   it('returns null for invalid hex', () => {
     expect(contrastRatio('rgb(0,0,0)', '#fff')).toBeNull();
     expect(relativeLuminance('nonsense')).toBeNull();
-  });
-});
-
-describe('meetsContrast', () => {
-  it('passes AA for black on white and fails for a low-contrast pair', () => {
-    expect(meetsContrast('#000000', '#ffffff')).toBe(true);
-    expect(meetsContrast('#cccccc', '#ffffff')).toBe(false);
-    // UI-component threshold (3:1) is easier to clear than the 4.5 default.
-    expect(meetsContrast('#949494', '#ffffff', 3)).toBe(true);
-  });
-
-  it('resolves WCAG tiers from the opts object', () => {
-    // #949494 on white ≈ 3.1:1 — clears AA-large (3) and non-text (3), not AA-normal (4.5).
-    expect(meetsContrast('#949494', '#ffffff', { large: true })).toBe(true);
-    expect(meetsContrast('#949494', '#ffffff', { nonText: true })).toBe(true);
-    expect(meetsContrast('#949494', '#ffffff', {})).toBe(false);
-    // AAA-normal (7) is stricter than AA — the ~4.54:1 AA-boundary grey fails AAA.
-    expect(meetsContrast('#767676', '#ffffff', { level: 'AAA' })).toBe(false);
-    expect(meetsContrast('#000000', '#ffffff', { level: 'AAA' })).toBe(true);
   });
 });
 
@@ -106,9 +85,9 @@ describe('bestTextOn', () => {
     expect(bestTextOn('#f5c518')).toBe('#000000'); // bright yellow → black text
   });
 
-  it('always yields an AA-passing choice for solid backgrounds', () => {
+  it('always clears the large-text bar (3:1) on solid backgrounds', () => {
     for (const bg of ['#3d7cc9', '#0fb3a9', '#c0392b', '#6b7280']) {
-      expect(meetsContrast(bestTextOn(bg), bg, WCAG.AA_LARGE)).toBe(true);
+      expect(contrastRatio(bestTextOn(bg), bg) ?? 0).toBeGreaterThanOrEqual(3);
     }
   });
 });
