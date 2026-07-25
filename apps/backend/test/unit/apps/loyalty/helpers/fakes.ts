@@ -1,3 +1,4 @@
+import type { EmailMessage } from '../../../../../src/core/email/email.service';
 import type {
   CoreBalanceResponse,
   CorePointsResponse,
@@ -187,12 +188,12 @@ export class FakeS3 {
 }
 
 export class FakeEmail {
-  readonly sends: { to: string; subject: string; html: string }[] = [];
+  readonly sends: EmailMessage[] = [];
   enabled = true;
 
-  send(to: string, subject: string, html: string): Promise<boolean> {
+  send(message: EmailMessage): Promise<boolean> {
     if (!this.enabled) return Promise.resolve(false);
-    this.sends.push({ to, subject, html });
+    this.sends.push(message);
     return Promise.resolve(true);
   }
 }

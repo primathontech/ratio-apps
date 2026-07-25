@@ -1,18 +1,13 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { FORMS_EMAIL_RETRY_DELAY_MS } from '@ratio-app/shared/constants/forms-events';
 import { sql } from 'kysely';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
+import { type EmailMessage, EmailService } from '../../../core/email/email.service';
 import type { FormEmailLogRow, FormsDatabase } from '../db/types';
 import { FORMS_DB_TOKEN } from '../kysely.module';
-import { createDefaultEmailClient, type EmailClientLike, FORMS_EMAIL_CLIENT } from './email.client';
-
-// Re-exported so existing consumers/tests can keep importing from the executor.
-export { type EmailClientLike, FORMS_EMAIL_CLIENT } from './email.client';
 
 /** One retry, then failed (AC9): pending → sent | pending(+10m) → failed. */
 export const FORMS_EMAIL_MAX_ATTEMPTS = 2;
-
-const DEFAULT_FROM = 'noreply@ratio.store';
 
 /**
  * The email notification EXECUTOR — one attempt per call, invoked by the
@@ -24,9 +19,9 @@ const DEFAULT_FROM = 'noreply@ratio.store';
  * (status `bounced` + the merchant-visible `email_bounced` config flag) —
  * the inbound bounce-webhook wiring is a later phase.
  *
- * Provider: injected via {@link FORMS_EMAIL_CLIENT} in tests; otherwise the
- * env-derived default from `email.client.ts` (SES when `FORMS_EMAIL_FROM` is
- * configured, a logged no-op otherwise).
+ * Sends through the shared {@link EmailService} (core/email) — real SES when
+ * `EMAIL_FROM` is configured, a logged no-op otherwise. This is the forms
+ * delivery POLICY (retry state machine); the transport lives in core.
  *
  * PII: submission values may appear in the EMAIL BODY (that is the feature)
  * but never in log lines.
@@ -34,23 +29,20 @@ const DEFAULT_FROM = 'noreply@ratio.store';
 @Injectable()
 export class FormsEmailService {
   private readonly logger = new Logger(FormsEmailService.name);
-  private readonly client: EmailClientLike;
 
   constructor(
     @Inject(FORMS_DB_TOKEN) private readonly handle: KyselyClient<FormsDatabase>,
-    @Optional() @Inject(FORMS_EMAIL_CLIENT) client?: EmailClientLike,
-  ) {
-    this.client = client ?? createDefaultEmailClient(this.logger);
-  }
+    private readonly email: EmailService,
+  ) {}
 
   /** One send attempt for a claimed row. Never throws (state → the row). */
   async execute(row: FormEmailLogRow): Promise<void> {
-    const message = await this.composeMessage(row);
     try {
-      await this.client.send(message);
+      const message = await this.composeMessage(row);
+      await this.email.send(message);
     } catch {
-      // Provider failure — never log the error object (it can echo the
-      // message body, which carries submission values).
+      // Compose or provider failure — never log the error object (it can echo
+      // the message body / a malformed row, which carry submission values).
       await this.persistFailure(row);
       return;
     }
@@ -124,14 +116,9 @@ export class FormsEmailService {
     });
   }
 
-  /** Subject/body from the submission — plain text, values included. */
-  private async composeMessage(row: FormEmailLogRow): Promise<{
-    to: string;
-    from: string;
-    subject: string;
-    text: string;
-  }> {
-    const from = process.env.FORMS_EMAIL_FROM?.trim() || DEFAULT_FROM;
+  /** Subject/body from the submission — plain text, values included. `from`
+   * is left to the core EmailService (EMAIL_FROM). */
+  private async composeMessage(row: FormEmailLogRow): Promise<EmailMessage> {
     const submission = await this.handle.db
       .selectFrom('form_submissions')
       .selectAll()
@@ -155,7 +142,6 @@ export class FormsEmailService {
     );
     return {
       to: row.recipient,
-      from,
       subject: `New submission — ${formName}`,
       text: [
         `You received a new submission on "${formName}".`,
@@ -169,6 +155,12 @@ export class FormsEmailService {
 
   private static parseJson<T>(value: T | string | null): T | null {
     if (value === null) return null;
-    return typeof value === 'string' ? (JSON.parse(value) as T) : value;
+    if (typeof value !== 'string') return value;
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      // Malformed row → treat as empty rather than throwing out of execute().
+      return null;
+    }
   }
 }

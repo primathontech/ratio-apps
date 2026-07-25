@@ -1,6 +1,6 @@
 import type { Readable } from 'node:stream';
+import type { EmailMessage, EmailService } from '../../../../../src/core/email/email.service';
 import type { QueueService } from '../../../../../src/core/queue/queue.service';
-import type { EmailClientLike } from '../../../../../src/modules/forms/delivery/email.client';
 import type { DeliveryFetchLike } from '../../../../../src/modules/forms/delivery/webhook-delivery.service';
 import type { RecaptchaFetchLike } from '../../../../../src/modules/forms/spam/recaptcha.service';
 import type { RateLimitRedisLike } from '../../../../../src/modules/forms/spam/submit-rate-limit.service';
@@ -135,15 +135,20 @@ export class FakeS3Uploader implements S3UploaderLike {
   }
 }
 
-/** Scripted email provider: 'ok' | 'fail' per send, records messages. */
-export class FakeEmailClient implements EmailClientLike {
+/** Scripted core EmailService: 'ok' | 'fail' per send, records messages. */
+export class FakeEmailService {
   script: Array<'ok' | 'fail'> = [];
-  sent: Array<{ to: string; from: string; subject: string; text: string }> = [];
+  sent: EmailMessage[] = [];
 
-  async send(message: { to: string; from: string; subject: string; text: string }): Promise<void> {
+  async send(message: EmailMessage): Promise<boolean> {
     const next = this.script.shift() ?? 'ok';
     if (next === 'fail') throw new Error('SES send failed');
     this.sent.push(message);
+    return true;
+  }
+
+  asEmailService(): EmailService {
+    return this as unknown as EmailService;
   }
 }
 

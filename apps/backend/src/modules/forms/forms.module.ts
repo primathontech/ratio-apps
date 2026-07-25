@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
+import { EmailService } from '../../core/email/email.service';
 import { createAppProviders } from '../../core/factories/app-module.factory';
 import { QueueService } from '../../core/queue/queue.service';
 import { FormsConfigController } from './config/config.controller';
@@ -100,6 +101,7 @@ export {
     // Delivery engine: minute sweeper (DB is the scheduler) → SQS →
     // self-gated workers → executors.
     QueueService,
+    EmailService,
     WebhookDeliveryService,
     FormsEmailService,
     WebhookDeliveryWorker,
