@@ -48,14 +48,21 @@ const dropdownField = {
   type: 'dropdown',
   label: 'Topic',
   required: true,
-  options: ['Sales', 'Support'],
+  options: [
+    { value: 'Sales', label: 'Sales' },
+    { value: 'Support', label: 'Support' },
+  ],
 };
 const multiSelectField = {
   key: 'interests',
   type: 'multi_select',
   label: 'Interests',
   required: false,
-  options: ['Apparel', 'Footwear', 'Accessories'],
+  options: [
+    { value: 'Apparel', label: 'Apparel' },
+    { value: 'Footwear', label: 'Footwear' },
+    { value: 'Accessories', label: 'Accessories' },
+  ],
 };
 const dateField = { key: 'preferred_date', type: 'date', label: 'Preferred date', required: false };
 const fileField = {
@@ -70,7 +77,10 @@ const radioField = {
   type: 'radio',
   label: 'Plan',
   required: true,
-  options: ['Basic', 'Pro'],
+  options: [
+    { value: 'Basic', label: 'Basic' },
+    { value: 'Pro', label: 'Pro' },
+  ],
 };
 const checkboxField = {
   key: 'consent',
@@ -871,7 +881,10 @@ describe('formInputSchema (form CRUD contract)', () => {
   it('the inferred FormField type discriminates on `type`', () => {
     const parsed: FormField = formFieldSchema.parse(dropdownField);
     if (parsed.type === 'dropdown') {
-      expect(parsed.options).toEqual(['Sales', 'Support']);
+      expect(parsed.options).toEqual([
+        { value: 'Sales', label: 'Sales' },
+        { value: 'Support', label: 'Support' },
+      ]);
     }
   });
 });

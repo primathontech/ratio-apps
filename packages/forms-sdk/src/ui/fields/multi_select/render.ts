@@ -21,15 +21,15 @@ export function renderMultiSelect(
         <input
           type="checkbox"
           name=${field.key}
-          value=${opt}
-          .checked=${current.includes(opt)}
+          value=${opt.value}
+          .checked=${current.includes(opt.value)}
           @change=${(e: Event) => {
             const checked = (e.target as HTMLInputElement).checked;
-            const next = checked ? [...current, opt] : current.filter((v) => v !== opt);
+            const next = checked ? [...current, opt.value] : current.filter((v) => v !== opt.value);
             ctx.setValue(field.key, next);
           }}
         />
-        ${opt}
+        ${opt.label}
       </label>`;
     })}
   </div>`;

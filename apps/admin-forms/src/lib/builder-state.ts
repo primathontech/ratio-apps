@@ -178,9 +178,23 @@ export function makeField(fieldType: FormFieldType, existing: readonly FormField
     case 'phone':
       return { ...base, type: 'phone' };
     case 'dropdown':
-      return { ...base, type: 'dropdown', options: ['Option 1'] };
+      return {
+        ...base,
+        type: 'dropdown',
+        options: [
+          { value: 'option-1', label: 'Option 1' },
+          { value: 'option-2', label: 'Option 2' },
+        ],
+      };
     case 'multi_select':
-      return { ...base, type: 'multi_select', options: ['Option 1'] };
+      return {
+        ...base,
+        type: 'multi_select',
+        options: [
+          { value: 'option-1', label: 'Option 1' },
+          { value: 'option-2', label: 'Option 2' },
+        ],
+      };
     case 'date':
       return { ...base, type: 'date' };
     case 'file':
@@ -193,7 +207,14 @@ export function makeField(fieldType: FormFieldType, existing: readonly FormField
         },
       };
     case 'radio':
-      return { ...base, type: 'radio', options: ['Option 1'] };
+      return {
+        ...base,
+        type: 'radio',
+        options: [
+          { value: 'option-1', label: 'Option 1' },
+          { value: 'option-2', label: 'Option 2' },
+        ],
+      };
     case 'checkbox':
       return { ...base, type: 'checkbox' };
     case 'number':

@@ -1,7 +1,20 @@
 import { Button, Divider, Input, Space } from '@primathonos/orion';
+import type { FormOption } from '@shared/schemas/fields/_shared/base';
 import type { FormField } from '@shared/schemas/form-schema';
 import type { Dispatch } from 'react';
 import type { BuilderAction } from '@/lib/builder-state';
+
+/**
+ * Derive a machine-safe option value from its label: lowercase, spaces→hyphens,
+ * strip anything outside [a-z0-9-]. Used to seed `value` while the merchant has
+ * not hand-edited it, so a fresh label yields a sensible stored value.
+ */
+function slugifyValue(label: string): string {
+  return label
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '');
+}
 
 /** Shared options list editor — reused by dropdown, multi_select, and radio. */
 export function OptionsEditor({
@@ -11,7 +24,7 @@ export function OptionsEditor({
   field: Extract<FormField, { type: 'dropdown' | 'multi_select' | 'radio' }>;
   dispatch: Dispatch<BuilderAction>;
 }) {
-  const setOptions = (options: string[]) =>
+  const setOptions = (options: FormOption[]) =>
     dispatch({ type: 'updateField', key: field.key, patch: { options } });
   const move = (index: number, delta: number) => {
     const to = index + delta;
@@ -27,14 +40,33 @@ export function OptionsEditor({
       <Divider style={{ margin: '4px 0' }}>Options</Divider>
       <Space direction="vertical" size={8} style={{ display: 'flex' }}>
         {field.options.map((option, index) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: options are editable strings, index is the identity
+          // biome-ignore lint/suspicious/noArrayIndexKey: options are editable rows, index is the identity
           <div key={index} style={{ display: 'flex', gap: 4 }}>
             <Input
-              aria-label={`Option ${index + 1}`}
-              value={option}
+              aria-label={`Option ${index + 1} label`}
+              placeholder="Label"
+              value={option.label}
+              onChange={(e) => {
+                const label = e.target.value;
+                const next = [...field.options];
+                const current = next[index];
+                if (current === undefined) return;
+                // Auto-derive the value from the label while the value is still
+                // empty; once the merchant types a value it sticks.
+                const value = current.value === '' ? slugifyValue(label) : current.value;
+                next[index] = { value, label };
+                setOptions(next);
+              }}
+            />
+            <Input
+              aria-label={`Option ${index + 1} value`}
+              placeholder="Value"
+              value={option.value}
               onChange={(e) => {
                 const next = [...field.options];
-                next[index] = e.target.value;
+                const current = next[index];
+                if (current === undefined) return;
+                next[index] = { ...current, value: e.target.value };
                 setOptions(next);
               }}
             />
@@ -65,7 +97,10 @@ export function OptionsEditor({
         ))}
         <Button
           size="small"
-          onClick={() => setOptions([...field.options, `Option ${field.options.length + 1}`])}
+          onClick={() => {
+            const n = field.options.length + 1;
+            setOptions([...field.options, { value: `option-${n}`, label: `Option ${n}` }]);
+          }}
         >
           Add option
         </Button>
