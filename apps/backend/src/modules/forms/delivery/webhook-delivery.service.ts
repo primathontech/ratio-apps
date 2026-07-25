@@ -14,22 +14,13 @@ import {
   FORMS_WEBHOOK_RETRY_DELAYS_MS,
   type FormSubmittedPayload,
 } from '@ratio-app/shared/constants/forms-events';
-import {
-  type FormField,
-  type FormNonCollectableFieldType,
-  isCollectableFieldType,
-} from '@ratio-app/shared/schemas/form-schema';
+import type { FormField } from '@ratio-app/shared/schemas/form-schema';
+import { buildSamplePayload } from '@ratio-app/shared/schemas/webhook-sample';
 import { sql } from 'kysely';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
 import type { FormRow, FormsDatabase, FormWebhookDeliveryRow } from '../db/types';
 import { FORMS_DB_TOKEN } from '../kysely.module';
 import { FormsS3Service } from '../uploads/s3.service';
-
-/** A field that carries user input — content blocks (§1.3) are display-only. */
-type CollectableFormField = Exclude<FormField, { type: FormNonCollectableFieldType }>;
-
-const isCollectableField = (field: FormField): field is CollectableFormField =>
-  isCollectableFieldType(field.type);
 
 /** Live delivery timeout (TRD: 10s); the admin "send test payload" uses 5s. */
 const DELIVERY_TIMEOUT_MS = 10_000;
@@ -232,41 +223,15 @@ export class WebhookDeliveryService {
       typeof form.schemaJson === 'string'
         ? (JSON.parse(form.schemaJson) as FormField[])
         : form.schemaJson;
-    const fields: Record<string, unknown> = {};
-    for (const field of schema) {
-      // Content blocks (heading/divider/etc) submit no data — mirror a real payload.
-      if (!isCollectableField(field)) continue;
-      fields[field.key] = WebhookDeliveryService.sampleValue(field);
-    }
-    return {
-      event: FORM_SUBMITTED_EVENT,
-      merchant_id: form.merchantId,
-      form_id: form.id,
-      form_name: form.name,
-      submitted_at: new Date().toISOString(),
-      submission_id: `sub_test_${randomBytes(6).toString('base64url')}`,
-      schema_version: FORM_SUBMITTED_SCHEMA_VERSION,
-      fields,
-    };
-  }
-
-  private static sampleValue(field: CollectableFormField): unknown {
-    switch (field.type) {
-      case 'email':
-        return 'test@example.com';
-      case 'phone':
-        return '+919876543210';
-      case 'dropdown':
-        return field.options[0];
-      case 'multi_select':
-        return field.options.slice(0, 1);
-      case 'date':
-        return '2026-01-01';
-      case 'file':
-        return 'https://example.com/test-file.pdf';
-      default:
-        return `Test ${field.label}`;
-    }
+    // The shared builder is the single source of truth for the payload shape —
+    // the admin "copy as cURL" preview generates from the same function.
+    return buildSamplePayload(schema, {
+      merchantId: form.merchantId,
+      formId: form.id,
+      formName: form.name,
+      submissionId: `sub_test_${randomBytes(6).toString('base64url')}`,
+      submittedAt: new Date().toISOString(),
+    });
   }
 
   private async post(
