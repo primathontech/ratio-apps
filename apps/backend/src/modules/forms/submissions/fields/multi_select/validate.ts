@@ -18,5 +18,16 @@ export function validateMultiSelect(
   if (new Set(value).size !== value.length) {
     return { error: 'Please remove duplicate selections.' };
   }
+  // Server-authoritative selection-count bounds (P0 field-depth): the client
+  // "N of M" check is a UX mirror only — the public submit path can bypass it,
+  // so min/max are re-enforced here from the persisted schema.
+  const min = field.selection?.min;
+  const max = field.selection?.max;
+  if (min !== undefined && value.length < min) {
+    return { error: `Please select at least ${min} option${min === 1 ? '' : 's'}.` };
+  }
+  if (max !== undefined && value.length > max) {
+    return { error: `Please select at most ${max} option${max === 1 ? '' : 's'}.` };
+  }
   return { value };
 }

@@ -276,14 +276,13 @@ describe('BuilderScreen', () => {
     renderWithProviders(<BuilderScreen formId="form_1" />);
     await screen.findByText('Full name');
     fireEvent.click(screen.getByRole('button', { name: 'Phone' }));
-    // Phone is in neither shared set: it owns its +91 chip and has no maxLength.
+    // Phone is in neither shared set: it owns its dial chip and has no maxLength.
     await screen.findByLabelText('Field label');
     expect(screen.queryByLabelText('Prefix')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Show character counter')).not.toBeInTheDocument();
-    // The type-specific note is a subtle inline hint, not a padded Alert box.
-    expect(
-      screen.getByText('Accepts Indian mobile numbers only (+91, 10 digits).'),
-    ).toBeInTheDocument();
+    // Phone's type-specific panel is now the multi-country dial-code selector
+    // (defaults to India only), not a padded Alert box.
+    expect(screen.getAllByLabelText('Allowed countries').length).toBeGreaterThan(0);
   });
 
   it('pins a per-field input variant through Advanced style and saves it (§2.2)', async () => {

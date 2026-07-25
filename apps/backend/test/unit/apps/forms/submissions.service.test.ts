@@ -282,14 +282,11 @@ describe('SubmissionsService.submitPublic — the PublicFormGuard chain (AC6)', 
       forms_configs: [configRow()],
     });
     const enqueueSpy = vi
-      .spyOn(
-        service as unknown as { enqueueDeliveries: () => Promise<void> },
-        'enqueueDeliveries',
-      )
+      .spyOn(service as unknown as { enqueueDeliveries: () => Promise<void> }, 'enqueueDeliveries')
       .mockRejectedValueOnce(new Error('delivery boom'));
-    await expect(
-      service.submitPublic('form_contact', VALID_CONTACT_PAYLOAD, meta),
-    ).rejects.toThrow('delivery boom');
+    await expect(service.submitPublic('form_contact', VALID_CONTACT_PAYLOAD, meta)).rejects.toThrow(
+      'delivery boom',
+    );
     // The transaction rolled back — no orphaned submission row.
     expect(fake.inserts.filter((i) => i.table === 'form_submissions')).toHaveLength(0);
     expect(fake.inserts.filter((i) => i.table === 'form_email_log')).toHaveLength(0);

@@ -504,6 +504,98 @@ describe('SchemaValidatorService — P1 field types (url / rating / hidden, §4)
     });
   });
 
+  describe('number.format (Batch-4 — server-authoritative display formatting)', () => {
+    it('strips group separators from a client-bypassed formatted string → canonical number', () => {
+      const schema: FormField[] = [
+        {
+          key: 'amount',
+          type: 'number',
+          label: 'Amount',
+          required: true,
+          format: { style: 'currency', currency: 'INR', locale: 'en-IN', grouping: true },
+        },
+      ];
+      const result = run(schema, { amount: '1,234.50' });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.data.amount).toBe(1234.5);
+    });
+
+    it('parses a de-DE formatted string (dot group, comma decimal)', () => {
+      const schema: FormField[] = [
+        {
+          key: 'amount',
+          type: 'number',
+          label: 'Amount',
+          required: true,
+          format: { style: 'decimal', currency: 'INR', locale: 'de-DE', grouping: true },
+        },
+      ];
+      const result = run(schema, { amount: '1.234,50' });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.data.amount).toBe(1234.5);
+    });
+
+    it('rounds the canonical value to the configured decimal places', () => {
+      const schema: FormField[] = [
+        {
+          key: 'amount',
+          type: 'number',
+          label: 'Amount',
+          required: true,
+          format: {
+            style: 'decimal',
+            currency: 'INR',
+            locale: 'en-IN',
+            grouping: true,
+            decimalPlaces: 2,
+          },
+        },
+      ];
+      // Raw number bypassing the SDK's blur-rounding is normalized server-side.
+      const result = run(schema, { amount: 1234.567 });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.data.amount).toBe(1234.57);
+    });
+
+    it('rejects a value with no digits after separator stripping', () => {
+      const schema: FormField[] = [
+        {
+          key: 'amount',
+          type: 'number',
+          label: 'Amount',
+          required: true,
+          format: { style: 'currency', currency: 'USD', locale: 'en-US', grouping: true },
+        },
+      ];
+      const result = run(schema, { amount: '$abc' });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.amount).toBe('Please enter a number.');
+    });
+
+    it('applies rounding before min/max bounds', () => {
+      const schema: FormField[] = [
+        {
+          key: 'amount',
+          type: 'number',
+          label: 'Amount',
+          required: true,
+          validation: { max: 10, integer: false },
+          format: {
+            style: 'decimal',
+            currency: 'INR',
+            locale: 'en-IN',
+            grouping: true,
+            decimalPlaces: 0,
+          },
+        },
+      ];
+      // 10.4 rounds to 10 → within max.
+      const result = run(schema, { amount: 10.4 });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.data.amount).toBe(10);
+    });
+  });
+
   describe('date (P2-5 — strict ISO + normalization)', () => {
     const schema: FormField[] = [{ key: 'd', type: 'date', label: 'Date', required: true }];
 
@@ -590,6 +682,38 @@ describe('SchemaValidatorService — P1 field types (url / rating / hidden, §4)
       const result = run(schema, { ch: ['email', 'sms', 'email'] });
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.errors.ch).toBeDefined();
+    });
+
+    describe('server-authoritative selection count (P0 field-depth)', () => {
+      const withSelection = (selection: { min?: number; max?: number }): FormField[] => [
+        {
+          key: 'ch',
+          type: 'multi_select',
+          label: 'Channels',
+          required: false,
+          options: [
+            { value: 'email', label: 'email' },
+            { value: 'sms', label: 'sms' },
+          ],
+          selection,
+        },
+      ];
+
+      it('rejects a client-bypassed value below the minimum', () => {
+        const result = run(withSelection({ min: 2 }), { ch: ['email'] });
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.errors.ch).toBe('Please select at least 2 options.');
+      });
+
+      it('rejects a client-bypassed value above the maximum', () => {
+        const result = run(withSelection({ max: 1 }), { ch: ['email', 'sms'] });
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.errors.ch).toBe('Please select at most 1 option.');
+      });
+
+      it('accepts a value inside the configured bounds', () => {
+        expect(run(withSelection({ min: 1, max: 2 }), { ch: ['email', 'sms'] }).ok).toBe(true);
+      });
     });
   });
 

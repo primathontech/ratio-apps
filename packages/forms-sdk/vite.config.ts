@@ -10,15 +10,20 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   resolve: {
     // The shared dist is CommonJS, whose named exports rollup can't statically
-    // trace; point the widget build at the ESM TypeScript source. The
-    // capability matrix (§2.3) lives in the Zod-free form-adornments module, so
-    // importing it here keeps Zod out of the bundle.
-    alias: {
-      '@ratio-app/shared/schemas/form-adornments': resolve(
-        __dirname,
-        '../shared/src/schemas/form-adornments.ts',
-      ),
-    },
+    // trace; point the widget build at the ESM TypeScript source. These are all
+    // Zod-free modules (the §2.3 capability matrix + the per-field runtime
+    // constants the renderers use), so importing the source keeps Zod out of
+    // the widget bundle.
+    alias: [
+      {
+        find: /^@ratio-app\/shared\/schemas\/form-adornments$/,
+        replacement: resolve(__dirname, '../shared/src/schemas/form-adornments.ts'),
+      },
+      {
+        find: /^@ratio-app\/shared\/schemas\/fields\/([^/]+)\/constants$/,
+        replacement: resolve(__dirname, '../shared/src/schemas/fields/$1/constants.ts'),
+      },
+    ],
   },
   build: {
     target: 'es2019',
