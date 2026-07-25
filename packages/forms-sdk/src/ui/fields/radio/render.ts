@@ -16,11 +16,11 @@ export function renderRadio(field: ControlFieldOf<'radio'>, ctx: FieldRenderCtx)
           <input
             type="radio"
             name=${field.key}
-            value=${opt}
-            .checked=${ctx.values[field.key] === opt}
+            value=${opt.value}
+            .checked=${ctx.values[field.key] === opt.value}
             @change=${(e: Event) => ctx.setValue(field.key, (e.target as HTMLInputElement).value)}
           />
-          ${opt}
+          ${opt.label}
         </label>`,
     )}
   </div>`;

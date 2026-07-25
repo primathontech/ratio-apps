@@ -127,7 +127,16 @@ describe('SchemaValidatorService — new P0 field types (radio / checkbox / numb
 
   describe('radio', () => {
     const schema: FormField[] = [
-      { key: 'plan', type: 'radio', label: 'Plan', required: true, options: ['basic', 'pro'] },
+      {
+        key: 'plan',
+        type: 'radio',
+        label: 'Plan',
+        required: true,
+        options: [
+          { value: 'basic', label: 'basic' },
+          { value: 'pro', label: 'pro' },
+        ],
+      },
     ];
 
     it('accepts a configured option', () => {
@@ -560,7 +569,10 @@ describe('SchemaValidatorService — P1 field types (url / rating / hidden, §4)
         type: 'multi_select',
         label: 'Channels',
         required: false,
-        options: ['email', 'sms'],
+        options: [
+          { value: 'email', label: 'email' },
+          { value: 'sms', label: 'sms' },
+        ],
       },
     ];
 

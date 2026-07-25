@@ -291,10 +291,39 @@ export const minMaxConsistent = (v: {
 
 export const MIN_MAX_MESSAGE = { message: 'minLength must be less than or equal to maxLength' };
 
-/** dropdown / multi_select / radio choices — at least one non-empty option. */
+/**
+ * A select choice for dropdown / radio / multi_select. `value` is what the
+ * submission stores; `label` is what the shopper sees — they may differ.
+ */
+export const optionSchema = z.object({
+  value: z.string().min(1, { message: 'option value cannot be empty' }).max(255),
+  label: z.string().min(1, { message: 'option label cannot be empty' }).max(255),
+});
+export type FormOption = z.infer<typeof optionSchema>;
+
+/** All submittable option values, in order (server validation + SDK render). */
+export function optionValues(options: readonly FormOption[]): string[] {
+  return options.map((o) => o.value);
+}
+
+/** dropdown / multi_select / radio choices — ≥1, ≤200, unique values. */
 export const optionsSchema = z
-  .array(z.string().min(1, { message: 'options cannot be empty strings' }))
-  .min(1, { message: 'at least one option is required' });
+  .array(optionSchema)
+  .min(1, { message: 'at least one option is required' })
+  .max(200, { message: 'at most 200 options' })
+  .superRefine((options, ctx) => {
+    const seen = new Set<string>();
+    options.forEach((option, i) => {
+      if (seen.has(option.value)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `duplicate option value: ${option.value}`,
+          path: [i, 'value'],
+        });
+      }
+      seen.add(option.value);
+    });
+  });
 
 export const numberMinMaxConsistent = (v: {
   min?: number | undefined;

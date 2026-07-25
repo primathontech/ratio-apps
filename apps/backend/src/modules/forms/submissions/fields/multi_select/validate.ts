@@ -1,13 +1,12 @@
+import { optionValues } from '@ratio-app/shared/schemas/fields/_shared/base';
 import type { FieldOfType, ServerValidateResult } from '../types';
 
 export function validateMultiSelect(
   field: FieldOfType<'multi_select'>,
   value: unknown,
 ): ServerValidateResult {
-  if (
-    !Array.isArray(value) ||
-    !value.every((v) => typeof v === 'string' && field.options.includes(v))
-  ) {
+  const allowed = new Set(optionValues(field.options));
+  if (!Array.isArray(value) || !value.every((v) => typeof v === 'string' && allowed.has(v))) {
     return { error: 'Please choose only from the available options.' };
   }
   // Cap the array at the number of defined options and reject duplicates (P2-6):

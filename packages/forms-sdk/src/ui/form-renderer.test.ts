@@ -36,14 +36,20 @@ function kitchenSinkSchema(overrides: Partial<PublicFormSchema> = {}): PublicFor
         type: 'dropdown',
         label: 'Topic',
         required: false,
-        options: ['Sales', 'Support'],
+        options: [
+          { value: 'Sales', label: 'Sales' },
+          { value: 'Support', label: 'Support' },
+        ],
       },
       {
         key: 'interests',
         type: 'multi_select',
         label: 'Interests',
         required: false,
-        options: ['A', 'B'],
+        options: [
+          { value: 'A', label: 'A' },
+          { value: 'B', label: 'B' },
+        ],
       },
       { key: 'visit_date', type: 'date', label: 'Visit date', required: false },
       {
@@ -435,7 +441,16 @@ function p0FieldsSchema(overrides: Partial<PublicFormSchema> = {}): PublicFormSc
     id: 'form_p0',
     name: 'P0 fields',
     schema: [
-      { key: 'plan', type: 'radio', label: 'Plan', required: true, options: ['Free', 'Pro'] },
+      {
+        key: 'plan',
+        type: 'radio',
+        label: 'Plan',
+        required: true,
+        options: [
+          { value: 'Free', label: 'Free' },
+          { value: 'Pro', label: 'Pro' },
+        ],
+      },
       {
         key: 'qty',
         type: 'number',
@@ -1205,7 +1220,16 @@ describe('ratio-form floating labels (§1.4)', () => {
       id: 'form_float',
       name: 'Mixed floating',
       schema: [
-        { key: 'topic', type: 'dropdown', label: 'Topic', required: false, options: ['A', 'B'] },
+        {
+          key: 'topic',
+          type: 'dropdown',
+          label: 'Topic',
+          required: false,
+          options: [
+            { value: 'A', label: 'A' },
+            { value: 'B', label: 'B' },
+          ],
+        },
         { key: 'phone', type: 'phone', label: 'Phone', required: false },
         { key: 'consent', type: 'checkbox', label: 'I agree', required: false },
         { key: 'score', type: 'rating', label: 'Rating', required: false, max: 5, icon: 'star' },

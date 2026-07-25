@@ -15,7 +15,9 @@ export function renderDropdown(
     <option value="">${field.placeholder ?? 'Select...'}</option>
     ${field.options.map(
       (opt) =>
-        html`<option value=${opt} ?selected=${ctx.values[field.key] === opt}>${opt}</option>`,
+        html`<option value=${opt.value} ?selected=${ctx.values[field.key] === opt.value}>
+          ${opt.label}
+        </option>`,
     )}
   </select>`;
 }
