@@ -210,11 +210,14 @@ export class RatioForm extends LitElement {
         line-height: var(--wz-lh-heading);
         font-weight: 700;
         color: var(--wz-fg);
+        /* A long unbroken name/URL must break rather than force page scroll. */
+        overflow-wrap: break-word;
       }
       .rf-desc {
         margin: 0 0 16px;
         color: var(--wz-muted);
         font-size: var(--wz-font-size);
+        overflow-wrap: break-word;
       }
       .rf-form {
         display: flex;
@@ -293,6 +296,10 @@ export class RatioForm extends LitElement {
       .rf-label {
         font-size: calc(var(--wz-font-size) - 1px);
         font-weight: 600;
+        /* Long unbroken labels wrap inside the field instead of overflowing.
+           min-width:0 lets the label shrink as a grid/flex child (label-left). */
+        overflow-wrap: break-word;
+        min-width: 0;
       }
       .rf-required {
         color: var(--wz-error);
@@ -342,6 +349,7 @@ export class RatioForm extends LitElement {
         margin: 0;
         color: var(--wz-muted);
         font-size: var(--wz-font-size);
+        overflow-wrap: break-word;
       }
       .rf-divider {
         width: 100%;
@@ -539,9 +547,20 @@ export class RatioForm extends LitElement {
         gap: 8px;
         min-height: 44px;
         font-size: var(--wz-font-size);
+        /* Long unbroken option text wraps instead of overflowing the card;
+           min-width:0 lets the label shrink within its .rf-checks column. */
+        overflow-wrap: break-word;
+        min-width: 0;
       }
       .rf-check input {
         width: auto;
+      }
+      /* Chip options (multi_select display:chips) carry inline pill styling from
+         the renderer; the widget only adds the wrap guard so a long single-word
+         option breaks inside the pill rather than forcing horizontal scroll. */
+      .rf-chip {
+        overflow-wrap: break-word;
+        min-width: 0;
       }
       /* §1.9 — the input min-height governs text inputs, selects, and
          textareas only; toggles (checkbox/radio), the rating stars, and the
@@ -801,9 +820,16 @@ export class RatioForm extends LitElement {
         color: var(--wz-primary);
         flex: 0 0 auto;
       }
+      /* A status/ending heading + message wrap long unbroken merchant copy
+         instead of overflowing the (centred, capped) confirmation card. */
+      .rf-status-heading {
+        margin: 0;
+        overflow-wrap: break-word;
+      }
       .rf-status-msg {
         margin: 0;
         line-height: 1.5;
+        overflow-wrap: break-word;
       }
       /* §1 — success panel driven by the success tokens (default to the primary
          mix, so today's look is unchanged; recolors when colors.success is set). */
@@ -817,9 +843,10 @@ export class RatioForm extends LitElement {
       }
       /* A status screen shrinks the card to a comfortable confirmation width
          (never wider than the form) and drops the form intro so the message
-         stands alone, centred. */
+         stands alone, centred. Uses the dedicated status cap token so a
+         fluidWidth form (--wz-max-width none) never feeds none into a min(). */
       :host([data-state]) .rf-card {
-        max-width: min(26rem, var(--wz-max-width));
+        max-width: var(--wz-status-max-width);
         text-align: center;
       }
       :host([data-state]) .rf-head {
@@ -884,6 +911,10 @@ export class RatioForm extends LitElement {
   // here — per form instance — so it can't leak across concurrent embeds; the
   // submitted value always lives in `values`, never here.
   private selectUi = new Map<string, SelectUiState>();
+  // §a11y — the terminal status the panel focus was last moved to, so a
+  // re-render in the same state doesn't repeatedly steal focus; reset once the
+  // fillable form returns.
+  private announcedState: Status | null = null;
 
   override disconnectedCallback(): void {
     super.disconnectedCallback();
@@ -1276,6 +1307,20 @@ export class RatioForm extends LitElement {
     // Status screens shrink the card; the form (ready/submitting) keeps full width.
     const isStatusScreen = this.status !== 'ready' && this.status !== 'submitting';
     this.reflectAttr('data-state', isStatusScreen ? this.status : null);
+    // §a11y — when a terminal status screen (success/closed/unavailable/error)
+    // first appears, move focus to its live-region panel so a keyboard/SR
+    // shopper is told the outcome; the submit button that had focus is gone by
+    // now. 'loading' is transient and never grabs focus. announcedState guards
+    // against re-focusing on unrelated re-renders and resets once the form
+    // returns, so a later state change announces again.
+    if (isStatusScreen && this.status !== 'loading') {
+      if (this.status !== this.announcedState) {
+        this.announcedState = this.status;
+        (this.renderRoot.querySelector('.rf-status') as HTMLElement | null)?.focus();
+      }
+    } else {
+      this.announcedState = null;
+    }
   }
 
   private reflectAttr(name: string, value: string | null): void {
@@ -1361,20 +1406,45 @@ export class RatioForm extends LitElement {
       case 'loading':
         return html`<div class="rf-status" data-state="loading">Loading...</div>`;
       case 'closed':
-        return html`<div class="rf-status" data-state="closed">This form is closed.</div>`;
+        return html`<div
+          class="rf-status"
+          data-state="closed"
+          role="status"
+          aria-live="polite"
+          tabindex="-1"
+        >
+          This form is closed.
+        </div>`;
       case 'unavailable':
-        return html`<div class="rf-status" data-state="unavailable">
+        return html`<div
+          class="rf-status"
+          data-state="unavailable"
+          role="status"
+          aria-live="polite"
+          tabindex="-1"
+        >
           This form is no longer available.
         </div>`;
       case 'error':
-        return html`<div class="rf-status" data-state="error">
+        return html`<div
+          class="rf-status"
+          data-state="error"
+          role="status"
+          aria-live="polite"
+          tabindex="-1"
+        >
           This form could not be loaded.
         </div>`;
       case 'success':
+        // §a11y — role=status + aria-live announce the outcome to a screen
+        // reader, and tabindex=-1 makes the panel programmatically focusable so
+        // updated() can move focus here once the submit button is gone.
         return html`<div
           class="rf-status rf-success"
           data-state="success"
           role="status"
+          aria-live="polite"
+          tabindex="-1"
         >
           <svg
             class="rf-status-icon"

@@ -2023,6 +2023,35 @@ describe('ratio-form Batch 5 (visual-payoff theming)', () => {
     expect(shadow(el).querySelector('[data-state="success"]')).toBeTruthy();
   });
 
+  it('caps the status/ending card with the fluidWidth-safe token, not min(…,none)', () => {
+    const css = staticCss();
+    // The status card consumes the dedicated bounded token so a fluidWidth form
+    // (--wz-max-width: none) never resolves to the invalid min(26rem, none).
+    expect(css).toContain(':host([data-state]) .rf-card {');
+    expect(css).toContain('max-width: var(--wz-status-max-width)');
+    expect(css).not.toContain('max-width: min(26rem, var(--wz-max-width))');
+  });
+
+  it('breaks long unbroken copy on every text-bearing surface (no page overflow)', () => {
+    const css = staticCss();
+    // Each listed surface wraps long unbroken names/labels/options/messages.
+    for (const rule of [
+      '.rf-title {',
+      '.rf-desc {',
+      '.rf-label {',
+      '.rf-paragraph {',
+      '.rf-status-heading {',
+      '.rf-status-msg {',
+      '.rf-check {',
+      '.rf-chip {',
+    ]) {
+      const start = css.indexOf(rule);
+      expect(start, `${rule} present`).toBeGreaterThanOrEqual(0);
+      const block = css.slice(start, css.indexOf('}', start));
+      expect(block, `${rule} has overflow-wrap`).toContain('overflow-wrap: break-word');
+    }
+  });
+
   it('omits the spinner when submitLoader is none', async () => {
     let release: (() => void) | undefined;
     const gate = new Promise<void>((resolve) => {
@@ -2070,5 +2099,45 @@ describe('ratio-form Batch 5 (visual-payoff theming)', () => {
     expect(button.textContent).toContain('Submitting...');
     release?.();
     await flush();
+  });
+});
+
+describe('ratio-form status a11y announcement (§a11y)', () => {
+  it('announces a successful submit via a focused live region', async () => {
+    const { el } = await mount();
+    setInput(el, 'full_name', 'Asha Rao');
+    setInput(el, 'email', 'asha@example.com');
+    await submit(el);
+    const panel = shadow(el).querySelector('[data-state="success"]') as HTMLElement;
+    // A live region a screen reader will read out when the panel swaps in.
+    expect(panel.getAttribute('role')).toBe('status');
+    expect(panel.getAttribute('aria-live')).toBe('polite');
+    // Programmatically focusable, and focus is moved here after the state swap
+    // (the submit button that had focus is gone), so a keyboard/SR shopper lands
+    // on the confirmation instead of losing focus to the body.
+    expect(panel.getAttribute('tabindex')).toBe('-1');
+    expect(shadow(el).activeElement).toBe(panel);
+  });
+
+  it('marks the closed / unavailable / error panels as focused live regions too', async () => {
+    for (const [route, state] of [
+      [{ status: 403, body: { error_code: 'form_inactive' } }, 'closed'],
+      [{ status: 404, body: { error_code: 'form_not_available' } }, 'unavailable'],
+      [{ status: 500, body: { error_code: 'boom' } }, 'error'],
+    ] as const) {
+      const { el } = await mount({ schema: route });
+      const panel = shadow(el).querySelector(`[data-state="${state}"]`) as HTMLElement;
+      expect(panel.getAttribute('role')).toBe('status');
+      expect(panel.getAttribute('aria-live')).toBe('polite');
+      expect(panel.getAttribute('tabindex')).toBe('-1');
+      expect(shadow(el).activeElement).toBe(panel);
+    }
+  });
+
+  it('does not grab focus while the fillable form is showing or during loading', async () => {
+    const { el } = await mount();
+    // Ready form: no status panel, focus not stolen into a status region.
+    expect(shadow(el).querySelector('.rf-status')).toBeNull();
+    expect(shadow(el).activeElement).toBeNull();
   });
 });
