@@ -157,7 +157,10 @@ const INPUT_SIZE: Record<InputSize, number> = {
  */
 export function safeCssUrl(url: string | undefined): string | null {
   if (!url?.startsWith('https://')) return null;
-  if (/[)\s,"']/.test(url)) return null;
+  // Reject anything that could break out of `url("…")`: parens, quotes, comma,
+  // whitespace — and a backslash, which would CSS-escape the closing quote and
+  // let the string swallow the following declarations.
+  if (/[()\\\s,"']/.test(url)) return null;
   return `url("${url}")`;
 }
 
