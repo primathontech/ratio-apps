@@ -193,14 +193,16 @@ export interface CssSanitizeResult {
 }
 
 /**
- * css-tree preserves CSS escape sequences VERBATIM in identifier/function/keyword
- * names, but browsers DECODE them (`\75 rl`→`url`, `\66 ixed`→`fixed`,
- * `\68 ost`→`host`). Rather than trust a decoder, we treat any backslash escape
- * in a serialized name/value/selector as hostile — legitimate visual field CSS
- * never needs one. (Closes the whole escape-bypass red-team class at once.)
+ * Two hostile shapes we reject wholesale from any serialized name/value/selector:
+ *  - a backslash escape: css-tree preserves it VERBATIM but browsers DECODE it
+ *    (`\75 rl`→`url`, `\66 ixed`→`fixed`, `\68 ost`→`host`), so every name check
+ *    is otherwise bypassable — legitimate visual field CSS never needs one;
+ *  - a `<` / `>`: the sanitized CSS is injected as raw text into the shadow
+ *    `<style>`, so a string-valued declaration like `font-family:"</style>…"`
+ *    could close the tag and inject markup (HTML-context breakout / XSS).
  */
 function hasEscape(generated: string): boolean {
-  return generated.includes('\\');
+  return /[\\<>]/.test(generated);
 }
 
 /** True if a node's subtree reaches the network or a script vector. */

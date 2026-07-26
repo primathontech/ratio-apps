@@ -163,6 +163,14 @@ describe('sanitizeFieldCss — red-team regressions (must stay neutralized)', ()
     }
   });
 
+  it('drops values/selectors that would break out of the shadow <style> (</style> / < >)', () => {
+    // font-family IS allow-listed, so the string value must be neutralized.
+    const { css } = san('.x { font-family: "</style><script>alert(1)</script>"; }');
+    expect(css).not.toContain('<');
+    expect(css).not.toContain('</style');
+    expect(san('.x { color: red; font-family: "a>b"; }').css).not.toContain('>');
+  });
+
   it('keeps a legitimate sibling combinator INSIDE the field scope', () => {
     // `.a ~ .b` (non-leading) stays contained: both are descendants of the field.
     const { css } = san('.a ~ .b { color: red; }');
