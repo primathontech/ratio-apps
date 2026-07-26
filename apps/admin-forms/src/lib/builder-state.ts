@@ -85,6 +85,7 @@ export type BuilderAction =
   | { type: 'updateField'; key: string; patch: Partial<FormField> }
   | { type: 'updateMeta'; patch: Partial<BuilderMeta> }
   | { type: 'updateAppearance'; patch: AppearancePatch }
+  | { type: 'replaceAppearance'; appearance: FormAppearance }
   | { type: 'selectField'; key: string | null }
   | { type: 'markSaved' };
 
@@ -363,6 +364,12 @@ export function builderReducer(state: BuilderState, action: BuilderAction): Buil
       };
       return { ...state, meta: { ...state.meta, appearance }, dirty: true };
     }
+
+    case 'replaceAppearance':
+      // Wholesale replace (preset apply / JSON import): the whole appearance is
+      // swapped, so optional keys absent from the new object are DROPPED rather
+      // than lingering from the previous form (unlike updateAppearance's merge).
+      return { ...state, meta: { ...state.meta, appearance: action.appearance }, dirty: true };
 
     case 'selectField':
       if (action.key !== null && !state.fields.some((f) => f.key === action.key)) return state;

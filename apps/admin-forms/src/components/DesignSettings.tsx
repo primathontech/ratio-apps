@@ -213,27 +213,25 @@ export function DesignSettings({ appearance, dispatch }: Props) {
   // A preset swaps colors/typography/layout/background wholesale; logo/cover and
   // the Batch 6 branding/endings are content, so they survive (catalog note).
   const applyPreset = (p: AppearancePreset) =>
-    patch({
-      colors: p.appearance.colors,
-      typography: p.appearance.typography,
-      layout: p.appearance.layout,
-      background: p.appearance.background,
+    dispatch({
+      type: 'replaceAppearance',
+      // Style swapped wholesale from the preset (so an optional token the preset
+      // omits, e.g. colors.success, is DROPPED not kept); content (logo/cover/
+      // branding/endings) survives.
+      appearance: {
+        ...p.appearance,
+        logo: appearance.logo,
+        cover: appearance.cover,
+        branding: appearance.branding,
+        endings: appearance.endings,
+      },
     });
 
   // Import replaces the appearance wholesale (every section, including brand
   // assets/branding/endings) — the imported object is a full, schema-valid
   // FormAppearance.
   const applyImported = (a: FormAppearance) =>
-    patch({
-      colors: a.colors,
-      typography: a.typography,
-      layout: a.layout,
-      background: a.background,
-      logo: a.logo,
-      cover: a.cover,
-      branding: a.branding,
-      endings: a.endings,
-    });
+    dispatch({ type: 'replaceAppearance', appearance: a });
 
   // Batch 6 — merge one or more keys into the endings object (composing the
   // object when it's the first authored field). All endings fields are optional.
