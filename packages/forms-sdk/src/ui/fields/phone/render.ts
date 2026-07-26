@@ -5,6 +5,7 @@ import {
   splitPhoneValue,
 } from '@ratio-app/shared/schemas/fields/phone/constants';
 import { html, type TemplateResult } from 'lit';
+import { live } from 'lit/directives/live.js';
 import type { ControlFieldOf, FieldRenderCtx } from '../types';
 
 export function renderPhone(field: ControlFieldOf<'phone'>, ctx: FieldRenderCtx): TemplateResult {
@@ -63,7 +64,7 @@ export function renderPhone(field: ControlFieldOf<'phone'>, ctx: FieldRenderCtx)
     <select
       class="rf-phone-country"
       aria-label="Country code"
-      .value=${selected}
+      .value=${live(selected)}
       @change=${onCountryChange}
     >
       ${codes.map(
