@@ -2490,3 +2490,26 @@ describe('ratio-form file field — multi-file (maxFiles)', () => {
     expect(fetchImpl.mock.calls.some((c) => String(c[0]).endsWith('/uploads'))).toBe(false);
   });
 });
+
+describe('ratio-form inline validation (blur + live re-check)', () => {
+  it('validates a field on blur, then clears the error live once fixed', async () => {
+    const { el } = await mount();
+    const input = shadow(el).querySelector('[name="email"]') as HTMLInputElement;
+    // Untouched required field shows no error yet.
+    expect(shadow(el).querySelector('[data-error-for="email"]')).toBeFalsy();
+    // Leaving it empty (blur) surfaces the error.
+    input.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+    await flush();
+    expect(shadow(el).querySelector('[data-error-for="email"]')).toBeTruthy();
+    // Typing a valid value clears it live — no submit.
+    setInput(el, 'email', 'shopper@example.com');
+    await flush();
+    expect(shadow(el).querySelector('[data-error-for="email"]')).toBeFalsy();
+  });
+
+  it('does not flag an untouched field before its first blur', async () => {
+    const { el } = await mount();
+    // full_name is required but untouched → no error until blur or submit.
+    expect(shadow(el).querySelector('[data-error-for="full_name"]')).toBeFalsy();
+  });
+});
