@@ -60,6 +60,13 @@ export const hexColor = z
 export const FORM_INPUT_VARIANTS = ['outlined', 'filled', 'underlined'] as const;
 export type FormInputVariant = (typeof FORM_INPUT_VARIANTS)[number];
 
+/**
+ * Hard cap on a field's raw custom CSS. Defined here (Zod-side, css-tree-free)
+ * so the schema bounds it without pulling the sanitizer/parser into the widget;
+ * the `sanitize-field-css` module re-exports it for the sanitizer.
+ */
+export const MAX_FIELD_CSS_LENGTH = 2000;
+
 /** Shared per-field basics — every field type carries these. */
 export const baseFieldShape = {
   key: formFieldKeySchema,
@@ -89,6 +96,11 @@ export const baseFieldShape = {
   // the humanized default for ANY failure on this field (required/pattern/
   // format/bounds); absent ⇒ the humanized default is shown.
   errorMessage: z.string().max(500).optional(),
+  // Raw merchant-authored CSS to make this field resemble their storefront.
+  // Stored raw + bounded; the server sanitizes + field-scopes it on the embed
+  // read path (see sanitize-field-css) so the widget only ever injects safe,
+  // shadow-contained CSS. Absent ⇒ nothing injected ⇒ unchanged.
+  customCss: z.string().max(MAX_FIELD_CSS_LENGTH).optional(),
 };
 
 // Content blocks share only key + width — no label/required/validation. Keeping

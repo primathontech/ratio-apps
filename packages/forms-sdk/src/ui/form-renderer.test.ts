@@ -2141,3 +2141,50 @@ describe('ratio-form status a11y announcement (§a11y)', () => {
     expect(shadow(el).activeElement).toBeNull();
   });
 });
+
+describe('ratio-form per-field custom CSS', () => {
+  // The server has already sanitized + field-scoped this (see the backend
+  // getPublicSchema tests); the widget injects it verbatim into the shadow.
+  const SCOPED_CSS = '[data-field="topic"] select { color: rgb(1,2,3); }';
+
+  /** kitchen-sink schema with `customCss` attached to the `topic` field. */
+  function withFieldCss(css: string): PublicFormSchema {
+    const base = kitchenSinkSchema();
+    const schema = base.schema.map((f) =>
+      (f as { key: string }).key === 'topic' ? { ...f, customCss: css } : f,
+    );
+    return { ...base, schema: schema as PublicFormSchema['schema'] };
+  }
+
+  it("injects a field's scoped customCss into a <style> in the shadow root", async () => {
+    const { el } = await mount({
+      schema: { status: 200, body: { data: withFieldCss(SCOPED_CSS) } },
+    });
+    const styles = Array.from(shadow(el).querySelectorAll('style'));
+    const combined = styles.map((s) => s.textContent ?? '').join('\n');
+    // The exact pre-sanitized, scoped rule is present in the shadow's CSS.
+    expect(combined).toContain(SCOPED_CSS);
+    expect(combined).toContain('[data-field="topic"] select');
+    expect(combined).toContain('rgb(1,2,3)');
+    // It rides in a dedicated <style>, separate from the theme-token block.
+    expect(styles.some((s) => (s.textContent ?? '').includes(SCOPED_CSS))).toBe(true);
+  });
+
+  it('injects nothing extra when no field carries customCss', async () => {
+    const withCss = await mount({
+      schema: { status: 200, body: { data: withFieldCss(SCOPED_CSS) } },
+    });
+    const withoutCss = await mount({
+      schema: { status: 200, body: { data: kitchenSinkSchema() } },
+    });
+    const styleText = (r: { el: HTMLElement }) =>
+      Array.from(shadow(r.el).querySelectorAll('style'))
+        .map((s) => s.textContent ?? '')
+        .join('\n');
+    // Field CSS appears only when some field carries it (it rides in the theme
+    // <style> block); with none, no field-scoped rule is present.
+    expect(styleText(withCss)).toContain('[data-field="topic"]');
+    expect(styleText(withoutCss)).not.toContain('[data-field="topic"]');
+    expect(styleText(withoutCss)).not.toContain('rgb(1,2,3)');
+  });
+});

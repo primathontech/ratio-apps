@@ -484,6 +484,50 @@ describe('SubmissionsService.getPublicSchema — the render-schema read (AC4/AC1
     expect('description' in schema).toBe(false);
     expect('redirectUrl' in schema).toBe(false);
   });
+
+  // Per-field custom CSS is sanitized + field-scoped on the read path so the
+  // widget only ever receives shadow-safe, scoped text (server authoritative).
+  it('sanitizes + field-scopes each field customCss: scopes the color rule, drops url()', async () => {
+    const fields = [
+      {
+        key: 'name',
+        type: 'text',
+        label: 'Name',
+        required: true,
+        // Two rules on the same `input` selector: a benign color rule and a
+        // network-reaching url() rule the sanitizer must strip entirely.
+        customCss: 'input { color: red; } input { background: url(https://evil/x); }',
+      },
+    ];
+    const { service } = setup({
+      forms: [contactForm({ schemaJson: JSON.stringify(fields) })],
+      forms_configs: [configRow()],
+    });
+    const schema = await service.getPublicSchema('form_contact');
+    const field = schema.schema[0] as { key: string; customCss?: string };
+    expect(field.key).toBe('name');
+    const css = field.customCss ?? '';
+    // The color rule survives, re-scoped under the field's data-field wrapper.
+    expect(css).toContain('[data-field="name"] input');
+    expect(css.replace(/\s+/g, '')).toContain('color:red');
+    // The url() rule (and its declaration) is gone — no exfiltration vector.
+    expect(css).not.toContain('url(');
+    expect(css).not.toContain('evil');
+    expect(css).not.toContain('background');
+    // Every rule that remains is scoped — the raw un-scoped `input {` never ships.
+    expect(css).not.toMatch(/(^|[},])\s*input\s*\{/);
+  });
+
+  it('leaves fields without customCss untouched (no customCss injected)', async () => {
+    const { service } = setup({
+      forms: [contactForm()],
+      forms_configs: [configRow()],
+    });
+    const schema = await service.getPublicSchema('form_contact');
+    for (const field of schema.schema) {
+      expect('customCss' in field).toBe(false);
+    }
+  });
 });
 
 describe('SubmissionsService — admin reads (AC7/AC10)', () => {

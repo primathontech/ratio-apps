@@ -1,6 +1,7 @@
-import { Divider, Input, Typography } from '@primathonos/orion';
+import { Collapse, Divider, Input, Space, Typography } from '@primathonos/orion';
+import { MAX_FIELD_CSS_LENGTH, sanitizeFieldCss } from '@shared/schemas/custom-css';
 import type { FormField } from '@shared/schemas/form-schema';
-import type { Dispatch } from 'react';
+import { type Dispatch, useMemo } from 'react';
 import type { BuilderAction } from '@/lib/builder-state';
 
 /**
@@ -93,6 +94,121 @@ export function FieldMessagesSettings({
         </Typography.Text>
       </SettingRow>
     </>
+  );
+}
+
+/**
+ * Shared per-field Custom CSS control (lives on `baseFieldShape.customCss`, so
+ * every collectable field renders it). A merchant authors raw CSS to make one
+ * field resemble their storefront; we store it raw + bounded and the SDK read
+ * path sanitizes + field-scopes it before it ever reaches the widget's shadow
+ * root.
+ *
+ * The admin runs the SAME shared sanitizer (`sanitizeFieldCss`) purely for a
+ * LIVE preview: it shows the exact scoped CSS that will apply and, inline, the
+ * `removed` notes (e.g. `url()` dropped, `position: fixed` not allowed) so the
+ * merchant sees what was stripped and why. The preview is advisory — the
+ * authoritative sanitize happens server-side on the embed read path.
+ */
+export function FieldCustomCssSettings({
+  field,
+  dispatch,
+}: {
+  field: InputField;
+  dispatch: Dispatch<BuilderAction>;
+}) {
+  const raw = field.customCss ?? '';
+  const scope = `[data-field="${field.key}"]`;
+  // Same sanitizer the server/SDK use — recomputed only when the CSS or the
+  // field key (which drives the scope) changes.
+  const result = useMemo(() => sanitizeFieldCss(raw, scope), [raw, scope]);
+  const patch = (p: Partial<InputField>) =>
+    dispatch({ type: 'updateField', key: field.key, patch: p });
+  const trimmed = raw.trim();
+  return (
+    <Collapse
+      items={[
+        {
+          key: 'custom-css',
+          label: 'Custom CSS',
+          children: (
+            <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
+              <SettingRow label="Custom CSS">
+                <Input.TextArea
+                  aria-label="Custom CSS"
+                  rows={6}
+                  maxLength={MAX_FIELD_CSS_LENGTH}
+                  spellCheck={false}
+                  placeholder={'input {\n  border-radius: 8px;\n  border-color: #1a1a1a;\n}'}
+                  style={{ fontFamily: 'monospace', fontSize: 12 }}
+                  value={raw}
+                  onChange={(e) => patch({ customCss: e.target.value || undefined })}
+                />
+                <Typography.Text
+                  type="secondary"
+                  aria-label="Custom CSS character count"
+                  style={{ display: 'block', marginTop: 4, fontSize: 12 }}
+                >
+                  {raw.length} / {MAX_FIELD_CSS_LENGTH}
+                </Typography.Text>
+              </SettingRow>
+
+              {result.removed.length > 0 && (
+                <div
+                  role="alert"
+                  aria-label="Custom CSS warnings"
+                  style={{
+                    padding: 8,
+                    borderRadius: 6,
+                    border: '1px solid #ffccc7',
+                    background: '#fff2f0',
+                  }}
+                >
+                  <Typography.Text strong style={{ display: 'block', fontSize: 12 }}>
+                    Some CSS was removed:
+                  </Typography.Text>
+                  <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+                    {result.removed.map((note) => (
+                      <li key={note}>
+                        <Typography.Text type="danger" style={{ fontSize: 12 }}>
+                          {note}
+                        </Typography.Text>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {trimmed && (
+                <SettingRow label="Applied to this field (scoped preview)">
+                  <pre
+                    aria-label="Sanitized CSS preview"
+                    style={{
+                      margin: 0,
+                      padding: 8,
+                      borderRadius: 6,
+                      background: '#f5f5f5',
+                      fontFamily: 'monospace',
+                      fontSize: 12,
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                    }}
+                  >
+                    {result.css || '/* Nothing will be applied. */'}
+                  </pre>
+                  <Typography.Text
+                    type="secondary"
+                    style={{ display: 'block', marginTop: 4, fontSize: 12 }}
+                  >
+                    Every rule is scoped to <code>{scope}</code> so it only styles this field.
+                  </Typography.Text>
+                </SettingRow>
+              )}
+            </Space>
+          ),
+        },
+      ]}
+    />
   );
 }
 

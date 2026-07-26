@@ -51,7 +51,12 @@ import { FieldPalette } from '@/components/FieldPalette';
 import { LivePreview } from '@/components/LivePreview';
 // Per-field settings panels (Phase 0 refactor): TypeSpecificSettings dispatches
 // through this registry; each panel lives in @/fields/<type>/settings.tsx.
-import { FieldMessagesSettings, SettingRow, SettingRowGroup } from '@/fields/_shared/controls';
+import {
+  FieldCustomCssSettings,
+  FieldMessagesSettings,
+  SettingRow,
+  SettingRowGroup,
+} from '@/fields/_shared/controls';
 import { fieldSettingsRegistry } from '@/fields/registry';
 import { useForm, useToggleFormStatus, useUpdateForm } from '@/hooks/useForms';
 import { useWebhookTest } from '@/hooks/useWebhookTest';
@@ -409,6 +414,8 @@ function FieldSettings({
         {/* Production validation messages — help text + custom error, for every input field. */}
         {'required' in field && <FieldMessagesSettings field={field} dispatch={dispatch} />}
         {'required' in field && <AdvancedStyleSettings field={field} dispatch={dispatch} />}
+        {/* Per-field raw custom CSS (baseFieldShape) — sanitized + field-scoped on the SDK read path. */}
+        {'required' in field && <FieldCustomCssSettings field={field} dispatch={dispatch} />}
       </Space>
     </Card>
   );

@@ -8,6 +8,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { sanitizeFieldCss } from '@ratio-app/shared/schemas/custom-css';
 import type { FormAppearance, FormField } from '@ratio-app/shared/schemas/form-schema';
 import { type Kysely, sql } from 'kysely';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
@@ -266,7 +267,14 @@ export class SubmissionsService {
         error_code: 'form_inactive',
       });
     }
-    const schema = SubmissionsService.parseSchema(form.schemaJson);
+    // Sanitize + field-scope any merchant custom CSS on the read path (server
+    // authoritative): the widget only ever receives shadow-safe, scoped CSS.
+    const schema = SubmissionsService.parseSchema(form.schemaJson).map((field) => {
+      const raw = (field as { customCss?: string }).customCss;
+      if (!raw) return field;
+      const clean = sanitizeFieldCss(raw, `[data-field="${field.key}"]`).css;
+      return { ...field, customCss: clean || undefined };
+    });
     if (schema.length === 0) {
       // Misconfigured — an empty form must not render (PRD 10.10.6).
       throw new NotFoundException({
