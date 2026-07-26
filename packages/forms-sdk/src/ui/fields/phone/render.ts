@@ -15,11 +15,18 @@ export function renderPhone(field: ControlFieldOf<'phone'>, ctx: FieldRenderCtx)
   );
 
   // Single country ⇒ static dial chip (v1 layout; +91-only forms unchanged).
-  // onInput stores the raw national number; the server composes/normalizes to
-  // E.164 for the field's one country.
+  // The server composes/normalizes the stored national digits to E.164.
   if (codes.length === 1) {
     // resolvePhoneCountries guarantees defaultCode === codes[0] when single.
     const meta = PHONE_COUNTRY_META[defaultCode];
+    // Digit-normalize on input (mirror the multi-country national input): strip
+    // separators the shopper types/pastes so the stored value is bare digits and
+    // live() clears them from view. No char-count `maxlength` — it counted the
+    // separators too, so a spaced "98765 43210" truncated to 9 digits and was
+    // rejected; the real per-country digit bound is enforced in canonicalizePhone.
+    const onDigitInput = (e: Event) => {
+      ctx.setValue(field.key, (e.target as HTMLInputElement).value.replace(/\D/g, ''));
+    };
     return html`<div class="rf-phone">
       <span class="rf-phone-prefix">${meta.dial}</span>
       <input
@@ -27,12 +34,11 @@ export function renderPhone(field: ControlFieldOf<'phone'>, ctx: FieldRenderCtx)
         name=${field.key}
         type="tel"
         inputmode="numeric"
-        maxlength=${meta.maxLength}
         placeholder=${ctx.ph(field, field.placeholder ?? meta.placeholder)}
         aria-invalid=${ctx.invalid}
         aria-describedby=${ctx.describedBy}
-        .value=${String(ctx.values[field.key] ?? '')}
-        @input=${ctx.onInput}
+        .value=${live(String(ctx.values[field.key] ?? ''))}
+        @input=${onDigitInput}
       />
     </div>`;
   }
@@ -53,7 +59,21 @@ export function renderPhone(field: ControlFieldOf<'phone'>, ctx: FieldRenderCtx)
     );
   };
   const onNumberInput = (e: Event) => {
-    const digits = (e.target as HTMLInputElement).value.replace(/\D/g, '');
+    const raw = (e.target as HTMLInputElement).value;
+    // Pasting a full international number (leading '+') into the NATIONAL input:
+    // derive BOTH the country and the national digits from it and switch the
+    // selected country, instead of stripping the '+dial' into the national part.
+    if (raw.trimStart().startsWith('+')) {
+      const parsed = splitPhoneValue(raw, codes, defaultCode);
+      ctx.setValue(
+        field.key,
+        parsed.national
+          ? composePhoneValue(parsed.code, parsed.national)
+          : PHONE_COUNTRY_META[parsed.code].dial,
+      );
+      return;
+    }
+    const digits = raw.replace(/\D/g, '');
     ctx.setValue(
       field.key,
       digits ? composePhoneValue(selected, digits) : PHONE_COUNTRY_META[selected].dial,
@@ -68,8 +88,15 @@ export function renderPhone(field: ControlFieldOf<'phone'>, ctx: FieldRenderCtx)
       @change=${onCountryChange}
     >
       ${codes.map(
+        // name + dial so same-dial countries (US/CA both +1) are distinguishable.
+        // Limitation: the stored value is pure E.164, so it can't round-trip WHICH
+        // shared-dial ISO was picked — splitPhoneValue re-derives the country by
+        // longest/among-fitting dial match, so a +1 pick may resolve back to US on
+        // re-render. Distinct labels are the achievable fix without a second field.
         (c) =>
-          html`<option value=${c}>${PHONE_COUNTRY_META[c].flag} ${PHONE_COUNTRY_META[c].dial}</option>`,
+          html`<option value=${c}>
+            ${PHONE_COUNTRY_META[c].flag} ${PHONE_COUNTRY_META[c].name} (${PHONE_COUNTRY_META[c].dial})
+          </option>`,
       )}
     </select>
     <input
@@ -81,7 +108,7 @@ export function renderPhone(field: ControlFieldOf<'phone'>, ctx: FieldRenderCtx)
       placeholder=${ctx.ph(field, field.placeholder ?? meta.placeholder)}
       aria-invalid=${ctx.invalid}
       aria-describedby=${ctx.describedBy}
-      .value=${national}
+      .value=${live(national)}
       @input=${onNumberInput}
     />
   </div>`;

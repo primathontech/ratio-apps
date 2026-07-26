@@ -1708,6 +1708,36 @@ describe('ratio-form adornment capability matrix (§2.3)', () => {
     expect(root.querySelector('[data-field="name"] .rf-counter')?.textContent).toContain('0/30');
     expect(root.querySelector('[data-field="about"] .rf-counter')?.textContent).toContain('0/40');
   });
+
+  it('counts words (not characters) for a textarea with counterUnit:words', async () => {
+    const wordsSchema: PublicFormSchema = {
+      id: 'form_words',
+      name: 'Words',
+      schema: [
+        {
+          key: 'essay',
+          type: 'textarea',
+          label: 'Essay',
+          required: false,
+          width: 'full',
+          showCounter: true,
+          validation: { maxLength: 100 },
+          display: { counterUnit: 'words' },
+        },
+      ] as PublicFormSchema['schema'],
+      submitLabel: 'Go',
+      successMessage: 'Done',
+      spamProtection: 'honeypot',
+    };
+    const { el } = await mount({ schema: { status: 200, body: { data: wordsSchema } } });
+    const counter = () => shadow(el).querySelector('[data-field="essay"] .rf-counter');
+    // Empty ⇒ 0 words.
+    expect(counter()?.textContent).toContain('0/100');
+    // Two words, despite surrounding/extra whitespace and >2 characters.
+    setInput(el, 'essay', '  hello   world  ');
+    await el.updateComplete;
+    expect(counter()?.textContent).toContain('2/100');
+  });
 });
 
 describe('ratio-form micro-animations (§2.4)', () => {
