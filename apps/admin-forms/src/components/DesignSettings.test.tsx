@@ -279,4 +279,61 @@ describe('DesignSettings', () => {
       patch: { logo: { url: 'https://cdn.example.com/logo.png' } },
     });
   });
+
+  // ── Batch 5 (visual-payoff theming) ────────────────────────────
+  it('renders the optional semantic color pickers (Batch 5)', () => {
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={vi.fn()} />);
+    expect(screen.getByLabelText('Success color')).toBeInTheDocument();
+    expect(screen.getByLabelText('Link color')).toBeInTheDocument();
+    expect(screen.getByLabelText('Placeholder color')).toBeInTheDocument();
+  });
+
+  it('dispatches a button variant change (Batch 5)', () => {
+    const dispatch = vi.fn();
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />);
+    const outline = screen.getByText('Outline');
+    fireEvent.click(outline.closest('label') ?? outline);
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateAppearance',
+      patch: { layout: { buttonVariant: 'outline' } },
+    });
+  });
+
+  it('dispatches a content alignment change (Batch 5)', () => {
+    const dispatch = vi.fn();
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />);
+    const centered = screen.getByText('Centered');
+    fireEvent.click(centered.closest('label') ?? centered);
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateAppearance',
+      patch: { layout: { contentAlign: 'center' } },
+    });
+  });
+
+  it('dispatches a submit-loader change from the Motion group (Batch 5)', () => {
+    const dispatch = vi.fn();
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />);
+    const loaderRow = screen.getByText('Submit loader').closest('div') as HTMLElement;
+    const off = within(loaderRow).getByText('Off');
+    fireEvent.click(off.closest('label') ?? off);
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateAppearance',
+      patch: { layout: { submitLoader: 'none' } },
+    });
+  });
+
+  it('shows the image-filter sliders only for an image background (Batch 5)', () => {
+    const { unmount } = renderWithProviders(
+      <DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={vi.fn()} />,
+    );
+    expect(screen.queryByText(/Image brightness/)).not.toBeInTheDocument();
+    unmount();
+    const appearance = {
+      ...DEFAULT_APPEARANCE,
+      background: { ...DEFAULT_APPEARANCE.background, type: 'image' as const },
+    };
+    renderWithProviders(<DesignSettings appearance={appearance} dispatch={vi.fn()} />);
+    expect(screen.getByText(/Image brightness/)).toBeInTheDocument();
+    expect(screen.getByText(/Image grayscale/)).toBeInTheDocument();
+  });
 });

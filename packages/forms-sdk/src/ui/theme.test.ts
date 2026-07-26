@@ -383,9 +383,9 @@ describe('token audit', () => {
   // literal on dark/branded presets (the --wz-subtle regression).
   it('emits every var(--wz-*) the renderer references', () => {
     const renderer = readFileSync(resolve(process.cwd(), 'src/ui/form-renderer.ts'), 'utf8');
-    const used = new Set([...renderer.matchAll(/var\((--wz-[a-z-]+)/g)].map((m) => m[1]));
+    const used = new Set([...renderer.matchAll(/var\((--wz-[a-z0-9-]+)/g)].map((m) => m[1]));
     const css = themeVars(appearance());
-    const emitted = new Set([...css.matchAll(/(--wz-[a-z-]+):/g)].map((m) => m[1]));
+    const emitted = new Set([...css.matchAll(/(--wz-[a-z0-9-]+):/g)].map((m) => m[1]));
     const missing = [...used].filter((token) => !emitted.has(token));
     expect(missing).toEqual([]);
   });
@@ -434,5 +434,120 @@ describe('sanitizeFontName', () => {
     expect(sanitizeFontName('  spaced   out  ')).toBe('spaced out');
     expect(sanitizeFontName('')).toBeNull();
     expect(sanitizeFontName('"();{}')).toBeNull();
+  });
+});
+
+describe('themeVars Batch 5 (visual-payoff theming)', () => {
+  it('emits the new tokens at today’s values for an un-themed form', () => {
+    const css = themeVars(appearance());
+    // Semantic colors default to primary/muted derivations.
+    expect(css).toContain('--wz-success: #0fb3a9');
+    expect(css).toContain('--wz-success-bg: color-mix(in srgb, #0fb3a9 8%, var(--wz-bg))');
+    expect(css).toContain('--wz-link: #0fb3a9');
+    expect(css).toContain('--wz-placeholder: #6b7280');
+    // Button fill tokens — solid defaults reproduce today.
+    expect(css).toContain('--wz-btn-bg: var(--wz-primary)');
+    expect(css).toContain('--wz-btn-fg: var(--wz-btn-text)');
+    expect(css).toContain('--wz-btn-bw: 0');
+    // Type-scale role tokens fall back to today’s additive sizes (base 14).
+    expect(css).toContain('--wz-fs-title: 20px');
+    expect(css).toContain('--wz-fs-h2: 18px');
+    expect(css).toContain('--wz-fs-h3: 16px');
+    // Font roles + line-heights default to inherit / normal.
+    expect(css).toContain('--wz-font-heading: var(--wz-font)');
+    expect(css).toContain('--wz-font-body: var(--wz-font)');
+    expect(css).toContain('--wz-lh-body: normal');
+    expect(css).toContain('--wz-lh-heading: normal');
+    // Focus offset literal (2px) + no-op bg filter.
+    expect(css).toContain('--wz-focus-offset: 2px');
+    expect(css).toContain('--wz-bg-filter: none');
+    // Easing unchanged.
+    expect(css).toContain('--wz-ease: cubic-bezier(0.4, 0, 0.2, 1)');
+  });
+
+  it('maps semantic colors when set', () => {
+    const css = themeVars(
+      appearance({ colors: { success: '#067647', link: '#2563eb', placeholder: '#9ca3af' } }),
+    );
+    expect(css).toContain('--wz-success: #067647');
+    expect(css).toContain('--wz-link: #2563eb');
+    expect(css).toContain('--wz-placeholder: #9ca3af');
+  });
+
+  it('wires inputPadX to --wz-pad-x; default reproduces the 10px literal', () => {
+    expect(themeVars(appearance())).toContain('--wz-pad-x: 10px');
+    expect(themeVars(appearance({ layout: { inputPadX: 16 } }))).toContain('--wz-pad-x: 16px');
+  });
+
+  it('lets an explicit cardPadding override the density preset (fixes the bug)', () => {
+    // Density spacious would give 36px; the explicit override must win.
+    const css = themeVars(appearance({ layout: { density: 'spacious', cardPadding: 12 } }));
+    expect(css).toContain('--wz-card-pad: 12px');
+    // Absent ⇒ density still supplies the value.
+    expect(themeVars(appearance({ layout: { density: 'spacious' } }))).toContain(
+      '--wz-card-pad: 36px',
+    );
+  });
+
+  it('drops the max-width cap under fluidWidth', () => {
+    expect(themeVars(appearance({ layout: { fluidWidth: true } }))).toContain(
+      '--wz-max-width: none',
+    );
+    expect(themeVars(appearance({ layout: { maxWidth: 480 } }))).toContain('--wz-max-width: 480px');
+  });
+
+  it('maps focusOffset to the offset token', () => {
+    expect(themeVars(appearance({ layout: { focusOffset: 0 } }))).toContain(
+      '--wz-focus-offset: 0px',
+    );
+    expect(themeVars(appearance({ layout: { focusOffset: 6 } }))).toContain(
+      '--wz-focus-offset: 6px',
+    );
+  });
+
+  it('scales motion duration by speed and maps easing to a fixed curve', () => {
+    // Animations off keeps duration at 0 regardless of speed.
+    expect(themeVars(appearance({ layout: { motionSpeed: 'fast' } }))).toContain('--wz-dur: 0s');
+    expect(themeVars(appearance({ layout: { animations: true, motionSpeed: 'slow' } }))).toContain(
+      '--wz-dur: 0.24s',
+    );
+    expect(themeVars(appearance({ layout: { animations: true, motionSpeed: 'fast' } }))).toContain(
+      '--wz-dur: 0.06s',
+    );
+    expect(themeVars(appearance({ layout: { easing: 'spring' } }))).toContain(
+      '--wz-ease: cubic-bezier(0.34, 1.56, 0.64, 1)',
+    );
+  });
+
+  it('computes the type scale from base·rⁿ when a ratio is set', () => {
+    // major-third (1.25) over base 14: h3=17.5→18, h2=21.9→22, title=27.3→27.
+    const css = themeVars(appearance({ typography: { scaleRatio: 'major-third' } }));
+    expect(css).toContain('--wz-fs-h3: 18px');
+    expect(css).toContain('--wz-fs-h2: 22px');
+    expect(css).toContain('--wz-fs-title: 27px');
+  });
+
+  it('resolves heading/body font roles from the pairing families', () => {
+    const css = themeVars(
+      appearance({ typography: { headingFont: 'poppins', bodyFont: 'merriweather' } }),
+    );
+    expect(css).toContain("--wz-font-heading: 'Poppins'");
+    expect(css).toContain("--wz-font-body: 'Merriweather'");
+  });
+
+  it('composes an image-layer filter from brightness/blur/grayscale', () => {
+    const css = themeVars(
+      appearance({ background: { imageBrightness: 0.8, imageBlur: 4, imageGrayscale: 0.5 } }),
+    );
+    expect(css).toContain('--wz-bg-filter: brightness(0.8) blur(4px) grayscale(0.5)');
+  });
+
+  it('maps the extended shadow scale (lg/xl)', () => {
+    expect(themeVars(appearance({ layout: { shadow: 'lg' } }))).toContain(
+      '--wz-card-shadow: 0 10px 15px',
+    );
+    expect(themeVars(appearance({ layout: { shadow: 'xl' } }))).toContain(
+      '--wz-card-shadow: 0 20px 25px',
+    );
   });
 });

@@ -110,18 +110,31 @@ export class RatioForm extends LitElement {
          scrim ::before layer sits over the image for contrast (§1.1). */
       .rf-root {
         position: relative;
+        /* Own stacking context so the bg/scrim/card z-index ladder is scoped. */
+        isolation: isolate;
         background-color: var(--wz-page-bg);
+        /* §3 — backdrop breathes above/below the card; 0 when transparent. */
+        padding-block: var(--wz-page-pad);
+      }
+      /* §1.6 — dedicated image layer so brightness/blur/grayscale filters never
+         touch the card or content (distinct from §2.6 card backdrop-filter).
+         Sits below the scrim and the card. */
+      .rf-bg {
+        position: absolute;
+        inset: 0;
+        z-index: 0;
         background-image: var(--wz-page-bg-image);
         background-size: var(--wz-page-bg-size);
         background-repeat: var(--wz-page-bg-repeat);
         background-position: center;
-        /* §3 — backdrop breathes above/below the card; 0 when transparent. */
-        padding-block: var(--wz-page-pad);
+        filter: var(--wz-bg-filter);
+        pointer-events: none;
       }
       .rf-root::before {
         content: '';
         position: absolute;
         inset: 0;
+        z-index: 1;
         background: var(--wz-page-scrim);
         pointer-events: none;
       }
@@ -130,8 +143,13 @@ export class RatioForm extends LitElement {
          so it stacks above the page scrim. */
       .rf-card {
         position: relative;
+        z-index: 2;
         background: var(--wz-bg);
         color: var(--wz-fg);
+        /* §1.2 — body font + line-height roles (default to --wz-font / normal),
+           so headings can override with their own role tokens. */
+        font-family: var(--wz-font-body);
+        line-height: var(--wz-lh-body);
         padding: var(--wz-card-pad);
         border: var(--wz-card-border);
         border-radius: var(--wz-radius);
@@ -139,6 +157,25 @@ export class RatioForm extends LitElement {
         max-width: var(--wz-max-width);
         margin: 0 auto;
         box-sizing: border-box;
+      }
+      /* §1.3 — flat surface: drop the card border/shadow/fill so the form sits
+         directly on the page. 'card' (default) reflects nothing. */
+      :host([data-layout='flat']) .rf-card {
+        background: transparent;
+        border: none;
+        box-shadow: none;
+      }
+      /* §1.3 — center the header block, logo, and heading blocks; 'left'
+         (default) reflects nothing. */
+      :host([data-align='center']) .rf-head {
+        text-align: center;
+      }
+      :host([data-align='center']) .rf-logo {
+        margin-left: auto;
+        margin-right: auto;
+      }
+      :host([data-align='center']) .rf-heading {
+        text-align: center;
       }
       /* §2.6 — frosted card over an image backdrop (gated by data-card-blur,
          set only when a background image + blur radius are configured).
@@ -166,7 +203,11 @@ export class RatioForm extends LitElement {
       }
       .rf-title {
         margin: 0 0 4px;
-        font-size: calc(var(--wz-font-size) + 6px);
+        /* §1.2 — role-scoped size / heading font / heading line-height. Defaults
+           reproduce today (base+6, --wz-font, normal). */
+        font-size: var(--wz-fs-title);
+        font-family: var(--wz-font-heading);
+        line-height: var(--wz-lh-heading);
         font-weight: 700;
         color: var(--wz-fg);
       }
@@ -285,14 +326,17 @@ export class RatioForm extends LitElement {
       /* Content blocks (§1.3): display-only, no label/control. */
       .rf-heading {
         margin: 0;
+        /* §1.2 — heading font + line-height roles (default to --wz-font / normal). */
+        font-family: var(--wz-font-heading);
+        line-height: var(--wz-lh-heading);
         font-weight: 700;
         color: var(--wz-fg);
       }
       h2.rf-heading {
-        font-size: calc(var(--wz-font-size) + 4px);
+        font-size: var(--wz-fs-h2);
       }
       h3.rf-heading {
-        font-size: calc(var(--wz-font-size) + 2px);
+        font-size: var(--wz-fs-h3);
       }
       .rf-paragraph {
         margin: 0;
@@ -336,6 +380,18 @@ export class RatioForm extends LitElement {
           box-shadow var(--wz-dur) var(--wz-ease),
           background-color var(--wz-dur) var(--wz-ease);
       }
+      /* §1 — placeholder color (defaults to muted) at full opacity so it renders
+         consistently across browsers. */
+      ::placeholder {
+        color: var(--wz-placeholder);
+        opacity: 1;
+      }
+      /* §1 — link color + underline (non-color cue); inert until a form renders
+         an anchor, but the token stays wired. */
+      a {
+        color: var(--wz-link);
+        text-decoration: underline;
+      }
       :host([data-input='filled']) :is(input, select, textarea) {
         --_fill: var(--wz-subtle);
         --_bw: 0;
@@ -372,7 +428,7 @@ export class RatioForm extends LitElement {
       :is(input, select, textarea):focus-visible,
       .rf-submit:focus-visible {
         outline: var(--wz-focus-width) solid var(--wz-focus);
-        outline-offset: 2px;
+        outline-offset: var(--wz-focus-offset);
       }
       :host([data-focus='border']) :is(input, select, textarea):focus-visible {
         outline: none;
@@ -590,6 +646,10 @@ export class RatioForm extends LitElement {
         height: 1px;
         overflow: hidden;
       }
+      /* §1.5 — button fill driven by tokens; the solid defaults reproduce today.
+         data-btn-variant flips the tokens per variant (no per-variant block for
+         the shared box). Border width is a token (0 for solid) so solid keeps
+         today's exact height. */
       .rf-submit {
         font: inherit;
         font-size: var(--wz-btn-font);
@@ -599,28 +659,65 @@ export class RatioForm extends LitElement {
         gap: 8px;
         padding: var(--wz-btn-pad-y) calc(var(--wz-pad-x) + 8px);
         min-height: 44px;
-        border: none;
+        border: var(--wz-btn-bw) solid var(--wz-btn-border);
         border-radius: var(--wz-btn-radius);
-        background: var(--wz-primary);
-        color: var(--wz-btn-text);
+        background: var(--wz-btn-bg);
+        color: var(--wz-btn-fg);
         cursor: pointer;
         align-self: var(--wz-btn-align);
-        transition: background-color var(--wz-dur) var(--wz-ease);
+        transition:
+          background-color var(--wz-dur) var(--wz-ease),
+          border-color var(--wz-dur) var(--wz-ease);
+      }
+      .rf-submit[data-btn-variant='outline'] {
+        --wz-btn-bg: transparent;
+        --wz-btn-fg: var(--wz-primary);
+        --wz-btn-border: var(--wz-primary);
+        --wz-btn-bw: 1px;
+        --wz-btn-bg-hover: color-mix(in srgb, var(--wz-primary) 12%, var(--wz-bg));
+      }
+      .rf-submit[data-btn-variant='ghost'] {
+        --wz-btn-bg: transparent;
+        --wz-btn-fg: var(--wz-primary);
+        --wz-btn-bg-hover: color-mix(in srgb, var(--wz-primary) 12%, var(--wz-bg));
+      }
+      .rf-submit[data-btn-variant='soft'] {
+        --wz-btn-bg: color-mix(in srgb, var(--wz-primary) 14%, var(--wz-bg));
+        --wz-btn-fg: var(--wz-primary);
+        --wz-btn-bg-hover: color-mix(in srgb, var(--wz-primary) 22%, var(--wz-bg));
       }
       .rf-btn-icon {
         width: 1em;
         height: 1em;
         flex: none;
       }
+      /* §1.8 — submit busy spinner; under prefers-reduced-motion the blanket
+         animation kill (below) freezes it to a static ring — still a visible
+         cue. Colored from the button foreground so every variant reads. */
+      .rf-spinner {
+        width: 1em;
+        height: 1em;
+        flex: none;
+        border: 2px solid color-mix(in srgb, var(--wz-btn-fg) 35%, transparent);
+        border-top-color: var(--wz-btn-fg);
+        border-radius: 50%;
+        animation: rf-spin 0.6s linear infinite;
+      }
+      @keyframes rf-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
       .rf-submit:hover {
-        background: var(--wz-primary-hover);
+        background: var(--wz-btn-bg-hover);
       }
       .rf-submit:active {
-        background: var(--wz-primary-hover);
+        background: var(--wz-btn-bg-hover);
         transform: translateY(1px);
       }
-      /* Busy state uses aria-disabled (not the native disabled attr) so the
-         button keeps keyboard focus + stays in the a11y tree while submitting. */
+      /* §1.8 a11y — the button stays focusable while submitting (aria-disabled +
+         aria-busy, not the DOM disabled attribute that drops focus); re-entry is
+         guarded in onSubmit. */
       .rf-submit[aria-disabled='true'] {
         opacity: 0.6;
         cursor: not-allowed;
@@ -665,7 +762,7 @@ export class RatioForm extends LitElement {
       }
       .rf-star:focus-within {
         outline: 2px solid var(--wz-focus);
-        outline-offset: 2px;
+        outline-offset: var(--wz-focus-offset);
       }
       /* multi_select chips carry focus on a 1px-clipped SR-only checkbox, so
          :focus-within surfaces a keyboard focus ring on the visible pill. */
@@ -708,10 +805,15 @@ export class RatioForm extends LitElement {
         margin: 0;
         line-height: 1.5;
       }
+      /* §1 — success panel driven by the success tokens (default to the primary
+         mix, so today's look is unchanged; recolors when colors.success is set). */
       .rf-success {
-        background: color-mix(in srgb, var(--wz-primary) 8%, var(--wz-bg));
-        color: var(--wz-fg);
-        border: 1px solid color-mix(in srgb, var(--wz-primary) 28%, transparent);
+        background: var(--wz-success-bg);
+        color: var(--wz-success-on);
+        border: 1px solid var(--wz-success-border);
+      }
+      .rf-success .rf-status-icon {
+        color: var(--wz-success);
       }
       /* A status screen shrinks the card to a comfortable confirmation width
          (never wider than the form) and drops the form intro so the message
@@ -975,11 +1077,19 @@ export class RatioForm extends LitElement {
         `ratio-font-custom-${custom.replace(/ /g, '-')}`,
         customGoogleFontHref(custom),
       );
-      return;
+    } else {
+      const family = typography?.fontFamily;
+      if (family && family !== 'system') {
+        this.injectFontLink(`ratio-font-${family}`, GOOGLE_FONT_HREF[family]);
+      }
     }
-    const family = typography?.fontFamily;
-    if (!family || family === 'system') return;
-    this.injectFontLink(`ratio-font-${family}`, GOOGLE_FONT_HREF[family]);
+    // §1.2 — heading/body pairing loads ≤2 more families (deduped by id). Each
+    // uses the same fixed enum-keyed map — the merchant never supplies a URL.
+    for (const role of [typography?.headingFont, typography?.bodyFont]) {
+      if (role && role !== 'system') {
+        this.injectFontLink(`ratio-font-${role}`, GOOGLE_FONT_HREF[role]);
+      }
+    }
   }
 
   /** Inject a single deduped stylesheet `<link>` at document scope. */
@@ -1155,6 +1265,10 @@ export class RatioForm extends LitElement {
       l?.inputVariant && l.inputVariant !== 'outlined' ? l.inputVariant : null,
     );
     this.reflectAttr('data-focus', l?.focusStyle && l.focusStyle !== 'ring' ? l.focusStyle : null);
+    // §1.3 — content alignment / card-vs-flat; the 'left'/'card' defaults reflect
+    // nothing, so an un-themed form is unchanged.
+    this.reflectAttr('data-align', l?.contentAlign === 'center' ? 'center' : null);
+    this.reflectAttr('data-layout', l?.layoutMode === 'flat' ? 'flat' : null);
     // §2.1 — form-wide column count; '1' (today) reflects nothing.
     this.reflectAttr('data-cols', l?.columns && l.columns !== '1' ? l.columns : null);
     // §2.6 — frosted card only over an image backdrop with a blur radius.
@@ -1219,6 +1333,7 @@ export class RatioForm extends LitElement {
         ${unsafeCSS(themeVars(this.appearance))}
       </style>
       <div class="rf-root">
+        <div class="rf-bg"></div>
         <div class="rf-card">${this.renderHeader()}${this.renderState()}</div>
       </div>`;
   }
@@ -1306,18 +1421,33 @@ export class RatioForm extends LitElement {
         <button
           type="button"
           class="rf-submit"
-          aria-disabled=${this.status === 'submitting' ? 'true' : nothing}
+          data-btn-variant=${this.submitVariant}
           aria-busy=${this.status === 'submitting' ? 'true' : nothing}
+          aria-disabled=${this.status === 'submitting' ? 'true' : nothing}
           @click=${this.onSubmit}
         >
-          ${
-            this.status === 'submitting'
-              ? html`<span class="rf-spin" aria-hidden="true"></span>`
-              : this.renderButtonIcon()
-          }${this.status === 'submitting' ? 'Submitting...' : schema.submitLabel}
+          ${this.status === 'submitting' ? this.renderSubmitLoader() : this.renderButtonIcon()}${
+            this.status === 'submitting' ? 'Submitting...' : schema.submitLabel
+          }
         </button>
       </div>
     `;
+  }
+
+  /** §1.5 — submit fill variant reflected on the button; 'solid' (today) sets
+   * no attribute so the token-flip rules don't apply. */
+  private get submitVariant(): string | typeof nothing {
+    const variant = this.appearance?.layout?.buttonVariant ?? 'solid';
+    return variant === 'solid' ? nothing : variant;
+  }
+
+  /** §1.8 — the busy spinner shown while submitting; 'none' shows text only.
+   * A static-first template (avoids the happy-dom binding-first parse drop);
+   * under prefers-reduced-motion the shared animation kill freezes it. */
+  private renderSubmitLoader(): TemplateResult | typeof nothing {
+    const loader = this.appearance?.layout?.submitLoader ?? 'spinner';
+    if (loader !== 'spinner') return nothing;
+    return html`<span class="rf-spinner" aria-hidden="true"></span>`;
   }
 
   /** Optional leading glyph on the submit button (§1.5); 'none' = no icon. */
