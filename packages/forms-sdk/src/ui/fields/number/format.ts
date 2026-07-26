@@ -53,7 +53,12 @@ export function canonicalizeNumber(raw: string, format: NumberFormat): string {
   const n = Number(ascii);
   if (!Number.isFinite(n)) return raw;
   const dp = format?.decimalPlaces;
-  return dp !== undefined ? String(Number(n.toFixed(dp))) : String(n);
+  // Round with the SAME algorithm the server uses (Math.round, round-half-up) —
+  // `toFixed` rounds negative .5 ties the other way, so display would disagree
+  // with the stored/submitted value for e.g. -2.5.
+  if (dp === undefined) return String(n);
+  const factor = 10 ** dp;
+  return String(Math.round(n * factor) / factor);
 }
 
 /** Tolerant parse for the validator: grouped input parses instead of NaN-ing. */
