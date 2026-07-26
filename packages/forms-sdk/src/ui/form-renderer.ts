@@ -1376,11 +1376,27 @@ export class RatioForm extends LitElement {
     // is required: a binding directly after a raw-text `</style>` is mis-parsed.
     return html`<style>
         ${unsafeCSS(themeVars(this.appearance))}
+        ${unsafeCSS(this.customFieldCss())}
       </style>
       <div class="rf-root">
         <div class="rf-bg"></div>
         <div class="rf-card">${this.renderHeader()}${this.renderState()}</div>
       </div>`;
+  }
+
+  /**
+   * Merchant per-field custom CSS. Already sanitized + field-scoped by the
+   * server (see shared `sanitize-field-css`), so each rule is prefixed with its
+   * `[data-field="<key>"]` wrapper and carries no url()/@import/position:fixed/
+   * host selectors — it can only reach its own field's subtree inside the shadow.
+   * Emitted as a string into the theme <style> block (a second bound element
+   * right after `</style>` trips Lit's happy-dom raw-text parse).
+   */
+  private customFieldCss(): string {
+    return (this.schema?.schema ?? [])
+      .map((f) => (f as { customCss?: string }).customCss)
+      .filter((c): c is string => Boolean(c))
+      .join('\n');
   }
 
   /**
