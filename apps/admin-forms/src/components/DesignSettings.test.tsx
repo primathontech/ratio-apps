@@ -98,13 +98,16 @@ describe('DesignSettings', () => {
     const teal = FORM_APPEARANCE_PRESETS.find((p) => p.id === 'teal');
     if (!teal) throw new Error('teal preset missing');
     fireEvent.click(screen.getByLabelText('Apply Teal preset'));
+    // Wholesale replace of the style sections (so an optional token the preset
+    // omits is dropped, not merged); content assets survive from the current form.
     expect(dispatch).toHaveBeenCalledWith({
-      type: 'updateAppearance',
-      patch: {
-        colors: teal.appearance.colors,
-        typography: teal.appearance.typography,
-        layout: teal.appearance.layout,
-        background: teal.appearance.background,
+      type: 'replaceAppearance',
+      appearance: {
+        ...teal.appearance,
+        logo: DEFAULT_APPEARANCE.logo,
+        cover: DEFAULT_APPEARANCE.cover,
+        branding: DEFAULT_APPEARANCE.branding,
+        endings: DEFAULT_APPEARANCE.endings,
       },
     });
   });
@@ -427,10 +430,11 @@ describe('DesignSettings', () => {
     const json = JSON.stringify({ ratioFormsPreset: 1, appearance: DEFAULT_APPEARANCE });
     fireEvent.change(screen.getByLabelText('Import preset JSON'), { target: { value: json } });
     fireEvent.click(screen.getByText('Import design'));
+    // Full wholesale replace of the entire appearance (every section).
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'updateAppearance',
-        patch: expect.objectContaining({ colors: DEFAULT_APPEARANCE.colors }),
+        type: 'replaceAppearance',
+        appearance: expect.objectContaining({ colors: DEFAULT_APPEARANCE.colors }),
       }),
     );
   });
