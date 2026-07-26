@@ -14,6 +14,8 @@ type FontFamily = FormAppearance['typography']['fontFamily'];
 type ButtonSize = FormAppearance['layout']['buttonSize'];
 type InputSize = FormAppearance['layout']['inputSize'];
 type BackgroundConfig = FormAppearance['background'];
+// NonNullable: logo is an optional appearance group, so narrow to its object.
+type LogoSize = NonNullable<NonNullable<FormAppearance['logo']>['size']>;
 // NonNullable: the optional §1.2/§1.8 enums narrow to their member tuples.
 type TypeScale = NonNullable<FormAppearance['typography']['scaleRatio']>;
 type MotionSpeed = NonNullable<FormAppearance['layout']['motionSpeed']>;
@@ -147,6 +149,14 @@ const INPUT_SIZE: Record<InputSize, number> = {
   sm: 34,
   md: 40,
   lg: 48,
+};
+
+// Branding (Batch 6) — logo display size → its max-height cap (px). 'md' is the
+// default and reproduces today's fixed 56px logo cap exactly.
+const LOGO_MAX_HEIGHT: Record<LogoSize, number> = {
+  sm: 40,
+  md: 56,
+  lg: 80,
 };
 
 /**
@@ -307,6 +317,19 @@ export function themeVars(appearance?: FormsThemeInput): string {
   if (imgGray > 0) bgFilterParts.push(`grayscale(${imgGray})`);
   const bgFilter = bgFilterParts.length > 0 ? bgFilterParts.join(' ') : 'none';
 
+  // Batch 6 branding — logo/cover dimensions + filters, all from an enum→px map
+  // or a bounded number. Defaults reproduce today's fixed 56px logo cap and
+  // 180px cover cap with no cover blur; the cover overlay opacity default is 0.
+  const logo = appearance?.logo;
+  const cover = appearance?.cover;
+  const logoMaxH = logo?.size ? LOGO_MAX_HEIGHT[logo.size] : 56;
+  const coverMaxH = cover?.height ?? 180;
+  const coverBlur = cover?.blur ?? 0;
+  const coverFilter = coverBlur > 0 ? `blur(${coverBlur}px)` : 'none';
+  // Overlay opacity feeds a pure rgba() layer painted by the SDK's ::after — a
+  // bounded number, never merchant CSS. 0 (default) leaves the cover bare.
+  const coverOverlay = cover?.overlay ?? 0;
+
   return (
     `:host { ` +
     `--wz-primary: ${primary}; ` +
@@ -395,6 +418,12 @@ export function themeVars(appearance?: FormsThemeInput): string {
     `--wz-bg-filter: ${bgFilter}; ` +
     // §3 — block padding around the card; 0 unless a backdrop paints.
     `--wz-page-pad: ${pagePad}; ` +
+    // Batch 6 branding — logo max-height, cover max-height/overlay/blur. Every
+    // value is an enum→px lookup or a bounded number; defaults reproduce today.
+    `--wz-logo-max-h: ${logoMaxH}px; ` +
+    `--wz-cover-max-h: ${coverMaxH}px; ` +
+    `--wz-cover-overlay: rgba(0, 0, 0, ${coverOverlay}); ` +
+    `--wz-cover-filter: ${coverFilter}; ` +
     `}`
   );
 }

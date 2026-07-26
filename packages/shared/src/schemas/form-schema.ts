@@ -278,6 +278,28 @@ export type FormGradientDir = (typeof FORM_GRADIENT_DIRS)[number];
 export const FORM_BG_IMAGE_FITS = ['cover', 'contain', 'repeat'] as const;
 export type FormBgImageFit = (typeof FORM_BG_IMAGE_FITS)[number];
 
+// ── Ending states (Batch 6) ────────────────────────────────────
+// Curated end-panel glyph. A fixed inline-SVG map in the SDK is keyed by this
+// enum (never a URL), so nothing dynamic reaches the panel. 'check' is today's
+// success glyph; 'none' hides the icon.
+export const FORM_ENDING_ICONS = ['none', 'check', 'info', 'warning', 'lock', 'clock'] as const;
+export type FormEndingIcon = (typeof FORM_ENDING_ICONS)[number];
+
+// The end screens that carry structured copy. 'success' is the post-submit
+// confirmation; closed/unavailable/error mirror the SDK's existing Status
+// screens. 'expired' is reserved for a scheduled/time-boxed form — authorable
+// now, wired once a backend "expired" reason flag exists (catalog E11).
+export const FORM_ENDING_STATES = ['success', 'closed', 'expired', 'unavailable', 'error'] as const;
+export type FormEndingState = (typeof FORM_ENDING_STATES)[number];
+
+// ── Branding (Batch 6) ─────────────────────────────────────────
+// Logo display size — a fixed enum→max-height map in the SDK/theme. 'md' = today's 56px.
+export const FORM_LOGO_SIZES = ['sm', 'md', 'lg'] as const;
+export type FormLogoSize = (typeof FORM_LOGO_SIZES)[number];
+// Logo horizontal placement in the header. 'left' = today (block default).
+export const FORM_LOGO_ALIGNS = ['left', 'center', 'right'] as const;
+export type FormLogoAlign = (typeof FORM_LOGO_ALIGNS)[number];
+
 const appearanceColorsSchema = z
   .object({
     primary: hexColor.default('#0fb3a9'), // submit bg  (today's --wz-primary)
@@ -379,10 +401,65 @@ const appearanceLayoutSchema = z
   })
   .prefault({});
 
-// Logo / cover images — optional brand assets. Only the https URL is stored;
-// no dimensions or CSS, keeping the injection surface at zero (§5).
-const appearanceLogoSchema = z.object({ url: httpsAssetUrl });
-const appearanceCoverSchema = z.object({ url: httpsAssetUrl });
+// Logo / cover images — optional brand assets (Batch 6 branding). Only https
+// urls, enum sizes, and bounded numbers are stored; the SDK/theme composes every
+// dimension, filter, and overlay, so the injection surface stays at zero (§5).
+// `alt` is plain text (Lit escapes it into the alt attribute). Every dimension
+// field is optional with a SDK-side fallback to today's value, so a logo/cover
+// that predates Batch 6 (just `{ url }`) renders exactly as before.
+const appearanceLogoSchema = z.object({
+  url: httpsAssetUrl,
+  size: z.enum(FORM_LOGO_SIZES).optional(), // absent ⇒ 'md' (today's 56px cap)
+  align: z.enum(FORM_LOGO_ALIGNS).optional(), // absent ⇒ 'left' (today)
+  alt: z.string().max(200).optional(), // accessible name; absent/'' ⇒ decorative
+});
+const appearanceCoverSchema = z.object({
+  url: httpsAssetUrl,
+  height: z.number().int().min(80).max(480).optional(), // px cap; absent ⇒ 180 (today)
+  overlay: z.number().min(0).max(0.8).optional(), // dark scrim opacity; absent ⇒ 0 (today)
+  blur: z.number().min(0).max(20).optional(), // px; absent ⇒ 0 (today)
+  alt: z.string().max(200).optional(),
+});
+
+// ── Ending states (Batch 6, catalog E1–E4) ─────────────────────
+// One themed end panel — icon + heading + body, all optional so an unset field
+// falls back to the SDK's built-in copy (and, for success, the top-level
+// successMessage). Plain text only (Lit escapes it); the icon is an enum keyed
+// into the SDK's curated inline-SVG map.
+const endingPanelSchema = z.object({
+  icon: z.enum(FORM_ENDING_ICONS).optional(),
+  heading: z.string().max(120).optional(),
+  body: z.string().max(600).optional(),
+});
+
+// The structured end states. OPTIONAL at the appearance root: absent ⇒ the SDK
+// renders today's exact status screens (byte-identical). Present ⇒ per-state
+// copy overrides plus redirect timing. The top-level successMessage/redirectUrl
+// remain the base of the back-compat chain (endings.success.body ??
+// successMessage ?? default). Every field is optional with a SDK-side fallback,
+// so a partial `endings` object (only one state authored) is valid and inert
+// for the rest.
+const appearanceEndingsSchema = z.object({
+  success: endingPanelSchema.optional(),
+  closed: endingPanelSchema.optional(),
+  expired: endingPanelSchema.optional(),
+  unavailable: endingPanelSchema.optional(),
+  error: endingPanelSchema.optional(),
+  // Delay before following the form's redirectUrl (whole seconds); absent ⇒ the
+  // SDK's 1500ms constant, so an un-set form redirects exactly as today.
+  redirectDelaySeconds: z.number().int().min(0).max(30).optional(),
+  // Show a live "Redirecting in Ns…" countdown on the success panel; absent ⇒ off (today).
+  showRedirectCountdown: z.boolean().optional(),
+});
+
+// Form-wide branding toggles (Batch 6, catalog B4). showPoweredBy adds a small
+// static "Powered by" footer under the card to a hardcoded target; absent ⇒ off
+// (today, no footer). Prefaulted so the SDK reads a defined value.
+const appearanceBrandingSchema = z
+  .object({
+    showPoweredBy: z.boolean().default(false),
+  })
+  .prefault({});
 
 // §1.1 — the styled area *around* the card. Only hex/enum/https-url/bounded
 // numbers are stored; themeVars() composes a pure CSS gradient function from
@@ -417,6 +494,11 @@ export const appearanceSchema = z
     background: appearanceBackgroundSchema,
     logo: appearanceLogoSchema.optional(),
     cover: appearanceCoverSchema.optional(),
+    // Batch 6 — structured end states + branding. `endings` is optional so an
+    // un-set form is byte-identical to today; `branding` is prefaulted to a
+    // defined { showPoweredBy: false }.
+    endings: appearanceEndingsSchema.optional(),
+    branding: appearanceBrandingSchema,
   })
   .strict(); // reject unknown keys — same posture as the field schemas
 

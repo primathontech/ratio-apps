@@ -855,6 +855,157 @@ describe('ratio-form themed ending + redirect', () => {
   });
 });
 
+describe('ratio-form Batch 6 — structured endings', () => {
+  it('renders a structured success panel (icon + heading + body) from endings.success', async () => {
+    const withEnding = kitchenSinkSchema({
+      appearance: appearanceWith({
+        endings: { success: { icon: 'check', heading: 'All set!', body: 'We got your details.' } },
+      }),
+    });
+    const { el } = await mount({ schema: { status: 200, body: { data: withEnding } } });
+    setInput(el, 'full_name', 'Asha Rao');
+    setInput(el, 'email', 'asha@example.com');
+    await submit(el);
+    const panel = shadow(el).querySelector('[data-state="success"]');
+    expect(panel?.querySelector('.rf-status-heading')?.textContent).toContain('All set!');
+    expect(panel?.querySelector('.rf-status-msg')?.textContent).toContain('We got your details.');
+    expect(panel?.querySelector('.rf-status-icon')).toBeTruthy();
+  });
+
+  it('chains an authored success panel back to successMessage when the body is unset', async () => {
+    const withEnding = kitchenSinkSchema({
+      successMessage: 'Legacy thanks',
+      appearance: appearanceWith({ endings: { success: { heading: 'Done' } } }),
+    });
+    const { el } = await mount({ schema: { status: 200, body: { data: withEnding } } });
+    setInput(el, 'full_name', 'Asha Rao');
+    setInput(el, 'email', 'asha@example.com');
+    await submit(el);
+    const panel = shadow(el).querySelector('[data-state="success"]');
+    expect(panel?.querySelector('.rf-status-msg')?.textContent).toContain('Legacy thanks');
+  });
+
+  it('leaves the success panel unchanged (no heading) when endings is absent', async () => {
+    const { el } = await mount();
+    setInput(el, 'full_name', 'Asha Rao');
+    setInput(el, 'email', 'asha@example.com');
+    await submit(el);
+    const panel = shadow(el).querySelector('[data-state="success"]');
+    expect(panel?.querySelector('.rf-status-heading')).toBeNull();
+    expect(panel?.querySelector('.rf-status-msg')?.textContent).toContain('Thanks — got it!');
+  });
+
+  it('honors endings.redirectDelaySeconds for the redirect delay', async () => {
+    const assign = vi.fn();
+    const original = window.location;
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...original, assign },
+    });
+    // Record every scheduled delay — flush()'s own setTimeout(0) calls run
+    // after the redirect is scheduled, so assert the redirect delay is present.
+    const delays: number[] = [];
+    const timeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+      cb: () => void,
+      ms?: number,
+    ) => {
+      delays.push(ms ?? 0);
+      cb();
+      return 0;
+    }) as typeof setTimeout);
+    try {
+      const withDelay = kitchenSinkSchema({
+        redirectUrl: 'https://example.com/thanks',
+        appearance: appearanceWith({ endings: { redirectDelaySeconds: 5 } }),
+      });
+      const { el } = await mount({ schema: { status: 200, body: { data: withDelay } } });
+      setInput(el, 'full_name', 'Asha Rao');
+      setInput(el, 'email', 'asha@example.com');
+      await submit(el);
+      expect(assign).toHaveBeenCalledWith('https://example.com/thanks');
+      expect(delays).toContain(5000);
+    } finally {
+      timeoutSpy.mockRestore();
+      Object.defineProperty(window, 'location', { configurable: true, value: original });
+    }
+  });
+
+  it('shows a redirect countdown on the success panel when enabled', async () => {
+    const assign = vi.fn();
+    const original = window.location;
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...original, assign },
+    });
+    // Timeout fires immediately (no real delay); interval never ticks, so the
+    // initial countdown value stays put for the assertion.
+    const timeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((cb: () => void) => {
+      cb();
+      return 0;
+    }) as typeof setTimeout);
+    const intervalSpy = vi
+      .spyOn(globalThis, 'setInterval')
+      .mockImplementation((() => 0) as unknown as typeof setInterval);
+    try {
+      const withCountdown = kitchenSinkSchema({
+        redirectUrl: 'https://example.com/thanks',
+        appearance: appearanceWith({
+          endings: { redirectDelaySeconds: 3, showRedirectCountdown: true },
+        }),
+      });
+      const { el } = await mount({ schema: { status: 200, body: { data: withCountdown } } });
+      setInput(el, 'full_name', 'Asha Rao');
+      setInput(el, 'email', 'asha@example.com');
+      await submit(el);
+      expect(shadow(el).querySelector('.rf-countdown')?.textContent).toContain('3');
+    } finally {
+      timeoutSpy.mockRestore();
+      intervalSpy.mockRestore();
+      Object.defineProperty(window, 'location', { configurable: true, value: original });
+    }
+  });
+});
+
+describe('ratio-form Batch 6 — branding', () => {
+  it('renders the logo with its size/align/alt from branding', async () => {
+    const withLogo = kitchenSinkSchema({
+      appearance: appearanceWith({
+        logo: { url: 'https://cdn.example.com/logo.png', size: 'lg', align: 'center', alt: 'Acme' },
+      }),
+    });
+    const { el } = await mount({ schema: { status: 200, body: { data: withLogo } } });
+    const logo = shadow(el).querySelector('img.rf-logo') as HTMLImageElement;
+    expect(logo.getAttribute('alt')).toBe('Acme');
+    expect(logo.getAttribute('style')).toContain('margin-left:auto');
+    expect(logo.getAttribute('style')).toContain('margin-right:auto');
+  });
+
+  it('wraps the cover image so overlay/blur/height can apply', async () => {
+    const withCover = kitchenSinkSchema({
+      appearance: appearanceWith({
+        cover: { url: 'https://cdn.example.com/cover.jpg', height: 240, overlay: 0.4, blur: 6 },
+      }),
+    });
+    const { el } = await mount({ schema: { status: 200, body: { data: withCover } } });
+    const root = shadow(el);
+    expect(root.querySelector('.rf-cover-wrap')).toBeTruthy();
+    expect(root.querySelector('.rf-cover-wrap img.rf-cover')?.getAttribute('src')).toBe(
+      'https://cdn.example.com/cover.jpg',
+    );
+  });
+
+  it('renders the powered-by footer only when branding.showPoweredBy is on', async () => {
+    const off = await mount();
+    expect(shadow(off.el).querySelector('.rf-powered')).toBeNull();
+    const on = kitchenSinkSchema({
+      appearance: appearanceWith({ branding: { showPoweredBy: true } }),
+    });
+    const { el } = await mount({ schema: { status: 200, body: { data: on } } });
+    expect(shadow(el).querySelector('.rf-powered')).toBeTruthy();
+    expect(shadow(el).querySelector('.rf-powered a')?.getAttribute('href')).toContain('https://');
+  });
+});
+
 /** Fixture exercising the P1 field types (url, rating, hidden). */
 function p1FieldsSchema(overrides: Partial<PublicFormSchema> = {}): PublicFormSchema {
   return {
@@ -1111,6 +1262,31 @@ describe('ratio-form preview mode', () => {
   it('exports the tag constant matching the registered element', () => {
     expect(RATIO_FORM_TAG).toBe('ratio-form');
     expect(customElements.get(RATIO_FORM_TAG)).toBeTruthy();
+  });
+
+  it('renders structured closed/error panels from endings copy (Batch 6)', async () => {
+    const appearance = appearanceWith({
+      endings: {
+        closed: { icon: 'lock', heading: 'Closed', body: 'Come back later.' },
+        error: { heading: 'Oops', body: 'Please retry.' },
+      },
+    });
+    const closed = await mountPreview({ appearance, state: 'closed' });
+    const cp = shadow(closed.el).querySelector('[data-state="closed"]');
+    expect(cp?.querySelector('.rf-status-heading')?.textContent).toContain('Closed');
+    expect(cp?.querySelector('.rf-status-msg')?.textContent).toContain('Come back later.');
+    expect(cp?.querySelector('.rf-status-icon')).toBeTruthy();
+    const err = await mountPreview({ appearance, state: 'error' });
+    expect(
+      shadow(err.el).querySelector('[data-state="error"] .rf-status-heading')?.textContent,
+    ).toContain('Oops');
+  });
+
+  it('falls back to today’s closed text when endings is absent (Batch 6)', async () => {
+    const closed = await mountPreview({ state: 'closed' });
+    const cp = shadow(closed.el).querySelector('[data-state="closed"]');
+    expect(cp?.querySelector('.rf-status-heading')).toBeNull();
+    expect(cp?.textContent).toContain('This form is closed');
   });
 });
 
@@ -2177,7 +2353,7 @@ describe('ratio-form per-field custom CSS', () => {
     const withoutCss = await mount({
       schema: { status: 200, body: { data: kitchenSinkSchema() } },
     });
-    const styleText = (r: { el: HTMLElement }) =>
+    const styleText = (r: { el: RatioForm }) =>
       Array.from(shadow(r.el).querySelectorAll('style'))
         .map((s) => s.textContent ?? '')
         .join('\n');

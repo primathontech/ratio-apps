@@ -24,6 +24,8 @@ import {
   FORM_CONTENT_ALIGNS,
   FORM_DENSITIES,
   FORM_EASINGS,
+  FORM_ENDING_ICONS,
+  FORM_ENDING_STATES,
   FORM_FOCUS_STYLES,
   FORM_FONT_FAMILIES,
   FORM_GRADIENT_DIRS,
@@ -31,17 +33,26 @@ import {
   FORM_INPUT_VARIANTS,
   FORM_LABEL_POSITIONS,
   FORM_LAYOUT_MODES,
+  FORM_LOGO_ALIGNS,
+  FORM_LOGO_SIZES,
   FORM_MOTION_SPEEDS,
   FORM_REQUIRED_MARKS,
   FORM_SHADOWS,
   FORM_SUBMIT_LOADERS,
   FORM_TYPE_SCALES,
   type FormAppearance,
+  type FormEndingState,
 } from '@shared/schemas/form-schema';
-import type { Dispatch } from 'react';
+import { type Dispatch, useState } from 'react';
 import { type AppearancePatch, type BuilderAction, DEFAULT_APPEARANCE } from '@/lib/builder-state';
 import { bestTextOn, type ContrastState, gradeContrast, scrimmed } from '@/lib/contrast';
-import { type AppearancePreset, FORM_APPEARANCE_PRESETS } from '@/lib/presets';
+import {
+  type AppearancePreset,
+  exportPresetJson,
+  FORM_APPEARANCE_PRESETS,
+  importPresetJson,
+  PRESET_CATEGORIES,
+} from '@/lib/presets';
 
 /** The always-present color tokens (the optional Batch-5 semantic colors —
  * success/link/placeholder — are edited separately). */
@@ -138,6 +149,22 @@ const TYPE_SCALE_LABELS: Record<(typeof FORM_TYPE_SCALES)[number], string> = {
   'perfect-fourth': 'Perfect fourth',
 };
 
+/** Logo-size labels (Batch 6) — spelled out to avoid colliding with segments. */
+const LOGO_SIZE_LABELS: Record<(typeof FORM_LOGO_SIZES)[number], string> = {
+  sm: 'Small',
+  md: 'Medium',
+  lg: 'Large',
+};
+
+/** End-state labels (Batch 6) shown as the copy-editor sub-headings. */
+const ENDING_STATE_LABELS: Record<FormEndingState, string> = {
+  success: 'Success',
+  closed: 'Closed',
+  expired: 'Expired',
+  unavailable: 'Unavailable',
+  error: 'Error',
+};
+
 /** `fix` = token to flip black/white (text pairs); `pageAware` = resolve scrim/gradient/image. */
 interface ContrastPair {
   fg: ColorToken;
@@ -183,8 +210,8 @@ export function DesignSettings({ appearance, dispatch }: Props) {
   const patch = (p: AppearancePatch) => dispatch({ type: 'updateAppearance', patch: p });
   const { colors, typography, layout, background } = appearance;
 
-  // A preset swaps colors/typography/layout/background wholesale; logo/cover
-  // are left as-is.
+  // A preset swaps colors/typography/layout/background wholesale; logo/cover and
+  // the Batch 6 branding/endings are content, so they survive (catalog note).
   const applyPreset = (p: AppearancePreset) =>
     patch({
       colors: p.appearance.colors,
@@ -192,6 +219,30 @@ export function DesignSettings({ appearance, dispatch }: Props) {
       layout: p.appearance.layout,
       background: p.appearance.background,
     });
+
+  // Import replaces the appearance wholesale (every section, including brand
+  // assets/branding/endings) — the imported object is a full, schema-valid
+  // FormAppearance.
+  const applyImported = (a: FormAppearance) =>
+    patch({
+      colors: a.colors,
+      typography: a.typography,
+      layout: a.layout,
+      background: a.background,
+      logo: a.logo,
+      cover: a.cover,
+      branding: a.branding,
+      endings: a.endings,
+    });
+
+  // Batch 6 — merge one or more keys into the endings object (composing the
+  // object when it's the first authored field). All endings fields are optional.
+  const patchEndings = (p: Partial<NonNullable<FormAppearance['endings']>>) =>
+    patch({ endings: { ...appearance.endings, ...p } });
+  // Replace one end state's whole panel (the editor composes it). The computed
+  // key is cast back to the partial endings shape — the runtime value is correct.
+  const setEndingPanel = (state: FormEndingState, panel: EndingPanel) =>
+    patchEndings({ [state]: panel } as Partial<NonNullable<FormAppearance['endings']>>);
 
   // Reset restores the built-in defaults for the same four sections a preset
   // touches; brand assets (logo/cover) are content, so they stay put.
@@ -206,6 +257,7 @@ export function DesignSettings({ appearance, dispatch }: Props) {
   return (
     <Card title="Design" className="design-settings">
       <PresetRow onApply={applyPreset} onReset={resetToDefault} />
+      <PresetTransfer appearance={appearance} onImport={applyImported} />
       <Collapse
         accordion
         defaultActiveKey={['colors']}
@@ -957,14 +1009,172 @@ export function DesignSettings({ appearance, dispatch }: Props) {
                   label="Logo URL (https)"
                   ariaLabel="Logo URL"
                   value={appearance.logo?.url ?? ''}
-                  onChange={(url) => patch({ logo: url ? { url } : undefined })}
+                  // Setting a URL keeps the existing size/align/alt; clearing it
+                  // drops the whole logo. Sub-controls below only show with a URL.
+                  onChange={(url) => patch({ logo: url ? { ...appearance.logo, url } : undefined })}
                 />
+                {appearance.logo?.url && (
+                  <>
+                    <Row label="Logo size">
+                      <Segmented
+                        aria-label="Logo size"
+                        value={appearance.logo.size ?? 'md'}
+                        onChange={(value) =>
+                          appearance.logo &&
+                          patch({
+                            logo: {
+                              ...appearance.logo,
+                              size: value as (typeof FORM_LOGO_SIZES)[number],
+                            },
+                          })
+                        }
+                        options={FORM_LOGO_SIZES.map((s) => ({
+                          value: s,
+                          label: LOGO_SIZE_LABELS[s],
+                        }))}
+                      />
+                    </Row>
+                    <Row label="Logo alignment">
+                      <Segmented
+                        aria-label="Logo alignment"
+                        value={appearance.logo.align ?? 'left'}
+                        onChange={(value) =>
+                          appearance.logo &&
+                          patch({
+                            logo: {
+                              ...appearance.logo,
+                              align: value as 'left' | 'center' | 'right',
+                            },
+                          })
+                        }
+                        options={FORM_LOGO_ALIGNS.map((a) => ({ value: a, label: titleCase(a) }))}
+                      />
+                    </Row>
+                    <Row label="Logo alt text">
+                      <Input
+                        aria-label="Logo alt text"
+                        placeholder="Describe the logo (optional)"
+                        value={appearance.logo.alt ?? ''}
+                        style={{ width: '100%' }}
+                        onChange={(e) =>
+                          appearance.logo &&
+                          patch({
+                            logo: { ...appearance.logo, alt: e.target.value || undefined },
+                          })
+                        }
+                      />
+                    </Row>
+                  </>
+                )}
                 <AssetInput
                   label="Cover image URL (https)"
                   ariaLabel="Cover URL"
                   value={appearance.cover?.url ?? ''}
-                  onChange={(url) => patch({ cover: url ? { url } : undefined })}
+                  onChange={(url) =>
+                    patch({ cover: url ? { ...appearance.cover, url } : undefined })
+                  }
                 />
+                {appearance.cover?.url && (
+                  <>
+                    <Row label={`Cover height (${appearance.cover.height ?? 180}px)`}>
+                      <Slider
+                        aria-label="Cover height"
+                        min={80}
+                        max={480}
+                        value={appearance.cover.height ?? 180}
+                        onChange={(value) =>
+                          appearance.cover &&
+                          patch({ cover: { ...appearance.cover, height: value as number } })
+                        }
+                      />
+                    </Row>
+                    <Row label={`Cover overlay (${(appearance.cover.overlay ?? 0).toFixed(2)})`}>
+                      <Slider
+                        aria-label="Cover overlay"
+                        min={0}
+                        max={0.8}
+                        step={0.05}
+                        value={appearance.cover.overlay ?? 0}
+                        onChange={(value) =>
+                          appearance.cover &&
+                          patch({ cover: { ...appearance.cover, overlay: value as number } })
+                        }
+                      />
+                    </Row>
+                    <Row label={`Cover blur (${appearance.cover.blur ?? 0}px)`}>
+                      <Slider
+                        aria-label="Cover blur"
+                        min={0}
+                        max={20}
+                        value={appearance.cover.blur ?? 0}
+                        onChange={(value) =>
+                          appearance.cover &&
+                          patch({ cover: { ...appearance.cover, blur: value as number } })
+                        }
+                      />
+                    </Row>
+                    <Row label="Cover alt text">
+                      <Input
+                        aria-label="Cover alt text"
+                        placeholder="Describe the cover image (optional)"
+                        value={appearance.cover.alt ?? ''}
+                        style={{ width: '100%' }}
+                        onChange={(e) =>
+                          appearance.cover &&
+                          patch({
+                            cover: { ...appearance.cover, alt: e.target.value || undefined },
+                          })
+                        }
+                      />
+                    </Row>
+                  </>
+                )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Switch
+                    aria-label="Show powered by"
+                    checked={appearance.branding.showPoweredBy}
+                    onChange={(checked) => patch({ branding: { showPoweredBy: checked } })}
+                  />
+                  <Typography.Text>Show "Powered by" footer</Typography.Text>
+                </div>
+              </div>
+            ),
+          },
+          {
+            key: 'endings',
+            forceRender: true,
+            label: 'Ending states',
+            children: (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <Row label={`Redirect delay (${appearance.endings?.redirectDelaySeconds ?? 2}s)`}>
+                  <Slider
+                    aria-label="Redirect delay"
+                    min={0}
+                    max={30}
+                    value={appearance.endings?.redirectDelaySeconds ?? 2}
+                    onChange={(value) => patchEndings({ redirectDelaySeconds: value as number })}
+                  />
+                </Row>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Switch
+                    aria-label="Show redirect countdown"
+                    checked={appearance.endings?.showRedirectCountdown ?? false}
+                    onChange={(checked) => patchEndings({ showRedirectCountdown: checked })}
+                  />
+                  <Typography.Text>Show redirect countdown</Typography.Text>
+                </div>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  Per-state copy — blank fields fall back to the built-in text (success also chains
+                  to the form's success message).
+                </Typography.Text>
+                {FORM_ENDING_STATES.map((state) => (
+                  <EndingStateEditor
+                    key={state}
+                    state={state}
+                    panel={appearance.endings?.[state]}
+                    onChange={(panel) => setEndingPanel(state, panel)}
+                  />
+                ))}
               </div>
             ),
           },
@@ -1005,37 +1215,211 @@ function PresetRow({
           Reset to default
         </Button>
       </div>
-      <div
-        style={{
-          display: 'grid',
-          // Even columns that fill the panel width (flex-wrap left-packed them).
-          gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))',
-          gap: 8,
-        }}
-      >
-        {FORM_APPEARANCE_PRESETS.map((preset) => (
-          <button
-            key={preset.id}
-            type="button"
-            aria-label={`Apply ${preset.name} preset`}
-            onClick={() => onApply(preset)}
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 6,
-              padding: 6,
-              border: '1px solid #e5e5e5',
-              borderRadius: 8,
-              background: '#fff',
-              cursor: 'pointer',
-            }}
-          >
-            <PresetThumbnail id={preset.id} appearance={preset.appearance} />
-            <span style={{ fontSize: 12 }}>{preset.name}</span>
-          </button>
-        ))}
+      {/* Batch 6 — presets are grouped under their category heading, in the
+          declared category order; empty categories are skipped. */}
+      {PRESET_CATEGORIES.map((category) => {
+        const inCategory = FORM_APPEARANCE_PRESETS.filter((p) => p.category === category);
+        if (inCategory.length === 0) return null;
+        return (
+          <div key={category} style={{ marginBottom: 10 }}>
+            <Typography.Text
+              type="secondary"
+              style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4 }}
+            >
+              {category}
+            </Typography.Text>
+            <div
+              style={{
+                display: 'grid',
+                // Even columns that fill the panel width (flex-wrap left-packed them).
+                gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))',
+                gap: 8,
+                marginTop: 4,
+              }}
+            >
+              {inCategory.map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  aria-label={`Apply ${preset.name} preset`}
+                  onClick={() => onApply(preset)}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: 6,
+                    border: '1px solid #e5e5e5',
+                    borderRadius: 8,
+                    background: '#fff',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <PresetThumbnail id={preset.id} appearance={preset.appearance} />
+                  <span style={{ fontSize: 12 }}>{preset.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Admin-only preset JSON export/import (Batch 6). Export serializes the current
+ * appearance into a textarea (and offers a download); import validates pasted
+ * JSON through the SAME appearanceSchema before applying, so nothing unvalidated
+ * ever reaches the stored appearance. Zero renderer risk — it only produces a
+ * schema-valid FormAppearance the builder already knows how to render.
+ */
+function PresetTransfer({
+  appearance,
+  onImport,
+}: {
+  appearance: FormAppearance;
+  onImport: (a: FormAppearance) => void;
+}) {
+  const [exported, setExported] = useState('');
+  const [importText, setImportText] = useState('');
+  const [importError, setImportError] = useState('');
+
+  const handleExport = () => {
+    const json = exportPresetJson(appearance);
+    setExported(json);
+    // Best-effort download; the textarea is the reliable path (and what tests read).
+    try {
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'ratio-form-preset.json';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // Non-browser/test environments without Blob/URL — the textarea still works.
+    }
+  };
+
+  const handleImport = () => {
+    const result = importPresetJson(importText);
+    if (!result.ok) {
+      setImportError(result.error);
+      return;
+    }
+    setImportError('');
+    onImport(result.appearance);
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Button size="small" onClick={handleExport}>
+          Export design
+        </Button>
+        <Button size="small" onClick={handleImport}>
+          Import design
+        </Button>
       </div>
+      {exported && (
+        <textarea
+          aria-label="Exported preset JSON"
+          data-testid="preset-export-json"
+          readOnly
+          value={exported}
+          rows={4}
+          style={{ width: '100%', fontFamily: 'monospace', fontSize: 11 }}
+        />
+      )}
+      <textarea
+        aria-label="Import preset JSON"
+        placeholder="Paste a preset JSON here, then click Import design"
+        value={importText}
+        rows={3}
+        onChange={(e) => setImportText(e.target.value)}
+        style={{ width: '100%', fontFamily: 'monospace', fontSize: 11 }}
+      />
+      {importError && (
+        <Typography.Text type="danger" style={{ fontSize: 12 }}>
+          {importError}
+        </Typography.Text>
+      )}
+    </div>
+  );
+}
+
+/** Ending-icon labels — spelled out for the Select. */
+const ENDING_ICON_LABELS: Record<(typeof FORM_ENDING_ICONS)[number], string> = {
+  none: 'None',
+  check: 'Check',
+  info: 'Info',
+  warning: 'Warning',
+  lock: 'Lock',
+  clock: 'Clock',
+};
+
+/** One end state's authored copy (icon + heading + body), all optional. */
+type EndingPanel = NonNullable<NonNullable<FormAppearance['endings']>[FormEndingState]>;
+
+/**
+ * One end state's copy editor (Batch 6): an icon Select plus heading/body
+ * inputs. Every field is optional — a blank field falls back to the SDK's
+ * built-in text — and the whole panel is composed here, then handed up so the
+ * reducer merges it into the endings object.
+ */
+function EndingStateEditor({
+  state,
+  panel,
+  onChange,
+}: {
+  state: FormEndingState;
+  panel: EndingPanel | undefined;
+  onChange: (panel: EndingPanel) => void;
+}) {
+  const set = (p: Partial<EndingPanel>) => onChange({ ...panel, ...p });
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+        paddingTop: 8,
+        borderTop: '1px solid var(--admin-border, #ececec)',
+      }}
+    >
+      <Typography.Text strong style={{ fontSize: 13 }}>
+        {ENDING_STATE_LABELS[state]}
+      </Typography.Text>
+      <Row label="Icon">
+        <Select
+          aria-label={`${ENDING_STATE_LABELS[state]} icon`}
+          style={{ width: '100%' }}
+          allowClear
+          placeholder="Default"
+          value={panel?.icon}
+          onChange={(value) => set({ icon: value as EndingPanel['icon'] })}
+          options={FORM_ENDING_ICONS.map((i) => ({ value: i, label: ENDING_ICON_LABELS[i] }))}
+        />
+      </Row>
+      <Row label="Heading">
+        <Input
+          aria-label={`${ENDING_STATE_LABELS[state]} heading`}
+          placeholder="Optional heading"
+          value={panel?.heading ?? ''}
+          style={{ width: '100%' }}
+          onChange={(e) => set({ heading: e.target.value || undefined })}
+        />
+      </Row>
+      <Row label="Message">
+        <Input
+          aria-label={`${ENDING_STATE_LABELS[state]} message`}
+          placeholder="Optional message"
+          value={panel?.body ?? ''}
+          style={{ width: '100%' }}
+          onChange={(e) => set({ body: e.target.value || undefined })}
+        />
+      </Row>
     </div>
   );
 }

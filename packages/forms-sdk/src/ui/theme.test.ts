@@ -563,4 +563,33 @@ describe('themeVars Batch 5 (visual-payoff theming)', () => {
       '--wz-card-shadow: 0 20px 25px',
     );
   });
+
+  // ── Batch 6 branding tokens ──────────────────────────────────
+  it('defaults the logo/cover branding tokens to today’s values', () => {
+    const css = themeVars(appearance());
+    expect(css).toContain('--wz-logo-max-h: 56px');
+    expect(css).toContain('--wz-cover-max-h: 180px');
+    expect(css).toContain('--wz-cover-overlay: rgba(0, 0, 0, 0)');
+    expect(css).toContain('--wz-cover-filter: none');
+  });
+
+  it('maps the logo size enum to its max-height (sm/md/lg)', () => {
+    expect(themeVars(appearance({ logo: { url: 'https://cdn/x.png', size: 'sm' } }))).toContain(
+      '--wz-logo-max-h: 40px',
+    );
+    expect(themeVars(appearance({ logo: { url: 'https://cdn/x.png', size: 'lg' } }))).toContain(
+      '--wz-logo-max-h: 80px',
+    );
+  });
+
+  it('composes cover height, overlay opacity, and blur from bounded numbers', () => {
+    const css = themeVars(
+      appearance({
+        cover: { url: 'https://cdn/c.jpg', height: 240, overlay: 0.4, blur: 6 },
+      }),
+    );
+    expect(css).toContain('--wz-cover-max-h: 240px');
+    expect(css).toContain('--wz-cover-overlay: rgba(0, 0, 0, 0.4)');
+    expect(css).toContain('--wz-cover-filter: blur(6px)');
+  });
 });

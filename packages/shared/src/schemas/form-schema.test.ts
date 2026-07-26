@@ -772,6 +772,85 @@ describe('appearanceSchema (theme contract)', () => {
     expect(appearanceSchema.safeParse({ colors: { success: 'green' } }).success).toBe(false);
   });
 
+  // ── Batch 6 (structured features) — every new key is additive: endings is
+  // optional (absent ⇒ byte-identical today), branding defaults poweredBy off,
+  // and the logo/cover dimension fields are optional with SDK fallbacks.
+  it('defaults the Batch-6 keys to today’s values (no visual change)', () => {
+    const p = appearanceSchema.parse({});
+    // Endings absent ⇒ today's exact status screens.
+    expect(p.endings).toBeUndefined();
+    // Branding is prefaulted to a defined, off toggle.
+    expect(p.branding.showPoweredBy).toBe(false);
+    // A logo/cover that predates Batch 6 (just `{ url }`) keeps optional dims.
+    const withAssets = appearanceSchema.parse({
+      logo: { url: 'https://cdn.example/l.png' },
+      cover: { url: 'https://cdn.example/c.jpg' },
+    });
+    expect(withAssets.logo?.size).toBeUndefined();
+    expect(withAssets.logo?.align).toBeUndefined();
+    expect(withAssets.logo?.alt).toBeUndefined();
+    expect(withAssets.cover?.height).toBeUndefined();
+    expect(withAssets.cover?.overlay).toBeUndefined();
+    expect(withAssets.cover?.blur).toBeUndefined();
+  });
+
+  it('accepts structured endings copy + redirect timing and rejects bad values', () => {
+    const ok = appearanceSchema.parse({
+      endings: {
+        success: { icon: 'check', heading: 'All set', body: 'Thanks!' },
+        closed: { icon: 'lock', body: 'Closed for now.' },
+        expired: { heading: 'Expired' },
+        unavailable: { icon: 'info' },
+        error: { icon: 'warning', heading: 'Oops' },
+        redirectDelaySeconds: 5,
+        showRedirectCountdown: true,
+      },
+    });
+    expect(ok.endings?.success?.heading).toBe('All set');
+    expect(ok.endings?.closed?.icon).toBe('lock');
+    expect(ok.endings?.redirectDelaySeconds).toBe(5);
+    expect(ok.endings?.showRedirectCountdown).toBe(true);
+    // Unknown icon / out-of-range delay are rejected.
+    expect(appearanceSchema.safeParse({ endings: { success: { icon: 'rocket' } } }).success).toBe(
+      false,
+    );
+    expect(appearanceSchema.safeParse({ endings: { redirectDelaySeconds: 31 } }).success).toBe(
+      false,
+    );
+    expect(appearanceSchema.safeParse({ endings: { redirectDelaySeconds: -1 } }).success).toBe(
+      false,
+    );
+  });
+
+  it('accepts branding + logo/cover dimensions and rejects out-of-set/range values', () => {
+    const ok = appearanceSchema.parse({
+      branding: { showPoweredBy: true },
+      logo: { url: 'https://cdn.example/l.png', size: 'lg', align: 'center', alt: 'Acme' },
+      cover: { url: 'https://cdn.example/c.jpg', height: 240, overlay: 0.4, blur: 6, alt: 'Hero' },
+    });
+    expect(ok.branding.showPoweredBy).toBe(true);
+    expect(ok.logo?.size).toBe('lg');
+    expect(ok.logo?.align).toBe('center');
+    expect(ok.cover?.height).toBe(240);
+    expect(ok.cover?.overlay).toBe(0.4);
+    expect(ok.cover?.blur).toBe(6);
+    expect(appearanceSchema.safeParse({ logo: { url: 'https://c/x', size: 'xl' } }).success).toBe(
+      false,
+    );
+    expect(
+      appearanceSchema.safeParse({ logo: { url: 'https://c/x', align: 'justify' } }).success,
+    ).toBe(false);
+    expect(appearanceSchema.safeParse({ cover: { url: 'https://c/x', height: 40 } }).success).toBe(
+      false,
+    );
+    expect(
+      appearanceSchema.safeParse({ cover: { url: 'https://c/x', overlay: 0.9 } }).success,
+    ).toBe(false);
+    expect(appearanceSchema.safeParse({ cover: { url: 'https://c/x', blur: 21 } }).success).toBe(
+      false,
+    );
+  });
+
   it('bounds the Batch-5 numeric fine-tunes', () => {
     expect(appearanceSchema.parse({ layout: { inputPadX: 16 } }).layout.inputPadX).toBe(16);
     expect(appearanceSchema.parse({ layout: { cardPadding: 40 } }).layout.cardPadding).toBe(40);

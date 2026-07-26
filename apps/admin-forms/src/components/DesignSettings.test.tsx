@@ -336,4 +336,111 @@ describe('DesignSettings', () => {
     expect(screen.getByText(/Image brightness/)).toBeInTheDocument();
     expect(screen.getByText(/Image grayscale/)).toBeInTheDocument();
   });
+
+  // ── Batch 6 (structured features) ──────────────────────────────
+  it('groups presets under their category headings (Batch 6)', () => {
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={vi.fn()} />);
+    // Category headings ('Minimal'/'Warm' are also preset names, so assert
+    // categories whose label doesn't collide with a preset name).
+    expect(screen.getByText('Classic')).toBeInTheDocument();
+    expect(screen.getByText('Cool')).toBeInTheDocument();
+    expect(screen.getByText('Bold')).toBeInTheDocument();
+    expect(screen.getByText('Dark')).toBeInTheDocument();
+  });
+
+  it('reveals logo size/align/alt controls only once a logo URL is set (Batch 6)', () => {
+    const dispatch = vi.fn();
+    const { unmount } = renderWithProviders(
+      <DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />,
+    );
+    fireEvent.click(screen.getByText('Brand assets'));
+    expect(screen.queryByLabelText('Logo size')).not.toBeInTheDocument();
+    unmount();
+    const withLogo = {
+      ...DEFAULT_APPEARANCE,
+      logo: { url: 'https://cdn.example.com/logo.png' },
+    };
+    renderWithProviders(<DesignSettings appearance={withLogo} dispatch={dispatch} />);
+    fireEvent.click(screen.getByText('Brand assets'));
+    const sizeRow = screen.getByText('Logo size').closest('div') as HTMLElement;
+    const large = within(sizeRow).getByText('Large');
+    fireEvent.click(large.closest('label') ?? large);
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateAppearance',
+      patch: { logo: { url: 'https://cdn.example.com/logo.png', size: 'lg' } },
+    });
+  });
+
+  it('dispatches a cover alt-text change once a cover URL is set (Batch 6)', () => {
+    const dispatch = vi.fn();
+    const withCover = {
+      ...DEFAULT_APPEARANCE,
+      cover: { url: 'https://cdn.example.com/cover.jpg' },
+    };
+    renderWithProviders(<DesignSettings appearance={withCover} dispatch={dispatch} />);
+    fireEvent.click(screen.getByText('Brand assets'));
+    fireEvent.change(screen.getByLabelText('Cover alt text'), { target: { value: 'Hero' } });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateAppearance',
+      patch: { cover: { url: 'https://cdn.example.com/cover.jpg', alt: 'Hero' } },
+    });
+  });
+
+  it('toggles the "Powered by" footer (Batch 6)', () => {
+    const dispatch = vi.fn();
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />);
+    fireEvent.click(screen.getByText('Brand assets'));
+    fireEvent.click(screen.getByLabelText('Show powered by'));
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateAppearance',
+      patch: { branding: { showPoweredBy: true } },
+    });
+  });
+
+  it('authors per-state ending copy and toggles the redirect countdown (Batch 6)', () => {
+    const dispatch = vi.fn();
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />);
+    fireEvent.click(screen.getByText('Ending states'));
+    fireEvent.change(screen.getByLabelText('Success heading'), { target: { value: 'Done!' } });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateAppearance',
+      patch: { endings: { success: { heading: 'Done!' } } },
+    });
+    fireEvent.click(screen.getByLabelText('Show redirect countdown'));
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateAppearance',
+      patch: { endings: { showRedirectCountdown: true } },
+    });
+  });
+
+  it('exports the current design as JSON into a readable field (Batch 6)', () => {
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={vi.fn()} />);
+    fireEvent.click(screen.getByText('Export design'));
+    const ta = screen.getByTestId('preset-export-json') as HTMLTextAreaElement;
+    expect(ta.value).toContain('"ratioFormsPreset"');
+    expect(ta.value).toContain('"colors"');
+  });
+
+  it('imports a valid preset JSON and applies it wholesale (Batch 6)', () => {
+    const dispatch = vi.fn();
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />);
+    const json = JSON.stringify({ ratioFormsPreset: 1, appearance: DEFAULT_APPEARANCE });
+    fireEvent.change(screen.getByLabelText('Import preset JSON'), { target: { value: json } });
+    fireEvent.click(screen.getByText('Import design'));
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'updateAppearance',
+        patch: expect.objectContaining({ colors: DEFAULT_APPEARANCE.colors }),
+      }),
+    );
+  });
+
+  it('surfaces an error on invalid import JSON without dispatching (Batch 6)', () => {
+    const dispatch = vi.fn();
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />);
+    fireEvent.change(screen.getByLabelText('Import preset JSON'), { target: { value: '{ bad' } });
+    fireEvent.click(screen.getByText('Import design'));
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(screen.getByText(/valid JSON/i)).toBeInTheDocument();
+  });
 });
