@@ -1065,6 +1065,11 @@ export class RatioForm extends LitElement {
   @state() private status: Status = 'loading';
   @state() private values: Record<string, unknown> = {};
   @state() private fieldErrors: Record<string, string> = {};
+  // Fields the shopper has interacted with (left once). "Reward early, punish
+  // late": we validate a field only after its first blur, then re-check it live
+  // on every change so a fix clears instantly. Non-reactive — fieldErrors drives
+  // the re-render.
+  private readonly touched = new Set<string>();
   @state() private formError = '';
   @state() private hp = '';
   // Batch 6 — whole seconds left on the post-submit redirect countdown; 0 hides
@@ -1776,7 +1781,7 @@ export class RatioForm extends LitElement {
     const schema = this.schema;
     if (!schema) return html`${nothing}`;
     return html`
-      <div class="rf-form" role="form" @keydown=${this.onKeydown}>
+      <div class="rf-form" role="form" @keydown=${this.onKeydown} @focusout=${this.onFieldBlur}>
         <div class="rf-fields">${schema.schema.map((field) => this.renderField(field))}</div>
         <div class="rf-hp" aria-hidden="true">
           <input
@@ -1990,6 +1995,32 @@ export class RatioForm extends LitElement {
 
   private setValue(key: string, value: unknown): void {
     this.values = { ...this.values, [key]: value };
+    // Live re-check once a field is touched or already flagged, so a fix clears
+    // the error immediately (and a newly-invalid value re-flags without a submit).
+    if (this.touched.has(key) || this.fieldErrors[key]) {
+      const field = (this.schema?.schema ?? []).find((f) => f.key === key);
+      if (field) this.recheckField(field);
+    }
+  }
+
+  /** Validate the field focus just left (its first blur → it becomes touched). */
+  private onFieldBlur(event: FocusEvent): void {
+    const target = event.target as HTMLElement | null;
+    const key = target?.closest('[data-field]')?.getAttribute('data-field');
+    if (!key) return;
+    const field = (this.schema?.schema ?? []).find((f) => f.key === key);
+    if (!field || isContentBlock(field)) return;
+    this.touched.add(key);
+    this.recheckField(field);
+  }
+
+  /** Re-run one field's validator and patch its entry in `fieldErrors`. */
+  private recheckField(field: FormField): void {
+    const error = this.validateField(field);
+    const next = { ...this.fieldErrors };
+    if (error) next[field.key] = error;
+    else delete next[field.key];
+    this.fieldErrors = next;
   }
 
   private renderControl(field: ControlField): TemplateResult {
