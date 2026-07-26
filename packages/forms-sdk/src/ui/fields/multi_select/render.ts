@@ -87,6 +87,9 @@ export function renderMultiSelect(
         ? html`<div class="rf-selcount" aria-live="polite">
             ${current.length}${max !== undefined ? ` of ${max}` : ''} selected${
               min !== undefined && current.length < min ? ` — choose at least ${min}` : ''
+            }${
+              // Over the cap reads "4 of 3 selected" with no cue; prompt the fix.
+              max !== undefined && current.length > max ? ` — remove ${current.length - max}` : ''
             }
           </div>`
         : nothing

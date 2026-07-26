@@ -579,6 +579,12 @@ export class RatioForm extends LitElement {
         outline: 2px solid var(--wz-focus);
         outline-offset: 2px;
       }
+      /* multi_select chips carry focus on a 1px-clipped SR-only checkbox, so
+         :focus-within surfaces a keyboard focus ring on the visible pill. */
+      .rf-chip:focus-within {
+        outline: 2px solid var(--wz-focus);
+        outline-offset: 2px;
+      }
       .rf-sr {
         position: absolute;
         width: 1px;
@@ -679,6 +685,15 @@ export class RatioForm extends LitElement {
 
   private files: Record<string, File | null> = {};
   private recaptchaInjected = false;
+  // Number fields currently focused (blur-format / focus-raw display). Owned
+  // here — per form instance — so the display state can't leak across concurrent
+  // embeds or linger when a field is hidden without a blur (cleared on disconnect).
+  private numberFocus = new Set<string>();
+
+  override disconnectedCallback(): void {
+    super.disconnectedCallback();
+    this.numberFocus.clear();
+  }
 
   override connectedCallback(): void {
     super.connectedCallback();
@@ -1269,7 +1284,15 @@ export class RatioForm extends LitElement {
     const counted = field as Extract<FormField, { type: 'text' | 'textarea' }>;
     const max = counted.validation?.maxLength;
     if (typeof max !== 'number') return nothing;
-    const len = String(this.values[field.key] ?? '').length;
+    // A textarea with counterUnit:'words' counts words, not characters, for the
+    // numerator (the limit/denominator stays the maxLength char cap).
+    const value = String(this.values[field.key] ?? '');
+    const len =
+      counted.type === 'textarea' && counted.display?.counterUnit === 'words'
+        ? value.trim() === ''
+          ? 0
+          : value.trim().split(/\s+/u).length
+        : value.length;
     return html`<div
       class="rf-counter"
       data-near=${len >= max * 0.9 ? 'true' : nothing}
@@ -1371,6 +1394,7 @@ export class RatioForm extends LitElement {
       ph: (f, fallback) => this.ph(f, fallback),
       adorn: (f, control) => this.adorn(f, control),
       requestUpdate: () => this.requestUpdate(),
+      numberFocus: this.numberFocus,
     };
     const mod = fieldControls[field.type] as FieldControlModule<ControlField['type']>;
     return mod.render(field, ctx);

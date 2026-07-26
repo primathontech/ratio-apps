@@ -14,6 +14,7 @@ const ctx = (checked = false): FieldRenderCtx => ({
   ph: (_f, fallback) => fallback,
   adorn: (_f, control) => control,
   requestUpdate: () => {},
+  numberFocus: new Set(),
 });
 
 function mount(field: ControlFieldOf<'checkbox'>): HTMLElement {

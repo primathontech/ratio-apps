@@ -58,7 +58,10 @@ export const GOOGLE_FONT_HREF: Record<Exclude<FontFamily, 'system'>, string> = {
  */
 export function sanitizeFontName(name: string | undefined): string | null {
   if (!name) return null;
-  const clean = name.replace(/[^A-Za-z0-9 -]/g, '').trim().replace(/\s+/g, ' ');
+  const clean = name
+    .replace(/[^A-Za-z0-9 -]/g, '')
+    .trim()
+    .replace(/\s+/g, ' ');
   return clean.length > 0 ? clean : null;
 }
 

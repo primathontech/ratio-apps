@@ -1,4 +1,5 @@
 import { type ControlFieldOf, type FieldValidateCtx, isEmpty } from '../types';
+import { numericValue } from './format';
 
 export function validateNumber(
   field: ControlFieldOf<'number'>,
@@ -6,7 +7,9 @@ export function validateNumber(
 ): string | null {
   const value = ctx.values[field.key];
   if (isEmpty(value)) return field.required ? 'This field is required.' : null;
-  const n = Number(String(value));
+  // Tolerant parse: strip locale grouping first so a still-grouped entry (e.g.
+  // "1,234" submitted before blur canonicalizes it) parses instead of NaN-ing.
+  const n = numericValue(value, field.format);
   if (Number.isNaN(n)) return 'Please enter a number.';
   const rules = field.validation;
   if (rules?.integer && !Number.isInteger(n)) return 'Please enter a whole number.';

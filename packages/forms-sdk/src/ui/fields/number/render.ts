@@ -1,17 +1,16 @@
 import { html, nothing, type TemplateResult } from 'lit';
 import { live } from 'lit/directives/live.js';
 import type { ControlFieldOf, FieldRenderCtx } from '../types';
+import { canonicalizeNumber } from './format';
 
-/**
- * Field keys currently focused (blur-format / focus-raw display, Batch-4 number
- * display formatting). Module-scoped rather than component state because the
- * per-field render module is stateless; keyed by `field.key`. A focused input
- * shows the raw canonical value (so the shopper edits a plain number); on blur
- * we swap to the `Intl.NumberFormat` string. `live()` forces the swap into the
- * DOM across the widget's re-render-on-every-keystroke cycle without fighting
- * typing (the focused branch always renders raw = what the shopper typed).
- */
-const focusedNumberKeys = new Set<string>();
+// Focus tracking (blur-format / focus-raw display) lives on `ctx.numberFocus`,
+// a per-RatioForm-instance Set keyed by `field.key`. Per-instance (not
+// module-global) so display state never leaks across concurrent form embeds or
+// lingers when a field is hidden without a blur — the host clears it on
+// disconnect. A focused input shows the raw canonical value (the shopper edits
+// a plain number); on blur we canonicalize the stored value and swap to the
+// `Intl.NumberFormat` string. `live()` forces the swap into the DOM across the
+// widget's re-render-on-every-keystroke cycle.
 
 /**
  * Grouped / currency / percent display of a canonical number via the browser
@@ -72,15 +71,29 @@ export function renderNumber(field: ControlFieldOf<'number'>, ctx: FieldRenderCt
 
   // Formatted display: a text input so the grouped/currency/percent string can
   // show. inputmode still surfaces the numeric keypad. Focused ⇒ raw canonical
-  // (editable); blurred ⇒ the Intl string. onInput keeps ctx.values canonical.
-  const focused = focusedNumberKeys.has(field.key);
+  // (editable); blurred ⇒ the Intl string. onNumberInput keeps the stored value
+  // to numeric chars; onBlur canonicalizes it so display==submit.
+  const focused = ctx.numberFocus.has(field.key);
   const display = focused ? raw : formatNumber(raw, field.format);
   const onFocus = () => {
-    focusedNumberKeys.add(field.key);
+    ctx.numberFocus.add(field.key);
     ctx.requestUpdate();
   };
-  const onBlur = () => {
-    focusedNumberKeys.delete(field.key);
+  // Formatted variant is type=text, so — unlike a native number input — letters
+  // would otherwise stick until submit. Strip to digits/sign/decimal/grouping
+  // chars (whitespace + '.'/',') on every keystroke so it behaves numerically;
+  // live(display) reflects the stripped value, dropping any typed letter.
+  const onNumberInput = (e: Event) => {
+    const cleaned = (e.target as HTMLInputElement).value.replace(/[^0-9+\-.,\s]/gu, '');
+    ctx.setValue(field.key, cleaned);
+  };
+  const onBlur = (e: Event) => {
+    ctx.numberFocus.delete(field.key);
+    // Canonicalize so the STORED value matches the formatted string shown: a
+    // grouped/locale-decimal entry becomes a plain ASCII number (rounded to
+    // decimalPlaces), fixing "1,234"→NaN and the "$1,235" submitted-as-1234.56.
+    const canonical = canonicalizeNumber((e.target as HTMLInputElement).value, field.format);
+    if (canonical !== raw) ctx.setValue(field.key, canonical);
     ctx.requestUpdate();
   };
   return ctx.adorn(
@@ -95,7 +108,7 @@ export function renderNumber(field: ControlFieldOf<'number'>, ctx: FieldRenderCt
       aria-describedby=${ctx.describedBy}
       style="font-variant-numeric: tabular-nums;"
       .value=${live(display)}
-      @input=${ctx.onInput}
+      @input=${onNumberInput}
       @focus=${onFocus}
       @blur=${onBlur}
     />`,

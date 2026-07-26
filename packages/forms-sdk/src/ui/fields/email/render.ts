@@ -2,7 +2,7 @@ import {
   EMAIL_MAX_LENGTH_DEFAULT,
   suggestEmailCorrection,
 } from '@ratio-app/shared/schemas/fields/email/constants';
-import { html, type TemplateResult } from 'lit';
+import { html, nothing, type TemplateResult } from 'lit';
 import type { ControlFieldOf, FieldRenderCtx } from '../types';
 
 export function renderEmail(field: ControlFieldOf<'email'>, ctx: FieldRenderCtx): TemplateResult {
@@ -33,24 +33,25 @@ export function renderEmail(field: ControlFieldOf<'email'>, ctx: FieldRenderCtx)
   const suggestion =
     field.validation?.suggestCorrections === false ? null : suggestEmailCorrection(raw);
 
-  // No suggestion ⇒ return the control unchanged (byte-identical to the prior
-  // renderer). With a suggestion, wrap control + hint in a static container:
-  // a template made solely of nested-template interpolations doesn't render, so
-  // the wrapper element gives the parts a static root. Descendant/`:has` CSS
+  // ALWAYS render the same `.rf-email` wrapper (suggestion or not) so the <input>
+  // node is stable across renders: toggling between a bare input and a wrapped
+  // one recreates the input element, which drops focus and caret mid-type as the
+  // suggestion appears/vanishes keystroke-to-keystroke (e.g. "gmail.co"→".com").
+  // The button is `nothing` when there's no suggestion. Descendant/`:has` CSS
   // (adornments, floating label, input variants) still matches the input.
-  if (suggestion === null) return control;
-  return html`<div class="rf-email">
-    ${control}
-    <button
-      type="button"
-      class="rf-email-suggest"
-      data-suggest-for=${field.key}
-      @click=${() => {
-        ctx.setValue(field.key, suggestion);
-        ctx.requestUpdate();
-      }}
-    >
-      Did you mean <strong>${suggestion}</strong>?
-    </button>
-  </div>`;
+  const suggest =
+    suggestion === null
+      ? nothing
+      : html`<button
+          type="button"
+          class="rf-email-suggest"
+          data-suggest-for=${field.key}
+          @click=${() => {
+            ctx.setValue(field.key, suggestion);
+            ctx.requestUpdate();
+          }}
+        >
+          Did you mean <strong>${suggestion}</strong>?
+        </button>`;
+  return html`<div class="rf-email">${control}${suggest}</div>`;
 }

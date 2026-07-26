@@ -52,4 +52,14 @@ describe('renderEmail (native attrs + typo suggestion)', () => {
       mk('user@gmial.com', { suggestCorrections: false }).querySelector('.rf-email-suggest'),
     ).toBeNull();
   });
+
+  it('always renders the same .rf-email wrapper so the input node stays stable', () => {
+    // With and without a suggestion, the input lives under one stable wrapper —
+    // so toggling the hint mid-type never recreates the input (focus/caret loss).
+    const withHint = mk('user@gmial.com');
+    const noHint = mk('user@gmail.com');
+    expect(withHint.querySelector('.rf-email > input[name="email"]')).toBeTruthy();
+    expect(noHint.querySelector('.rf-email > input[name="email"]')).toBeTruthy();
+    expect(noHint.querySelector('.rf-email-suggest')).toBeNull();
+  });
 });

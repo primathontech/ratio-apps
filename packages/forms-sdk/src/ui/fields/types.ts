@@ -38,6 +38,10 @@ export interface FieldRenderCtx {
   ph: (field: FormField, fallback: string) => string;
   adorn: (field: ControlField, control: TemplateResult) => TemplateResult;
   requestUpdate: () => void;
+  /** Per-form-instance focus registry for the number field's blur-format /
+   * focus-raw display swap (keyed by field.key). Owned by RatioForm so display
+   * state can't leak across embeds and is cleared on disconnect. */
+  numberFocus: Set<string>;
 }
 
 /** State a client validate fn reads. */
