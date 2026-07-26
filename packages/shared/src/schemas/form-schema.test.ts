@@ -6,6 +6,7 @@ import {
   FORM_FIELD_TYPES,
   FORM_FILE_ALLOWED_MIME_TYPES,
   FORM_FILE_MAX_BYTES,
+  FORM_FILE_MAX_FILES,
   FORM_NON_COLLECTABLE_FIELD_TYPES,
   FORM_TEXTAREA_DEFAULT_MAX_LENGTH,
   FORM_TEXTAREA_HARD_MAX_LENGTH,
@@ -267,6 +268,23 @@ describe('formFieldSchema (discriminated union over the supported field types)',
       expect(parsed.validation.allowedMimeTypes).toEqual([...FORM_FILE_ALLOWED_MIME_TYPES]);
       expect(parsed.validation.maxBytes).toBe(FORM_FILE_MAX_BYTES);
     }
+  });
+
+  it('file field maxFiles is optional (absent) and bounded to [1, FORM_FILE_MAX_FILES]', () => {
+    // Absent ⇒ single-file behavior (consumers treat undefined as 1).
+    const bare = formFieldSchema.parse({ key: 'f', type: 'file', label: 'File' });
+    if (bare.type === 'file') expect(bare.maxFiles).toBeUndefined();
+    // Within bounds accepted.
+    expect(formFieldSchema.safeParse({ ...fileField, maxFiles: 3 }).success).toBe(true);
+    expect(formFieldSchema.safeParse({ ...fileField, maxFiles: FORM_FILE_MAX_FILES }).success).toBe(
+      true,
+    );
+    // Below 1, above the ceiling, and non-integer are rejected (security envelope).
+    expect(formFieldSchema.safeParse({ ...fileField, maxFiles: 0 }).success).toBe(false);
+    expect(
+      formFieldSchema.safeParse({ ...fileField, maxFiles: FORM_FILE_MAX_FILES + 1 }).success,
+    ).toBe(false);
+    expect(formFieldSchema.safeParse({ ...fileField, maxFiles: 2.5 }).success).toBe(false);
   });
 
   it('rejects a radio without options (missing or empty)', () => {

@@ -59,6 +59,7 @@ export {
 export {
   FORM_FILE_ALLOWED_MIME_TYPES,
   FORM_FILE_MAX_BYTES,
+  FORM_FILE_MAX_FILES,
   type FormFileAllowedMimeType,
 } from './fields/file/schema';
 export { FORM_HEADING_LEVELS, type FormHeadingLevel } from './fields/heading/schema';

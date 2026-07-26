@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { type FormField, isCollectableFieldType } from '@ratio-app/shared/schemas/form-schema';
-import { validateFile } from './fields/file/validate';
+import { validateFiles } from './fields/file/validate';
 import { serverFieldValidators } from './fields/registry';
 import type { CollectableFormField, ServerFieldValidator, ValueFormField } from './fields/types';
 
@@ -12,8 +12,11 @@ export type SchemaValidationResult =
       ok: true;
       /** Schema-known fields only, values normalized (phone → +91…). */
       data: Record<string, unknown>;
-      /** Schema-known file fields only: field key → S3 object key. */
-      files: Record<string, string>;
+      /**
+       * Schema-known file fields only: field key → S3 object key (single-file
+       * field) or object key array (multi-file field, `maxFiles > 1`).
+       */
+      files: Record<string, string | string[]>;
     }
   | { ok: false; errors: Record<string, string> };
 
@@ -37,7 +40,7 @@ export class SchemaValidatorService {
   validate(
     schema: FormField[],
     fields: Record<string, unknown>,
-    files: Record<string, string> | undefined,
+    files: Record<string, string | string[]> | undefined,
     scope: { merchantId: string; formId: string },
   ): SchemaValidationResult {
     const errors: Record<string, string> = {};
@@ -53,7 +56,7 @@ export class SchemaValidatorService {
     }
 
     const data: Record<string, unknown> = {};
-    const outFiles: Record<string, string> = {};
+    const outFiles: Record<string, string | string[]> = {};
 
     for (const field of schema) {
       // Content blocks (§1.3) are display-only: no required-check, no value,
@@ -67,12 +70,13 @@ export class SchemaValidatorService {
       const custom = field.errorMessage;
 
       if (field.type === 'file') {
-        const objectKey = files?.[field.key];
-        const err = validateFile(field, objectKey, scope);
-        if (err) {
-          errors[field.key] = custom ?? err;
-        } else if (objectKey) {
-          outFiles[field.key] = objectKey;
+        // Multi-file aware: accepts a single object key or an array (maxFiles),
+        // enforces the count, and structurally checks every key.
+        const result = validateFiles(field, files?.[field.key], scope);
+        if (result.error) {
+          errors[field.key] = custom ?? result.error;
+        } else if (result.value !== undefined) {
+          outFiles[field.key] = result.value;
         }
         continue;
       }

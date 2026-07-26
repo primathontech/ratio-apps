@@ -9,6 +9,10 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { sanitizeFieldCss } from '@ratio-app/shared/schemas/custom-css';
+import {
+  HIDDEN_DEFAULT_SOURCE,
+  type SubmissionContext,
+} from '@ratio-app/shared/schemas/fields/hidden/constants';
 import type { FormAppearance, FormField } from '@ratio-app/shared/schemas/form-schema';
 import { type Kysely, sql } from 'kysely';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
@@ -28,7 +32,8 @@ import { SchemaValidatorService } from './schema-validator.service';
 
 export interface PublicSubmissionInput {
   fields: Record<string, unknown>;
-  files?: Record<string, string> | undefined;
+  /** field key → S3 object key, or an array of keys for a multi-file field. */
+  files?: Record<string, string | string[]> | undefined;
   /** SDK-minted session id (idempotency scope; controller may pass it via meta). */
   sessionId?: string | undefined;
   recaptchaToken?: string | undefined;
@@ -65,7 +70,8 @@ export interface SubmissionListItem {
   id: string;
   formId: string;
   data: Record<string, unknown>;
-  files: Record<string, string>;
+  /** field key → object key (single-file) or object key array (multi-file). */
+  files: Record<string, string | string[]>;
   recaptchaScore: number | null;
   createdAt: Date;
 }
@@ -78,8 +84,17 @@ export interface SubmissionListResult {
 }
 
 export interface SubmissionDetail extends SubmissionListItem {
-  /** field key → 7-day signed GET URL for each uploaded file. */
-  fileUrls: Record<string, string>;
+  /**
+   * field key → 7-day signed GET URL(s) for the uploaded file(s): a single URL
+   * for a single-file field, an array of URLs for a multi-file field (shape
+   * mirrors `files`).
+   */
+  fileUrls: Record<string, string | string[]>;
+  /**
+   * Hidden-field provenance (source + raw value) captured at submit time
+   * (§4, `context_json`); empty when the form had no hidden fields.
+   */
+  context: SubmissionContext;
 }
 
 /** The parts of the loaded form+config public flows need downstream. */
@@ -175,14 +190,17 @@ export class SubmissionsService {
     // segment (merchantId/formId/fieldKey) is public, so a well-formed but
     // fabricated key would otherwise store a phantom reference. One HEAD per
     // file (P2-2).
-    for (const [fieldKey, objectKey] of Object.entries(validated.files)) {
-      if (!(await this.s3.exists(objectKey))) {
-        throw new UnprocessableEntityException({
-          message: 'submission validation failed',
-          error_code: 'SUBMISSION_INVALID',
-          details: { fields: { [fieldKey]: 'uploaded file not found' } },
-          safeForClient: true,
-        });
+    for (const [fieldKey, value] of Object.entries(validated.files)) {
+      // A multi-file field carries an array of keys; check each one exists.
+      for (const objectKey of Array.isArray(value) ? value : [value]) {
+        if (!(await this.s3.exists(objectKey))) {
+          throw new UnprocessableEntityException({
+            message: 'submission validation failed',
+            error_code: 'SUBMISSION_INVALID',
+            details: { fields: { [fieldKey]: 'uploaded file not found' } },
+            safeForClient: true,
+          });
+        }
       }
     }
 
@@ -198,6 +216,10 @@ export class SubmissionsService {
     // cleanly (P3-1).
     const submissionId = SubmissionsService.mintSubmissionId();
     const hasFiles = Object.keys(validated.files).length > 0;
+    // Hidden-field provenance (§4): where each hidden value resolved from. Null
+    // when the form has no hidden fields, so existing rows/forms are unaffected.
+    const context = SubmissionsService.buildContext(ctx.schema, validated.data);
+    const hasContext = Object.keys(context).length > 0;
     try {
       await this.handle.db.transaction().execute(async (trx) => {
         await trx
@@ -208,6 +230,7 @@ export class SubmissionsService {
             merchantId: ctx.form.merchantId,
             dataJson: JSON.stringify(validated.data),
             filesJson: hasFiles ? JSON.stringify(validated.files) : null,
+            contextJson: hasContext ? JSON.stringify(context) : null,
             recaptchaScore,
             idempotencyKey,
           })
@@ -382,11 +405,17 @@ export class SubmissionsService {
       });
     }
     const item = this.toListItem(row);
-    const fileUrls: Record<string, string> = {};
-    for (const [fieldKey, objectKey] of Object.entries(item.files)) {
-      fileUrls[fieldKey] = await this.s3.signedGetUrl(objectKey);
+    const fileUrls: Record<string, string | string[]> = {};
+    for (const [fieldKey, value] of Object.entries(item.files)) {
+      // Mirror the stored shape: a multi-file field yields an array of URLs, a
+      // single-file field a lone URL.
+      fileUrls[fieldKey] = Array.isArray(value)
+        ? await Promise.all(value.map((key) => this.s3.signedGetUrl(key)))
+        : await this.s3.signedGetUrl(value);
     }
-    return { ...item, fileUrls };
+    const context =
+      SubmissionsService.parseJson<SubmissionContext>(row.contextJson) ?? ({} as SubmissionContext);
+    return { ...item, fileUrls, context };
   }
 
   /** Delivery log for a form (webhook status view). */
@@ -545,7 +574,7 @@ export class SubmissionsService {
       id: row.id,
       formId: row.formId,
       data: SubmissionsService.parseJson<Record<string, unknown>>(row.dataJson) ?? {},
-      files: SubmissionsService.parseJson<Record<string, string>>(row.filesJson) ?? {},
+      files: SubmissionsService.parseJson<Record<string, string | string[]>>(row.filesJson) ?? {},
       recaptchaScore: row.recaptchaScore === null ? null : Number(row.recaptchaScore),
       createdAt: row.createdAt,
     };
@@ -566,6 +595,31 @@ export class SubmissionsService {
   ): FormAppearance | undefined {
     if (value == null) return undefined;
     return typeof value === 'string' ? (JSON.parse(value) as FormAppearance) : value;
+  }
+
+  /**
+   * Hidden-field provenance (§4, `context_json`): for every hidden field that
+   * resolved a value (present in the validated `data`), record which source it
+   * came from and the raw value stored. Server-derived sources (constant/
+   * timestamp) are authoritative in `data` already, so this reflects exactly
+   * what was persisted. A field that left `source` unset defaults to
+   * `url_param` (the legacy capture behavior), mirroring the resolver.
+   */
+  private static buildContext(
+    schema: FormField[],
+    data: Record<string, unknown>,
+  ): SubmissionContext {
+    const context: SubmissionContext = {};
+    for (const field of schema) {
+      if (field.type !== 'hidden') continue;
+      const value = data[field.key];
+      if (value === undefined) continue;
+      context[field.key] = {
+        source: field.source ?? HIDDEN_DEFAULT_SOURCE,
+        value: String(value),
+      };
+    }
+    return context;
   }
 
   /** `sub_<random>` via node:crypto — also used for the fake spam-reject id. */

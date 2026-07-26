@@ -32,7 +32,7 @@ export interface FieldRenderCtx {
   invalid: string | typeof nothing;
   describedBy: string | typeof nothing;
   values: Record<string, unknown>;
-  files: Record<string, File | null>;
+  files: Record<string, File[]>;
   onInput: (e: Event) => void;
   setValue: (key: string, value: unknown) => void;
   ph: (field: FormField, fallback: string) => string;
@@ -78,7 +78,7 @@ export function selectUiState(ctx: FieldRenderCtx, key: string): SelectUiState {
 /** State a client validate fn reads. */
 export interface FieldValidateCtx {
   values: Record<string, unknown>;
-  files: Record<string, File | null>;
+  files: Record<string, File[]>;
 }
 
 export type FieldRenderFn<K extends ControlField['type']> = (

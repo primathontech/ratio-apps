@@ -49,6 +49,62 @@ export function validateFile(
   return null;
 }
 
+/** Outcome of validating a file field's submitted value(s). */
+export interface FileValidateResult {
+  /**
+   * The object key(s) to persist, shape-matched to `maxFiles`: a scalar `string`
+   * for a single-file field (byte-identical to the pre-multi behavior), a
+   * `string[]` for a multi-file field. Absent when nothing was attached.
+   */
+  value?: string | string[];
+  error?: string;
+}
+
+/**
+ * Multi-file wrapper over {@link validateFile}. A file field's submitted value
+ * is either a single object key (`string`) or, for a multi-file field
+ * (`maxFiles > 1`), an array of keys — this normalizes both, enforces the
+ * per-field `maxFiles` count, and runs the per-key structural check on EVERY
+ * key so the same cross-tenant / cross-field guards apply to each uploaded file.
+ *
+ * Output shape is pinned to the field's configuration, not the submitted count:
+ * a single-file field always persists a scalar (so existing single-file forms
+ * stay byte-identical), a multi-file field always persists an array. A form
+ * saved before `maxFiles` existed has no key on the field ⇒ treated as 1.
+ */
+export function validateFiles(
+  field: FileField,
+  raw: string | string[] | undefined,
+  scope: { merchantId: string; formId: string },
+): FileValidateResult {
+  const maxFiles = field.maxFiles ?? 1;
+  // Normalize to an array of non-empty candidate keys. A bare string (legacy /
+  // single-file) and an array (multi-file) both funnel through here.
+  const keys = (Array.isArray(raw) ? raw : raw === undefined ? [] : [raw]).filter(
+    (k) => k !== '' && k !== undefined && k !== null,
+  );
+
+  if (keys.length === 0) {
+    return field.required ? { error: 'Please attach a file.' } : {};
+  }
+  if (keys.length > maxFiles) {
+    return {
+      error:
+        maxFiles === 1
+          ? 'Please attach a single file.'
+          : `Please attach at most ${maxFiles} files.`,
+    };
+  }
+  for (const key of keys) {
+    const err = validateFile(field, key, scope);
+    if (err) return { error: err };
+  }
+  // Single-file field → scalar (byte-identical); multi-file field → array.
+  // keys is non-empty here (the length-0 branch returned above).
+  const first = keys[0] as string;
+  return { value: maxFiles > 1 ? keys : first };
+}
+
 /** Minimal object-existence dependency (satisfied by {@link FormsS3Service}). */
 interface ObjectExistenceChecker {
   exists(objectKey: string): Promise<boolean>;

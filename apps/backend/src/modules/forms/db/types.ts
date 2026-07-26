@@ -1,3 +1,4 @@
+import type { SubmissionContext } from '@ratio-app/shared/schemas/fields/hidden/constants';
 import type { FormAppearance, FormField } from '@ratio-app/shared/schemas/form-schema';
 import type { ColumnType, Generated, Selectable } from 'kysely';
 import type { BaseMerchantsTable } from '../../../core/merchants/merchant.types';
@@ -68,9 +69,23 @@ interface FormSubmissionsTable {
   merchantId: string;
   /** Field key → submitted value map; stringified on write. */
   dataJson: ColumnType<Record<string, unknown> | string, string, string>;
-  /** Field key → S3 object key (file fields only); stringified on write. */
+  /**
+   * Field key → S3 object key, or an object-key ARRAY for a multi-file field
+   * (`file.maxFiles > 1`); stringified on write. Single-file fields keep the
+   * scalar-string shape (back-compat). Null when the submission had no files.
+   */
   filesJson: ColumnType<
-    Record<string, string> | string | null,
+    Record<string, string | string[]> | string | null,
+    string | null | undefined,
+    string | null
+  >;
+  /**
+   * Hidden-field provenance (field key → { source, value }); stringified on
+   * write. Nullable — added in `0005_submission_context.ts`, so pre-0005 rows
+   * (and submissions with no hidden fields) carry null.
+   */
+  contextJson: ColumnType<
+    SubmissionContext | string | null,
     string | null | undefined,
     string | null
   >;

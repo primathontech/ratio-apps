@@ -41,7 +41,14 @@ export function sampleFieldValue(field: FormField): unknown {
     case 'checkbox':
       return true;
     case 'file':
-      return 'https://files.example.com/uploads/sample.pdf';
+      // A multi-file field (maxFiles > 1) delivers an ARRAY of signed URLs; a
+      // single-file field a lone URL — mirror the real payload shape.
+      return (field.maxFiles ?? 1) > 1
+        ? [
+            'https://files.example.com/uploads/sample-1.pdf',
+            'https://files.example.com/uploads/sample-2.pdf',
+          ]
+        : 'https://files.example.com/uploads/sample.pdf';
     case 'hidden':
       return `sample-${field.paramName}`;
     case 'dropdown':

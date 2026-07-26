@@ -610,3 +610,111 @@ describe('SubmissionsService — admin reads (AC7/AC10)', () => {
     }
   });
 });
+
+describe('SubmissionsService — multi-file storage + hidden context_json (Batch 7)', () => {
+  const MULTI_FORM_ID = 'form_multi';
+  const schema = [
+    {
+      key: 'docs',
+      type: 'file',
+      label: 'Docs',
+      required: false,
+      maxFiles: 2,
+      validation: { allowedMimeTypes: ['application/pdf'], maxBytes: 1024 },
+    },
+    { key: 'utm', type: 'hidden', label: 'UTM', required: false, paramName: 'utm' },
+  ];
+
+  function setupMulti() {
+    const fake = makeFakeHandle({
+      forms: [contactForm({ id: MULTI_FORM_ID, schemaJson: JSON.stringify(schema) })],
+      forms_configs: [configRow()],
+    });
+    const rateLimit = { allow: vi.fn(async () => true) };
+    const recaptcha = { verify: vi.fn(async () => ({ verdict: 'pass' as const, score: 0.9 })) };
+    const s3 = {
+      exists: vi.fn(async () => true),
+      signedGetUrl: vi.fn(async (key: string) => `https://fake-s3/${key}?sig=get`),
+    };
+    const service = new SubmissionsService(
+      fake.handle,
+      rateLimit as unknown as SubmitRateLimitService,
+      recaptcha as unknown as FormsRecaptchaService,
+      new SchemaValidatorService(),
+      new IdempotencyService(),
+      s3 as unknown as FormsS3Service,
+    );
+    return { service, fake, s3 };
+  }
+
+  const key = (n: string) => `${MERCHANT_ID}/${MULTI_FORM_ID}/${n}/docs`;
+  const meta2 = { ip: '203.0.113.9', sessionKey: 'sess_multi' };
+
+  it('stores a multi-file field as an ARRAY in files_json and HEADs every key', async () => {
+    const { service, fake, s3 } = setupMulti();
+    await service.submitPublic(
+      MULTI_FORM_ID,
+      { fields: { utm: 'newsletter' }, files: { docs: [key('a'), key('b')] } },
+      meta2,
+    );
+    const insert = fake.inserts.find((i) => i.table === 'form_submissions');
+    expect(insert).toBeDefined();
+    expect(JSON.parse(insert?.values.filesJson as string)).toEqual({ docs: [key('a'), key('b')] });
+    // One existence HEAD per uploaded key.
+    expect(s3.exists).toHaveBeenCalledTimes(2);
+  });
+
+  it('writes hidden-field provenance to context_json (source + raw value)', async () => {
+    const { service, fake } = setupMulti();
+    await service.submitPublic(
+      MULTI_FORM_ID,
+      { fields: { utm: 'newsletter' }, files: { docs: [key('a')] } },
+      meta2,
+    );
+    const insert = fake.inserts.find((i) => i.table === 'form_submissions');
+    expect(JSON.parse(insert?.values.contextJson as string)).toEqual({
+      utm: { source: 'url_param', value: 'newsletter' },
+    });
+  });
+
+  it('context_json is null when the form resolves no hidden fields', async () => {
+    const { service, fake } = setupMulti();
+    await service.submitPublic(MULTI_FORM_ID, { fields: {}, files: { docs: [key('a')] } }, meta2);
+    const insert = fake.inserts.find((i) => i.table === 'form_submissions');
+    expect(insert?.values.contextJson).toBeNull();
+  });
+
+  it('detail returns an ARRAY of signed URLs for a multi-file field and the parsed context', async () => {
+    // Seed a stored submission row with an array files_json + context_json.
+    const fake = makeFakeHandle({
+      forms: [contactForm({ id: MULTI_FORM_ID, schemaJson: JSON.stringify(schema) })],
+      forms_configs: [configRow()],
+      form_submissions: [
+        submissionRow({
+          id: 'sub_m',
+          formId: MULTI_FORM_ID,
+          filesJson: JSON.stringify({ docs: [key('a'), key('b')] }),
+          contextJson: JSON.stringify({ utm: { source: 'url_param', value: 'newsletter' } }),
+        }),
+      ],
+    });
+    const s3 = {
+      exists: vi.fn(async () => true),
+      signedGetUrl: vi.fn(async (k: string) => `https://fake-s3/${k}?sig=get`),
+    };
+    const svc = new SubmissionsService(
+      fake.handle,
+      { allow: vi.fn(async () => true) } as unknown as SubmitRateLimitService,
+      { verify: vi.fn() } as unknown as FormsRecaptchaService,
+      new SchemaValidatorService(),
+      new IdempotencyService(),
+      s3 as unknown as FormsS3Service,
+    );
+    const detail = await svc.detail(MERCHANT_ID, 'sub_m');
+    expect(detail.fileUrls.docs).toEqual([
+      `https://fake-s3/${key('a')}?sig=get`,
+      `https://fake-s3/${key('b')}?sig=get`,
+    ]);
+    expect(detail.context).toEqual({ utm: { source: 'url_param', value: 'newsletter' } });
+  });
+});

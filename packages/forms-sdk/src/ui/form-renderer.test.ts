@@ -2364,3 +2364,123 @@ describe('ratio-form per-field custom CSS', () => {
     expect(styleText(withoutCss)).not.toContain('rgb(1,2,3)');
   });
 });
+
+describe('ratio-form file field — multi-file (maxFiles)', () => {
+  /** A single multi-file field form (maxFiles: 3). */
+  function multiSchema(maxFiles = 3): PublicFormSchema {
+    return {
+      id: 'form_m',
+      name: 'Docs',
+      schema: [
+        {
+          key: 'docs',
+          type: 'file',
+          label: 'Docs',
+          required: false,
+          maxFiles,
+          validation: { allowedMimeTypes: ['application/pdf'], maxBytes: 1024 },
+        },
+      ] as PublicFormSchema['schema'],
+      submitLabel: 'Send',
+      successMessage: 'Thanks!',
+      spamProtection: 'honeypot',
+    };
+  }
+
+  /** Fetch that mints a DISTINCT object key per presign so the array is visible. */
+  function multiFetch(schema: PublicFormSchema) {
+    let n = 0;
+    return vi.fn((url: string, init?: RequestInit) => {
+      const respond = (status: number, body: unknown) =>
+        Promise.resolve({
+          ok: status >= 200 && status < 300,
+          status,
+          text: () => Promise.resolve(JSON.stringify(body)),
+        } as unknown as Response);
+      if (init?.method === 'PUT') return Promise.resolve({ ok: true, status: 200 } as Response);
+      if (url.endsWith('/uploads')) {
+        n += 1;
+        return respond(200, {
+          data: { uploadUrl: 'https://s3/put', objectKey: `m/form_m/d${n}/docs` },
+        });
+      }
+      if (url.endsWith('/submissions')) return respond(200, { data: { submissionId: 'sub_1' } });
+      return respond(200, { data: schema });
+    }) as unknown as typeof fetch & ReturnType<typeof vi.fn>;
+  }
+
+  async function mountMulti(maxFiles = 3) {
+    const schema = multiSchema(maxFiles);
+    const fetchImpl = multiFetch(schema);
+    const el = document.createElement('ratio-form') as RatioForm;
+    el.formId = 'form_m';
+    el.client = new FormsClient({ apiBase: '/forms' }, fetchImpl);
+    document.body.appendChild(el);
+    await flush();
+    await el.updateComplete;
+    return { el, fetchImpl };
+  }
+
+  function attach(el: RatioForm, files: File[]): void {
+    const input = shadow(el).querySelector('input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { value: files, configurable: true });
+    input.dispatchEvent(new Event('change'));
+  }
+
+  const pdf = (name: string, size = 128) =>
+    new File([new ArrayBuffer(size)], name, { type: 'application/pdf' });
+
+  it('renders a multiple-select input and a row per chosen file with a remove control', async () => {
+    const { el } = await mountMulti();
+    const input = shadow(el).querySelector('input[type="file"]') as HTMLInputElement;
+    expect(input.multiple).toBe(true);
+    attach(el, [pdf('a.pdf'), pdf('b.pdf')]);
+    await el.updateComplete;
+    expect(shadow(el).querySelectorAll('.rf-file')).toHaveLength(2);
+    expect(shadow(el).querySelectorAll('.rf-file-remove')).toHaveLength(2);
+    expect(shadow(el).querySelector('.rf-file-hint')?.textContent).toContain('2/3');
+  });
+
+  it('uploads each file and POSTs an ARRAY of object keys for the multi-file field', async () => {
+    const { el, fetchImpl } = await mountMulti();
+    attach(el, [pdf('a.pdf'), pdf('b.pdf')]);
+    await el.updateComplete;
+    const button = shadow(el).querySelector('.rf-submit') as HTMLButtonElement;
+    button.click();
+    await flush();
+    await el.updateComplete;
+    const presigns = fetchImpl.mock.calls.filter((c) => String(c[0]).endsWith('/uploads'));
+    expect(presigns).toHaveLength(2);
+    const post = fetchImpl.mock.calls.find((c) => String(c[0]).endsWith('/submissions'));
+    const body = JSON.parse(String((post?.[1] as RequestInit).body));
+    expect(body.files.docs).toEqual(['m/form_m/d1/docs', 'm/form_m/d2/docs']);
+  });
+
+  it('remove drops one file from the list', async () => {
+    const { el } = await mountMulti();
+    attach(el, [pdf('a.pdf'), pdf('b.pdf')]);
+    await el.updateComplete;
+    (shadow(el).querySelector('.rf-file-remove') as HTMLButtonElement).click();
+    await el.updateComplete;
+    expect(shadow(el).querySelectorAll('.rf-file')).toHaveLength(1);
+  });
+
+  it('caps selection at maxFiles', async () => {
+    const { el } = await mountMulti(2);
+    attach(el, [pdf('a.pdf'), pdf('b.pdf'), pdf('c.pdf')]);
+    await el.updateComplete;
+    expect(shadow(el).querySelectorAll('.rf-file')).toHaveLength(2);
+  });
+
+  it('rejects an over-size file with a client validation error before upload', async () => {
+    const { el, fetchImpl } = await mountMulti();
+    attach(el, [pdf('big.pdf', 4096)]);
+    await el.updateComplete;
+    const button = shadow(el).querySelector('.rf-submit') as HTMLButtonElement;
+    button.click();
+    await flush();
+    await el.updateComplete;
+    expect(shadow(el).querySelector('[data-error-for="docs"]')).toBeTruthy();
+    expect(fetchImpl.mock.calls.some((c) => String(c[0]).endsWith('/uploads'))).toBe(false);
+  });
+});

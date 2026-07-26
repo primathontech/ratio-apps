@@ -37,6 +37,24 @@ export const HIDDEN_DEFAULT_SOURCE: HiddenSource = 'url_param';
  */
 export const HIDDEN_MAX_VALUE_LENGTH = 2048;
 
+/**
+ * Provenance of one resolved hidden value, persisted per submission in
+ * `form_submissions.context_json` (§4, migration 0005). `source` is the
+ * configured/derived source the value came from; `value` is the raw resolved
+ * string that was stored. Zod-free so both the backend writer and the admin
+ * detail view import it type-only without pulling Zod. Optional/nullable at the
+ * column level — a submission with no hidden fields writes no context.
+ */
+export interface HiddenFieldProvenance {
+  /** Which source produced the value (`url_param` when the field left it unset). */
+  source: HiddenSource;
+  /** The raw resolved value that was submitted/derived for this field. */
+  value: string;
+}
+
+/** field key → provenance for every hidden field that resolved a value. */
+export type SubmissionContext = Record<string, HiddenFieldProvenance>;
+
 /** The field config fields the resolver reads (a structural subset of the schema). */
 export interface HiddenResolveField {
   source?: HiddenSource | undefined;

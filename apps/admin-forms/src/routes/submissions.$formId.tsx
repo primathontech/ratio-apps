@@ -228,7 +228,7 @@ function SubmissionDetailPanel({ submissionId }: { submissionId: string }) {
   if (detail.isError || !detail.data) {
     return <Alert type="error" showIcon message="Could not load this submission." />;
   }
-  const { data, files, fileUrls } = detail.data;
+  const { data, files, fileUrls, context } = detail.data;
   return (
     <Space direction="vertical" size={8} style={{ display: 'flex' }}>
       {Object.entries(data).map(([key, value]) => (
@@ -237,22 +237,37 @@ function SubmissionDetailPanel({ submissionId }: { submissionId: string }) {
             {key}
           </Typography.Text>
           <Typography.Text>{formatValue(value)}</Typography.Text>
+          {context?.[key] ? (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              (from {context[key].source})
+            </Typography.Text>
+          ) : null}
         </div>
       ))}
-      {Object.keys(files).map((key) => (
-        <div key={key} style={{ display: 'flex', gap: 8 }}>
-          <Typography.Text strong style={{ minWidth: 140 }}>
-            {key}
-          </Typography.Text>
-          {fileUrls[key] ? (
-            <a href={fileUrls[key]} target="_blank" rel="noreferrer">
-              Download file
-            </a>
-          ) : (
-            <Typography.Text type="secondary">file unavailable</Typography.Text>
-          )}
-        </div>
-      ))}
+      {Object.keys(files).map((key) => {
+        // A multi-file field carries an array of signed URLs; a single-file
+        // field a lone URL. Normalize to a list so we render N download links.
+        const urls = fileUrls[key];
+        const list = Array.isArray(urls) ? urls : urls ? [urls] : [];
+        return (
+          <div key={key} style={{ display: 'flex', gap: 8 }}>
+            <Typography.Text strong style={{ minWidth: 140 }}>
+              {key}
+            </Typography.Text>
+            {list.length > 0 ? (
+              <Space direction="vertical" size={2}>
+                {list.map((url, i) => (
+                  <a key={url} href={url} target="_blank" rel="noreferrer">
+                    {list.length > 1 ? `Download file ${i + 1}` : 'Download file'}
+                  </a>
+                ))}
+              </Space>
+            ) : (
+              <Typography.Text type="secondary">file unavailable</Typography.Text>
+            )}
+          </div>
+        );
+      })}
     </Space>
   );
 }
