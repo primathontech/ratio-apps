@@ -1,5 +1,6 @@
 import { html, nothing, type TemplateResult } from 'lit';
 import type { ControlFieldOf, FieldRenderCtx } from '../types';
+import { fileRejection } from './validate';
 
 /** Human-readable byte size for the per-file meta line (e.g. "12.3 KB"). */
 function formatBytes(bytes: number): string {
@@ -7,6 +8,68 @@ function formatBytes(bytes: number): string {
   const kb = bytes / 1024;
   if (kb < 1024) return `${kb.toFixed(kb < 10 ? 1 : 0)} KB`;
   return `${(kb / 1024).toFixed(1)} MB`;
+}
+
+// One object URL per File, memoized so repeated renders (e.g. a keystroke in an
+// unrelated field re-runs the template) reuse the SAME url instead of decoding a
+// fresh blob every time — that re-decode is the visible thumbnail flicker, and
+// each discarded url was a leak. The Remove handler revokes + evicts its entry.
+const objectUrls = new WeakMap<File, string>();
+
+function objectUrlFor(file: File): string {
+  let url = objectUrls.get(file);
+  if (url === undefined) {
+    url = URL.createObjectURL(file);
+    objectUrls.set(file, url);
+  }
+  return url;
+}
+
+function revokeObjectUrl(file: File): void {
+  const url = objectUrls.get(file);
+  if (url !== undefined) {
+    URL.revokeObjectURL(url);
+    objectUrls.delete(file);
+  }
+}
+
+// Transient hint-line feedback (files dropped for the limit, or files rejected
+// for mime/size at add time). Scoped to the form instance via its `files` record
+// so notices never bleed between concurrently-mounted forms, and auto-dismissed
+// on a short timer so the hint returns to the plain "N/M selected" state.
+interface Notice {
+  msg: string;
+  timer: ReturnType<typeof setTimeout>;
+}
+const noticeState = new WeakMap<Record<string, File[]>, Map<string, Notice>>();
+const NOTICE_MS = 6000;
+
+function fileNotice(ctx: FieldRenderCtx, key: string): string | undefined {
+  return noticeState.get(ctx.files)?.get(key)?.msg;
+}
+
+function setFileNotice(ctx: FieldRenderCtx, key: string, msg: string): void {
+  let byKey = noticeState.get(ctx.files);
+  if (byKey === undefined) {
+    byKey = new Map();
+    noticeState.set(ctx.files, byKey);
+  }
+  const prev = byKey.get(key);
+  if (prev) clearTimeout(prev.timer);
+  const timer = setTimeout(() => {
+    byKey?.delete(key);
+    ctx.requestUpdate();
+  }, NOTICE_MS);
+  byKey.set(key, { msg, timer });
+}
+
+function clearFileNotice(ctx: FieldRenderCtx, key: string): void {
+  const byKey = noticeState.get(ctx.files);
+  const prev = byKey?.get(key);
+  if (prev) {
+    clearTimeout(prev.timer);
+    byKey?.delete(key);
+  }
 }
 
 /**
@@ -50,6 +113,7 @@ export function renderFile(field: ControlFieldOf<'file'>, ctx: FieldRenderCtx): 
 
   const selected = ctx.files[field.key] ?? [];
   const atLimit = selected.length >= maxFiles;
+  const notice = fileNotice(ctx, field.key);
   return html`<div class="rf-filefield">
     <input
       id=${ctx.id}
@@ -63,24 +127,51 @@ export function renderFile(field: ControlFieldOf<'file'>, ctx: FieldRenderCtx): 
       @change=${(e: Event) => {
         const input = e.target as HTMLInputElement;
         const picked = Array.from(input.files ?? []);
+        // Reject wrong-mime / oversize files at ADD time (rather than letting
+        // them sit in the list looking accepted until a blur/submit surfaces an
+        // anonymous field-level error): keep the good ones, name the bad ones.
+        const rejected: string[] = [];
+        const okPicked: File[] = [];
+        for (const file of picked) {
+          const reason = fileRejection(field, file);
+          if (reason) rejected.push(`"${file.name}" (${reason})`);
+          else okPicked.push(file);
+        }
         // Append, dedupe (by name+size+lastModified), and cap at maxFiles so
         // multiple picks accumulate without exceeding the field's limit.
         const current = ctx.files[field.key] ?? [];
         const seen = new Set(current.map((f) => `${f.name}:${f.size}:${f.lastModified}`));
         const merged = [...current];
-        for (const file of picked) {
+        for (const file of okPicked) {
           const sig = `${file.name}:${file.size}:${file.lastModified}`;
           if (seen.has(sig)) continue;
           seen.add(sig);
           merged.push(file);
         }
-        ctx.files[field.key] = merged.slice(0, maxFiles);
+        const capped = merged.slice(0, maxFiles);
+        // How many accepted-but-new files the maxFiles cap actually dropped.
+        const droppedForLimit = merged.length - capped.length;
+        ctx.files[field.key] = capped;
         // Clear the native input so re-picking the same file still fires change.
         input.value = '';
+
+        // Surface a transient hint-line message when files silently vanished —
+        // either dropped for the limit or rejected for type/size.
+        const notes: string[] = [];
+        if (droppedForLimit > 0) {
+          notes.push(`Only ${maxFiles} files allowed — extra files weren't added.`);
+        }
+        if (rejected.length > 0) {
+          notes.push(`Couldn't add ${rejected.join(', ')}.`);
+        }
+        if (notes.length > 0) setFileNotice(ctx, field.key, notes.join(' '));
+        else clearFileNotice(ctx, field.key);
+
         ctx.requestUpdate();
       }}
     />
     <p class="rf-file-hint">${selected.length}/${maxFiles} selected</p>
+    ${notice !== undefined ? html`<p class="rf-file-notice" role="status">${notice}</p>` : nothing}
     ${
       selected.length > 0
         ? html`<ul class="rf-files">
@@ -99,10 +190,10 @@ function renderFileRow(
   ctx: FieldRenderCtx,
 ): TemplateResult {
   const isImage = file.type.startsWith('image/');
-  // Object URLs are cheap and the form is short-lived; a thumbnail only for
-  // images, a text chip otherwise.
+  // A memoized object URL thumbnail for images (see `objectUrlFor`), a text chip
+  // otherwise.
   const preview = isImage
-    ? html`<img class="rf-file-thumb" src=${URL.createObjectURL(file)} alt="" />`
+    ? html`<img class="rf-file-thumb" src=${objectUrlFor(file)} alt="" />`
     : html`<span class="rf-file-thumb rf-file-thumb-doc" aria-hidden="true">FILE</span>`;
   return html`<li class="rf-file">
     ${preview}
@@ -115,6 +206,8 @@ function renderFileRow(
       class="rf-file-remove"
       aria-label=${`Remove ${file.name}`}
       @click=${() => {
+        // Revoke the memoized thumbnail url so removing a file frees its blob.
+        revokeObjectUrl(file);
         const next = (ctx.files[key] ?? []).slice();
         next.splice(index, 1);
         ctx.files[key] = next;
