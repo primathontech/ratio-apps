@@ -2472,15 +2472,21 @@ describe('ratio-form file field — multi-file (maxFiles)', () => {
     expect(shadow(el).querySelectorAll('.rf-file')).toHaveLength(2);
   });
 
-  it('rejects an over-size file with a client validation error before upload', async () => {
+  it('rejects an over-size file at add time (named, never added) and uploads nothing', async () => {
     const { el, fetchImpl } = await mountMulti();
     attach(el, [pdf('big.pdf', 4096)]);
     await el.updateComplete;
+    // The bad file is rejected on selection: it never becomes an accepted row,
+    // and the shopper gets a named, per-file reason instead of a submit-only
+    // anonymous field error.
+    expect(shadow(el).querySelectorAll('.rf-file')).toHaveLength(0);
+    const notice = shadow(el).querySelector('.rf-file-notice');
+    expect(notice?.textContent).toContain('big.pdf');
+    expect(notice?.textContent).toContain('at most');
     const button = shadow(el).querySelector('.rf-submit') as HTMLButtonElement;
     button.click();
     await flush();
     await el.updateComplete;
-    expect(shadow(el).querySelector('[data-error-for="docs"]')).toBeTruthy();
     expect(fetchImpl.mock.calls.some((c) => String(c[0]).endsWith('/uploads'))).toBe(false);
   });
 });
