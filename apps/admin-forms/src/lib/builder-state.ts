@@ -45,6 +45,13 @@ export interface AppearancePatch {
   /** Present (incl. `undefined`) = set/clear the logo; absent = leave it. */
   logo?: FormAppearance['logo'];
   cover?: FormAppearance['cover'];
+  // Batch 6 — form-wide branding toggles (shallow-merged onto the current
+  // branding, like colors/layout).
+  branding?: Partial<FormAppearance['branding']>;
+  // Batch 6 — structured end states. Shallow-merged one level (each state panel
+  // is composed whole by the caller); `undefined` clears the whole object, an
+  // absent key leaves it — same set/clear posture as logo/cover.
+  endings?: FormAppearance['endings'];
 }
 
 export interface BuilderState {
@@ -341,6 +348,18 @@ export function builderReducer(state: BuilderState, action: BuilderAction): Buil
         // logo/cover are set/cleared wholesale; an absent key leaves them as-is.
         logo: 'logo' in patch ? patch.logo : base.logo,
         cover: 'cover' in patch ? patch.cover : base.cover,
+        // Batch 6 — branding shallow-merges over the default so an old form
+        // (stored before branding existed) still yields a defined toggle.
+        branding: { ...DEFAULT_APPEARANCE.branding, ...base.branding, ...patch.branding },
+        // Batch 6 — endings: merge onto the current object, `undefined` clears,
+        // an absent key leaves it. The nested per-state panel is composed whole
+        // by the caller, so a one-level merge is enough.
+        endings:
+          'endings' in patch
+            ? patch.endings === undefined
+              ? undefined
+              : { ...base.endings, ...patch.endings }
+            : base.endings,
       };
       return { ...state, meta: { ...state.meta, appearance }, dirty: true };
     }

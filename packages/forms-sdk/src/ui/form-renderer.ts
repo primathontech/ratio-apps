@@ -1,5 +1,5 @@
 // Type-only shapes of the shared form-schema contract (no Zod in the bundle).
-import type { FormAppearance, FormField } from '@ratio-app/shared';
+import type { FormAppearance, FormEndingIcon, FormField } from '@ratio-app/shared';
 import { resolveHiddenValue } from '@ratio-app/shared/schemas/fields/hidden/constants';
 // Adornment capability matrix (§2.3) — the single source of truth shared with
 // the admin builder, so the two never drift over which types get chips/counters.
@@ -75,6 +75,45 @@ const BUTTON_ICONS: Record<'arrow' | 'check' | 'send', TemplateResult> = {
   check: svg`<path d="M20 6L9 17l-5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`,
   send: svg`<path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`,
 };
+
+// Batch 6 — curated end-panel glyphs keyed by the shared FORM_ENDING_ICONS enum
+// (same static-markup-only pattern as BUTTON_ICONS). Rendered at 44×44 via
+// renderEndingIcon; 'currentColor' so each panel's accent tokens tint it. The
+// 'check' path matches today's success glyph exactly.
+const ENDING_ICONS: Record<Exclude<FormEndingIcon, 'none'>, TemplateResult> = {
+  check: svg`<circle cx="12" cy="12" r="11" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.35"></circle><path d="M7 12.4l3.3 3.3L17 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>`,
+  info: svg`<circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.5"></circle><path d="M12 11v5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><circle cx="12" cy="7.6" r="0.9" fill="currentColor"></circle>`,
+  warning: svg`<path d="M12 3.5l9 15.5H3z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"></path><path d="M12 10v4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><circle cx="12" cy="16.6" r="0.9" fill="currentColor"></circle>`,
+  lock: svg`<rect x="5" y="10.5" width="14" height="9.5" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"></rect><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>`,
+  clock: svg`<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.5"></circle><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>`,
+};
+
+// Default glyph per end state when the merchant authors copy but no icon. Mirrors
+// the shared FORM_ENDING_STATES set; 'success' keeps today's check.
+const DEFAULT_ENDING_ICON: Record<
+  'success' | 'closed' | 'expired' | 'unavailable' | 'error',
+  FormEndingIcon
+> = {
+  success: 'check',
+  closed: 'lock',
+  expired: 'clock',
+  unavailable: 'info',
+  error: 'warning',
+};
+
+// Default body copy per non-success end state — the exact strings today's
+// status screens show, reused when a merchant authors a panel (an icon/heading)
+// but leaves the body blank, so the fallback text is never lost.
+const DEFAULT_ENDING_BODY: Record<'closed' | 'expired' | 'unavailable' | 'error', string> = {
+  closed: 'This form is closed.',
+  expired: 'This form is no longer available.',
+  unavailable: 'This form is no longer available.',
+  error: 'This form could not be loaded.',
+};
+
+// Hardcoded "Powered by" footer target (branding.showPoweredBy). Single named
+// constant so the link is trivial to retarget; no merchant value reaches it.
+const POWERED_BY_URL = 'https://ratio.so';
 
 /** The subset of states the admin preview can request via `previewState`. */
 export type PreviewState = 'ready' | 'success' | 'error' | 'closed';
@@ -189,17 +228,37 @@ export class RatioForm extends LitElement {
       }
       .rf-logo {
         display: block;
-        max-height: 56px;
+        /* Batch 6 — logo height cap from the enum→px token; 56px = today. The
+           per-logo alignment rides an inline margin style (SDK-composed from the
+           align enum) so it wins over the contentAlign host-centering rule. */
+        max-height: var(--wz-logo-max-h, 56px);
         max-width: 100%;
         margin-bottom: 12px;
+      }
+      /* Batch 6 — cover wrapper hosts the dark overlay layer and clips the
+         image (and its optional blur) to the card radius. With overlay 0, blur
+         0, and height 180 the wrapper renders visually identical to today. */
+      .rf-cover-wrap {
+        position: relative;
+        margin-bottom: 16px;
+        border-radius: var(--wz-radius);
+        overflow: hidden;
+      }
+      .rf-cover-wrap::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        /* rgba(0,0,0,0) (default) is fully transparent ⇒ no overlay today. */
+        background: var(--wz-cover-overlay, rgba(0, 0, 0, 0));
+        pointer-events: none;
       }
       .rf-cover {
         display: block;
         width: 100%;
-        max-height: 180px;
+        max-height: var(--wz-cover-max-h, 180px);
         object-fit: cover;
-        border-radius: var(--wz-radius);
-        margin-bottom: 16px;
+        /* Blur filter (0 ⇒ none by default). Radius lives on the wrapper. */
+        filter: var(--wz-cover-filter, none);
       }
       .rf-title {
         margin: 0 0 4px;
@@ -831,6 +890,21 @@ export class RatioForm extends LitElement {
         line-height: 1.5;
         overflow-wrap: break-word;
       }
+      /* Batch 6 — structured end-panel heading sits above the body copy, in the
+         heading font/color; only rendered when the merchant authors one. */
+      .rf-status-heading {
+        margin: 0;
+        font-family: var(--wz-font-heading);
+        font-weight: 700;
+        font-size: var(--wz-fs-h3);
+        color: var(--wz-fg);
+      }
+      /* Batch 6 — the redirect countdown line under the success message. */
+      .rf-countdown {
+        margin: 0;
+        color: var(--wz-muted);
+        font-size: calc(var(--wz-font-size) - 1px);
+      }
       /* §1 — success panel driven by the success tokens (default to the primary
          mix, so today's look is unchanged; recolors when colors.success is set). */
       .rf-success {
@@ -855,6 +929,18 @@ export class RatioForm extends LitElement {
       .rf-form-error {
         color: var(--wz-error);
         font-size: calc(var(--wz-font-size) - 1px);
+      }
+      /* Batch 6 — optional "Powered by" footer under the card content; only
+         rendered when branding.showPoweredBy is on. A static link to a
+         hardcoded target — no merchant string reaches the href. */
+      .rf-powered {
+        margin: 14px 0 0;
+        text-align: center;
+        color: var(--wz-muted);
+        font-size: calc(var(--wz-font-size) - 2px);
+      }
+      .rf-powered a {
+        color: var(--wz-link);
       }
       /* Reduced motion (§1.7): collapse the duration token to ~0 rather than
          killing transitions outright, so transitionend still fires (floating
@@ -899,6 +985,9 @@ export class RatioForm extends LitElement {
   @state() private fieldErrors: Record<string, string> = {};
   @state() private formError = '';
   @state() private hp = '';
+  // Batch 6 — whole seconds left on the post-submit redirect countdown; 0 hides
+  // it. Only ticked when endings.showRedirectCountdown is on (see maybeRedirect).
+  @state() private redirectRemaining = 0;
 
   private files: Record<string, File | null> = {};
   private recaptchaInjected = false;
@@ -1134,13 +1223,31 @@ export class RatioForm extends LitElement {
     document.head.appendChild(link);
   }
 
-  /** After a successful submit, follow the form's redirectUrl (if any). */
+  /**
+   * After a successful submit, follow the form's redirectUrl (if any). Batch 6:
+   * the delay honors `endings.redirectDelaySeconds` (absent ⇒ today's
+   * REDIRECT_DELAY_MS), and when `endings.showRedirectCountdown` is on a
+   * whole-second counter ticks down on the success panel. Both are additive —
+   * an un-set form redirects after exactly 1500ms with no countdown, as today.
+   */
   private maybeRedirect(): void {
     const url = this.schema?.redirectUrl;
     if (!url) return;
+    const endings = this.appearance?.endings;
+    const delayMs =
+      typeof endings?.redirectDelaySeconds === 'number'
+        ? endings.redirectDelaySeconds * 1000
+        : REDIRECT_DELAY_MS;
+    if (endings?.showRedirectCountdown) {
+      this.redirectRemaining = Math.ceil(delayMs / 1000);
+      const timer = setInterval(() => {
+        this.redirectRemaining -= 1;
+        if (this.redirectRemaining <= 0) clearInterval(timer);
+      }, 1000);
+    }
     setTimeout(() => {
       window.location.assign(url);
-    }, REDIRECT_DELAY_MS);
+    }, delayMs);
   }
 
   private async recaptchaToken(): Promise<string | undefined> {
@@ -1380,8 +1487,21 @@ export class RatioForm extends LitElement {
       </style>
       <div class="rf-root">
         <div class="rf-bg"></div>
-        <div class="rf-card">${this.renderHeader()}${this.renderState()}</div>
+        <div class="rf-card">${this.renderHeader()}${this.renderState()}${this.renderPoweredBy()}</div>
       </div>`;
+  }
+
+  /**
+   * Batch 6 — the optional "Powered by" footer. Rendered only when
+   * branding.showPoweredBy is on; a static link to a hardcoded target, so no
+   * merchant string ever reaches the href (Lit escapes the label regardless).
+   */
+  private renderPoweredBy(): TemplateResult | typeof nothing {
+    if (!this.appearance?.branding?.showPoweredBy) return nothing;
+    return html`<p class="rf-powered">
+      Powered by
+      <a href=${POWERED_BY_URL} target="_blank" rel="noopener noreferrer">Ratio Forms</a>
+    </p>`;
   }
 
   /**
@@ -1407,13 +1527,44 @@ export class RatioForm extends LitElement {
   private renderHeader(): TemplateResult | typeof nothing {
     const schema = this.schema;
     if (!schema) return nothing;
-    const logo = this.appearance?.logo?.url;
-    const cover = this.appearance?.cover?.url;
+    const logo = this.appearance?.logo;
+    const cover = this.appearance?.cover;
     return html`<div class="rf-head">
-      ${logo ? html`<img class="rf-logo" src=${logo} alt="" />` : nothing}
-      ${cover ? html`<img class="rf-cover" src=${cover} alt="" />` : nothing}
+      ${logo?.url ? this.renderLogo(logo) : nothing}
+      ${cover?.url ? this.renderCover(cover) : nothing}
       <h2 class="rf-title">${schema.name}</h2>
       ${schema.description ? html`<p class="rf-desc">${schema.description}</p>` : nothing}
+    </div>`;
+  }
+
+  /**
+   * Batch 6 — the brand logo. Height comes from the enum→px token (§theme); the
+   * per-logo alignment rides an inline `margin` style composed from the align
+   * enum (SDK-built, never a merchant string) so it beats the contentAlign
+   * host-centering rule. `alt` is the merchant's accessible name (Lit escapes
+   * it); absent/'' ⇒ a decorative image, matching today's empty alt.
+   */
+  private renderLogo(logo: NonNullable<FormAppearance['logo']>): TemplateResult {
+    const align = logo.align ?? 'left';
+    // Fixed enum→margin map — inert CSS, no merchant value reaches it.
+    const marginX =
+      align === 'center'
+        ? 'margin-left:auto;margin-right:auto'
+        : align === 'right'
+          ? 'margin-left:auto;margin-right:0'
+          : 'margin-left:0;margin-right:auto';
+    return html`<img class="rf-logo" src=${logo.url} alt=${logo.alt ?? ''} style=${marginX} />`;
+  }
+
+  /**
+   * Batch 6 — the cover image, wrapped so the SDK-built dark overlay layer and
+   * the optional blur/height (all from bounded-number tokens) clip to the card
+   * radius. With overlay 0, blur 0, and height 180 the output is visually
+   * identical to today's bare `.rf-cover`.
+   */
+  private renderCover(cover: NonNullable<FormAppearance['cover']>): TemplateResult {
+    return html`<div class="rf-cover-wrap">
+      <img class="rf-cover" src=${cover.url} alt=${cover.alt ?? ''} />
     </div>`;
   }
 
@@ -1421,62 +1572,106 @@ export class RatioForm extends LitElement {
     switch (this.status) {
       case 'loading':
         return html`<div class="rf-status" data-state="loading">Loading...</div>`;
+      // Batch 6 — each non-success end state renders its structured panel when
+      // the merchant authored `endings.<state>`, else today's exact template
+      // (byte-identical when `endings` is absent).
       case 'closed':
-        return html`<div
-          class="rf-status"
-          data-state="closed"
-          role="status"
-          aria-live="polite"
-          tabindex="-1"
-        >
-          This form is closed.
-        </div>`;
+        return (
+          this.renderEndingPanel('closed') ??
+          html`<div class="rf-status" data-state="closed" role="status" aria-live="polite" tabindex="-1">This form is closed.</div>`
+        );
       case 'unavailable':
-        return html`<div
-          class="rf-status"
-          data-state="unavailable"
-          role="status"
-          aria-live="polite"
-          tabindex="-1"
-        >
-          This form is no longer available.
-        </div>`;
+        return (
+          this.renderEndingPanel('unavailable') ??
+          html`<div class="rf-status" data-state="unavailable" role="status" aria-live="polite" tabindex="-1">
+            This form is no longer available.
+          </div>`
+        );
       case 'error':
-        return html`<div
-          class="rf-status"
-          data-state="error"
-          role="status"
-          aria-live="polite"
-          tabindex="-1"
-        >
-          This form could not be loaded.
-        </div>`;
+        return (
+          this.renderEndingPanel('error') ??
+          html`<div class="rf-status" data-state="error" role="status" aria-live="polite" tabindex="-1">
+            This form could not be loaded.
+          </div>`
+        );
       case 'success':
-        // §a11y — role=status + aria-live announce the outcome to a screen
-        // reader, and tabindex=-1 makes the panel programmatically focusable so
-        // updated() can move focus here once the submit button is gone.
-        return html`<div
-          class="rf-status rf-success"
-          data-state="success"
-          role="status"
-          aria-live="polite"
-          tabindex="-1"
-        >
-          <svg
-            class="rf-status-icon"
-            viewBox="0 0 24 24"
-            width="44"
-            height="44"
-            aria-hidden="true"
-          >
-            <circle cx="12" cy="12" r="11" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.35"></circle>
-            <path d="M7 12.4l3.3 3.3L17 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
-          </svg>
-          <p class="rf-status-msg">${this.schema?.successMessage ?? 'Thank you!'}</p>
-        </div>`;
+        return this.renderSuccessPanel();
       default:
         return this.renderForm();
     }
+  }
+
+  /**
+   * Batch 6 — the post-submit confirmation. Byte-identical to today (the exact
+   * check glyph + successMessage) when no `endings.success` copy is authored and
+   * no countdown is ticking. Otherwise the structured panel: an authored/def
+   * icon, an optional heading, the body chained back to successMessage, and the
+   * live redirect countdown when enabled (E4 back-compat chain E1a).
+   */
+  private renderSuccessPanel(): TemplateResult {
+    const cfg = this.appearance?.endings?.success;
+    const remaining = this.redirectRemaining;
+    if (!cfg && remaining <= 0) {
+      return html`<div class="rf-status rf-success" data-state="success" role="status" aria-live="polite" tabindex="-1">
+        <svg
+          class="rf-status-icon"
+          viewBox="0 0 24 24"
+          width="44"
+          height="44"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="12" r="11" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.35"></circle>
+          <path d="M7 12.4l3.3 3.3L17 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>
+        <p class="rf-status-msg">${this.schema?.successMessage ?? 'Thank you!'}</p>
+      </div>`;
+    }
+    const icon = cfg?.icon ?? DEFAULT_ENDING_ICON.success;
+    const body = cfg?.body ?? this.schema?.successMessage ?? 'Thank you!';
+    return html`<div class="rf-status rf-success" data-state="success" role="status" aria-live="polite" tabindex="-1">
+      ${this.renderEndingIcon(icon)}
+      ${cfg?.heading ? html`<p class="rf-status-heading">${cfg.heading}</p>` : nothing}
+      <p class="rf-status-msg">${body}</p>
+      ${
+        remaining > 0
+          ? html`<p class="rf-countdown" aria-live="polite">Redirecting in ${remaining}s…</p>`
+          : nothing
+      }
+    </div>`;
+  }
+
+  /**
+   * Batch 6 — a structured panel for a non-success end state, or null when the
+   * merchant authored no copy for it (the caller then falls back to today's
+   * exact template). The body chains to the state's built-in default string, so
+   * authoring only an icon/heading never drops the explanatory text.
+   */
+  private renderEndingPanel(
+    state: 'closed' | 'expired' | 'unavailable' | 'error',
+  ): TemplateResult | null {
+    const cfg = this.appearance?.endings?.[state];
+    if (!cfg) return null;
+    const icon = cfg.icon ?? DEFAULT_ENDING_ICON[state];
+    const body = cfg.body ?? DEFAULT_ENDING_BODY[state];
+    return html`<div class="rf-status" data-state=${state} role="status" aria-live="polite" tabindex="-1">
+      ${this.renderEndingIcon(icon)}
+      ${cfg.heading ? html`<p class="rf-status-heading">${cfg.heading}</p>` : nothing}
+      <p class="rf-status-msg">${body}</p>
+    </div>`;
+  }
+
+  /** Batch 6 — a 44×44 end-panel glyph from the curated map; 'none' hides it. */
+  private renderEndingIcon(icon: FormEndingIcon): TemplateResult | typeof nothing {
+    if (icon === 'none') return nothing;
+    return html`<svg
+      class="rf-status-icon"
+      viewBox="0 0 24 24"
+      width="44"
+      height="44"
+      aria-hidden="true"
+    >
+      ${ENDING_ICONS[icon]}
+    </svg>`;
   }
 
   /**
