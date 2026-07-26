@@ -496,6 +496,19 @@ describe('themeVars Batch 5 (visual-payoff theming)', () => {
     expect(themeVars(appearance({ layout: { maxWidth: 480 } }))).toContain('--wz-max-width: 480px');
   });
 
+  it('emits a bounded status-max-width that never feeds `none` into min() (fluidWidth bug)', () => {
+    // Default: the status card caps at min(26rem, maxWidth).
+    expect(themeVars(appearance())).toContain('--wz-status-max-width: min(26rem, 640px)');
+    expect(themeVars(appearance({ layout: { maxWidth: 480 } }))).toContain(
+      '--wz-status-max-width: min(26rem, 480px)',
+    );
+    // Under fluidWidth --wz-max-width becomes `none`; the status cap must stay a
+    // fixed 26rem (min(26rem, none) is invalid CSS → full-page status panel).
+    const fluid = themeVars(appearance({ layout: { fluidWidth: true } }));
+    expect(fluid).toContain('--wz-status-max-width: 26rem');
+    expect(fluid).not.toContain('--wz-status-max-width: min(26rem, none)');
+  });
+
   it('maps focusOffset to the offset token', () => {
     expect(themeVars(appearance({ layout: { focusOffset: 0 } }))).toContain(
       '--wz-focus-offset: 0px',

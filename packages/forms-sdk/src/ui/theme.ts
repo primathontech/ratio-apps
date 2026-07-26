@@ -285,6 +285,11 @@ export function themeVars(appearance?: FormsThemeInput): string {
   const padX = l?.inputPadX ?? 10;
   const cardPad = l?.cardPadding ?? density.cardPad;
   const maxWidth = l?.fluidWidth ? 'none' : `${l?.maxWidth ?? 640}px`;
+  // §1.3 — the status/ending card keeps a comfortable confirmation cap even
+  // under fluidWidth, which sets --wz-max-width to `none`. Feeding that into
+  // `min(26rem, none)` is invalid CSS (the panel would then span the page), so
+  // emit a dedicated bounded token the status rule consumes instead.
+  const statusMaxWidth = l?.fluidWidth ? '26rem' : `min(26rem, ${l?.maxWidth ?? 640}px)`;
 
   // §1.8 — easing selects a fixed curve (duration handled by `dur` above/below).
   const ease = EASING_CURVES[l?.easing ?? 'standard'];
@@ -348,6 +353,8 @@ export function themeVars(appearance?: FormsThemeInput): string {
     `--wz-input-min-h: ${inputMinH}px; ` +
     // §1.3 — fluidWidth drops the cap (none); otherwise the bounded max-width.
     `--wz-max-width: ${maxWidth}; ` +
+    // §1.3 — bounded status/ending cap; safe under fluidWidth (never `none`).
+    `--wz-status-max-width: ${statusMaxWidth}; ` +
     `--wz-btn-radius: ${btnRadius}; ` +
     `--wz-btn-align: ${btnAlign}; ` +
     `--wz-btn-pad-y: ${btnSize.padY}; ` +
