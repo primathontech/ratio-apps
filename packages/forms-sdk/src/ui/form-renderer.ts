@@ -2006,8 +2006,18 @@ export class RatioForm extends LitElement {
   /** Validate the field focus just left (its first blur → it becomes touched). */
   private onFieldBlur(event: FocusEvent): void {
     const target = event.target as HTMLElement | null;
-    const key = target?.closest('[data-field]')?.getAttribute('data-field');
+    const wrapper = target?.closest('[data-field]');
+    const key = wrapper?.getAttribute('data-field');
     if (!key) return;
+    // Grouped fields (radio / multi_select / checkbox-set / rating) fire a
+    // focusout every time focus hops between their OWN options. Bailing when
+    // the incoming focus (relatedTarget) is still inside this same wrapper
+    // keeps the required/min error from flashing mid-selection; we only fall
+    // through to validate once focus has truly left the field. A null
+    // relatedTarget (focus left the document / crossed the shadow boundary)
+    // counts as "left the field", so it validates like a single control.
+    const nextFocus = event.relatedTarget as Node | null;
+    if (nextFocus && wrapper?.contains(nextFocus)) return;
     const field = (this.schema?.schema ?? []).find((f) => f.key === key);
     if (!field || isContentBlock(field)) return;
     this.touched.add(key);

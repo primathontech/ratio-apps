@@ -2316,6 +2316,48 @@ describe('ratio-form status a11y announcement (§a11y)', () => {
     expect(shadow(el).querySelector('.rf-status')).toBeNull();
     expect(shadow(el).activeElement).toBeNull();
   });
+
+  it('defers a group field until focus leaves it, but a text field still blurs', async () => {
+    // Make the multi_select required so an empty group has an error to (not) show.
+    const base = kitchenSinkSchema();
+    const requiredInterests = {
+      ...base,
+      schema: base.schema.map((f) =>
+        (f as { key: string }).key === 'interests' ? { ...f, required: true } : f,
+      ) as PublicFormSchema['schema'],
+    };
+    const { el } = await mount({ schema: { status: 200, body: { data: requiredInterests } } });
+
+    expect(
+      shadow(el).querySelectorAll('[data-field="interests"] input[name="interests"]'),
+    ).toHaveLength(2);
+    const optA = shadow(el).querySelector(
+      '[data-field="interests"] input[value="A"]',
+    ) as HTMLInputElement;
+    const optB = shadow(el).querySelector(
+      '[data-field="interests"] input[value="B"]',
+    ) as HTMLInputElement;
+
+    // Tabbing from option A to option B stays inside the same group wrapper, so
+    // the required error must NOT flash mid-selection (relatedTarget in-field).
+    optA.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: optB }));
+    await flush();
+    expect(shadow(el).querySelector('[data-error-for="interests"]')).toBeFalsy();
+
+    // Focus leaving the group entirely (relatedTarget outside the wrapper) does
+    // surface the required error.
+    const outside = shadow(el).querySelector('[name="email"]') as HTMLInputElement;
+    optB.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: outside }));
+    await flush();
+    expect(shadow(el).querySelector('[data-error-for="interests"]')).toBeTruthy();
+
+    // A single-control text field still validates on its own blur (no
+    // relatedTarget → treated as "left the field").
+    const name = shadow(el).querySelector('[name="full_name"]') as HTMLInputElement;
+    name.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+    await flush();
+    expect(shadow(el).querySelector('[data-error-for="full_name"]')).toBeTruthy();
+  });
 });
 
 describe('ratio-form per-field custom CSS', () => {
