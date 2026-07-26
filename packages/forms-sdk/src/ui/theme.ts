@@ -14,6 +14,10 @@ type FontFamily = FormAppearance['typography']['fontFamily'];
 type ButtonSize = FormAppearance['layout']['buttonSize'];
 type InputSize = FormAppearance['layout']['inputSize'];
 type BackgroundConfig = FormAppearance['background'];
+// NonNullable: the optional §1.2/§1.8 enums narrow to their member tuples.
+type TypeScale = NonNullable<FormAppearance['typography']['scaleRatio']>;
+type MotionSpeed = NonNullable<FormAppearance['layout']['motionSpeed']>;
+type Easing = NonNullable<FormAppearance['layout']['easing']>;
 
 // Curated font stacks, keyed by the shared FORM_FONT_FAMILIES enum. 'system'
 // is the current default (no network font); the rest name a family loaded at
@@ -98,11 +102,34 @@ const DENSITY: Record<
   spacious: { gap: 20, padY: 11, cardPad: 36 },
 };
 
-// Card drop shadow, keyed by the shared FORM_SHADOWS enum. 'sm' is the default.
+// Card drop shadow, keyed by the shared FORM_SHADOWS enum. 'sm' is the default;
+// 'lg'/'xl' extend the elevation scale (§1.6 E2a).
 const SHADOWS: Record<FormAppearance['layout']['shadow'], string> = {
   none: 'none',
   sm: '0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.1)',
   md: '0 4px 6px rgba(0, 0, 0, 0.05), 0 10px 20px rgba(0, 0, 0, 0.1)',
+  lg: '0 10px 15px rgba(0, 0, 0, 0.08), 0 20px 40px rgba(0, 0, 0, 0.12)',
+  xl: '0 20px 25px rgba(0, 0, 0, 0.1), 0 30px 60px rgba(0, 0, 0, 0.18)',
+};
+
+// §1.2 — modular type-scale ratio → heading role tokens. Only consulted when a
+// scaleRatio is explicitly set; unset falls back to today's additive sizes.
+const TYPE_SCALE_RATIOS: Record<TypeScale, number> = {
+  'minor-third': 1.2,
+  'major-third': 1.25,
+  'perfect-fourth': 1.333,
+};
+
+// §1.8 — motion speed → base transition duration (s). 'normal' matches today's
+// 0.12s when animations are on. Duration stays 0 while animations are off.
+const MOTION_SPEED_S: Record<MotionSpeed, number> = { slow: 0.24, normal: 0.12, fast: 0.06 };
+
+// §1.8 — easing preset → a fixed cubic-bezier. 'standard' is today's curve.
+const EASING_CURVES: Record<Easing, string> = {
+  standard: 'cubic-bezier(0.4, 0, 0.2, 1)',
+  linear: 'linear',
+  emphasized: 'cubic-bezier(0.2, 0, 0, 1)',
+  spring: 'cubic-bezier(0.34, 1.56, 0.64, 1)',
 };
 
 // Submit button size (§1.5) → vertical padding + font size tokens. 'md' is the
@@ -211,7 +238,7 @@ export function themeVars(appearance?: FormsThemeInput): string {
   // does the duration token become non-zero, so an un-toggled form has no
   // transitions; the renderer still collapses it to ~0 under
   // prefers-reduced-motion so the OS setting always wins.
-  const dur = l?.animations ? '0.12s' : '0s';
+  const dur = l?.animations ? `${MOTION_SPEED_S[l?.motionSpeed ?? 'normal']}s` : '0s';
   // §2.6 — frosted-card blur radius (px). Only meaningful over an image
   // backdrop; the renderer gates the actual backdrop-filter behind a host
   // attribute, so 0 (default) is a no-op.
@@ -234,6 +261,44 @@ export function themeVars(appearance?: FormsThemeInput): string {
   const painted = pageBg !== 'transparent' || bg.image !== 'none';
   const pagePad = painted ? 'clamp(24px, 6vw, 72px)' : '0';
 
+  // §1 — optional semantic colors. Each falls back to today's derived value
+  // (success/link → primary, placeholder → muted), so an un-set form is unchanged.
+  const primaryHex = primary;
+  const success = c?.success ?? primaryHex;
+  const link = c?.link ?? primaryHex;
+  const placeholder = c?.placeholder ?? c?.muted ?? '#6b7280';
+
+  // §1.2 — heading/body font pairing + role-scoped type scale + line-heights.
+  // Unset ⇒ inherit --wz-font / today's additive sizes / `normal`.
+  const base = t?.baseSize ?? 14;
+  const ratio = t?.scaleRatio ? TYPE_SCALE_RATIOS[t.scaleRatio] : null;
+  const fsTitle = ratio ? Math.round(base * ratio ** 3) : base + 6;
+  const fsH2 = ratio ? Math.round(base * ratio ** 2) : base + 4;
+  const fsH3 = ratio ? Math.round(base * ratio) : base + 2;
+  const fontHeading = t?.headingFont ? FONT_STACKS[t.headingFont] : 'var(--wz-font)';
+  const fontBody = t?.bodyFont ? FONT_STACKS[t.bodyFont] : 'var(--wz-font)';
+  const lhBody = t?.bodyLineHeight ?? 'normal';
+  const lhHeading = t?.headingLineHeight ?? 'normal';
+
+  // §1.6 — horizontal input padding + card inner padding overrides. cardPadding
+  // wins over the density preset (fixes the missing override path).
+  const padX = l?.inputPadX ?? 10;
+  const cardPad = l?.cardPadding ?? density.cardPad;
+  const maxWidth = l?.fluidWidth ? 'none' : `${l?.maxWidth ?? 640}px`;
+
+  // §1.8 — easing selects a fixed curve (duration handled by `dur` above/below).
+  const ease = EASING_CURVES[l?.easing ?? 'standard'];
+
+  // §1.6 — filters on the page background image layer only (never the card).
+  const imgBrightness = appearance?.background?.imageBrightness ?? 1;
+  const imgBlur = appearance?.background?.imageBlur ?? 0;
+  const imgGray = appearance?.background?.imageGrayscale ?? 0;
+  const bgFilterParts: string[] = [];
+  if (imgBrightness !== 1) bgFilterParts.push(`brightness(${imgBrightness})`);
+  if (imgBlur > 0) bgFilterParts.push(`blur(${imgBlur}px)`);
+  if (imgGray > 0) bgFilterParts.push(`grayscale(${imgGray})`);
+  const bgFilter = bgFilterParts.length > 0 ? bgFilterParts.join(' ') : 'none';
+
   return (
     `:host { ` +
     `--wz-primary: ${primary}; ` +
@@ -253,31 +318,60 @@ export function themeVars(appearance?: FormsThemeInput): string {
     `--wz-border: ${c?.border ?? '#e5e7eb'}; ` +
     `--wz-error: ${c?.error ?? '#c0392b'}; ` +
     `--wz-btn-text: ${c?.buttonText ?? '#fff'}; ` +
+    // §1 — semantic colors. success defaults to primary and link to primary,
+    // placeholder to muted, so an un-set form is visually unchanged. The success
+    // panel bg/border/on tokens replace the old inline primary-mix in .rf-success.
+    `--wz-success: ${success}; ` +
+    `--wz-success-bg: color-mix(in srgb, ${success} 8%, var(--wz-bg)); ` +
+    `--wz-success-border: color-mix(in srgb, ${success} 28%, transparent); ` +
+    `--wz-success-on: var(--wz-fg); ` +
+    `--wz-link: ${link}; ` +
+    `--wz-placeholder: ${placeholder}; ` +
     `--wz-radius: ${radius}; ` +
     // A set customGoogleFont wins over the preset fontFamily; both fall back to
     // the shared system stack. The name is re-sanitized before it reaches CSS.
     `--wz-font: ${customFontStack(t?.customGoogleFont) ?? FONT_STACKS[t?.fontFamily ?? 'system']}; ` +
     `--wz-font-size: ${t?.baseSize ?? 14}px; ` +
+    // §1.2 — heading/body font roles (default to --wz-font) + role type-scale +
+    // line-heights (default `normal`), so an un-paired form is unchanged.
+    `--wz-font-heading: ${fontHeading}; ` +
+    `--wz-font-body: ${fontBody}; ` +
+    `--wz-fs-title: ${fsTitle}px; ` +
+    `--wz-fs-h2: ${fsH2}px; ` +
+    `--wz-fs-h3: ${fsH3}px; ` +
+    `--wz-lh-body: ${lhBody}; ` +
+    `--wz-lh-heading: ${lhHeading}; ` +
     `--wz-gap: ${gap}px; ` +
     `--wz-pad-y: ${padY}px; ` +
-    `--wz-pad-x: 10px; ` +
+    `--wz-pad-x: ${padX}px; ` +
     // §1.9 — min control height for text inputs, selects, and textareas.
     `--wz-input-min-h: ${inputMinH}px; ` +
-    `--wz-max-width: ${l?.maxWidth ?? 640}px; ` +
+    // §1.3 — fluidWidth drops the cap (none); otherwise the bounded max-width.
+    `--wz-max-width: ${maxWidth}; ` +
     `--wz-btn-radius: ${btnRadius}; ` +
     `--wz-btn-align: ${btnAlign}; ` +
     `--wz-btn-pad-y: ${btnSize.padY}; ` +
     `--wz-btn-font: ${btnSize.font}; ` +
-    `--wz-card-pad: ${density.cardPad}px; ` +
+    // §1.5 — button fill tokens; the solid defaults reproduce today. Non-solid
+    // variants flip these via the .rf-submit[data-btn-variant] rules.
+    `--wz-btn-bg: var(--wz-primary); ` +
+    `--wz-btn-fg: var(--wz-btn-text); ` +
+    `--wz-btn-border: transparent; ` +
+    `--wz-btn-bw: 0; ` +
+    `--wz-btn-bg-hover: var(--wz-primary-hover); ` +
+    // §1.3 — card inner padding; the explicit override wins over density.
+    `--wz-card-pad: ${cardPad}px; ` +
     `--wz-card-shadow: ${cardShadow}; ` +
     `--wz-card-border: ${cardBorder}; ` +
     `--wz-focus: ${primary}; ` +
     `--wz-focus-width: ${l?.focusWidth ?? 2}px; ` +
+    // §1.8 — focus outline offset; 2px reproduces today's literal.
+    `--wz-focus-offset: ${l?.focusOffset ?? 2}px; ` +
     // Motion tokens (§2.4). Duration is 0 unless animations is on; the ease is
     // shared by every transition. Both collapse to ~0 under prefers-reduced-
     // motion in the renderer's stylesheet, which preserves transitionend.
     `--wz-dur: ${dur}; ` +
-    `--wz-ease: cubic-bezier(0.4, 0, 0.2, 1); ` +
+    `--wz-ease: ${ease}; ` +
     // §2.6 — frosted-card blur radius; gated to an image backdrop by a host
     // attribute in the renderer, so this value is inert without one.
     `--wz-card-blur: ${cardBlur}px; ` +
@@ -287,6 +381,8 @@ export function themeVars(appearance?: FormsThemeInput): string {
     `--wz-page-bg-size: ${bg.size}; ` +
     `--wz-page-bg-repeat: ${bg.repeat}; ` +
     `--wz-page-scrim: ${bg.scrim}; ` +
+    // §1.6 — filter on the background image layer (.rf-bg); no-op by default.
+    `--wz-bg-filter: ${bgFilter}; ` +
     // §3 — block padding around the card; 0 unless a backdrop paints.
     `--wz-page-pad: ${pagePad}; ` +
     `}`

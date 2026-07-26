@@ -656,8 +656,10 @@ describe('appearanceSchema (theme contract)', () => {
     expect(appearanceSchema.safeParse({ background: { cardBlur: 21 } }).success).toBe(false);
   });
 
-  it('rejects an unknown shadow value', () => {
-    expect(appearanceSchema.safeParse({ layout: { shadow: 'xl' } }).success).toBe(false);
+  it('accepts the extended shadow scale and rejects an unknown value (§1.6)', () => {
+    expect(appearanceSchema.parse({ layout: { shadow: 'lg' } }).layout.shadow).toBe('lg');
+    expect(appearanceSchema.parse({ layout: { shadow: 'xl' } }).layout.shadow).toBe('xl');
+    expect(appearanceSchema.safeParse({ layout: { shadow: '2xl' } }).success).toBe(false);
   });
 
   it('pageBackground defaults to the card background so the look is unchanged', () => {
@@ -704,6 +706,89 @@ describe('appearanceSchema (theme contract)', () => {
     const parsed = appearanceSchema.parse({ colors: { primary: '#ff0000' } });
     expect(parsed.colors.primary).toBe('#ff0000');
     expect(parsed.colors.background).toBe('#ffffff');
+  });
+
+  // ── Batch 5 (visual-payoff theming) — every new key is additive and
+  // defaults to today's rendered value, so an existing form is unchanged.
+  it('defaults the Batch-5 keys to today’s values (no visual change)', () => {
+    const p = appearanceSchema.parse({});
+    // Optional semantic colors are absent (derived at the SDK).
+    expect(p.colors.success).toBeUndefined();
+    expect(p.colors.link).toBeUndefined();
+    expect(p.colors.placeholder).toBeUndefined();
+    // Optional typography pairing / scale / line-heights are absent.
+    expect(p.typography.headingFont).toBeUndefined();
+    expect(p.typography.bodyFont).toBeUndefined();
+    expect(p.typography.scaleRatio).toBeUndefined();
+    expect(p.typography.bodyLineHeight).toBeUndefined();
+    expect(p.typography.headingLineHeight).toBeUndefined();
+    // Layout defaults reproduce today.
+    expect(p.layout.buttonVariant).toBe('solid');
+    expect(p.layout.inputPadX).toBeUndefined();
+    expect(p.layout.cardPadding).toBeUndefined();
+    expect(p.layout.contentAlign).toBe('left');
+    expect(p.layout.layoutMode).toBe('card');
+    expect(p.layout.fluidWidth).toBe(false);
+    expect(p.layout.focusOffset).toBe(2);
+    expect(p.layout.motionSpeed).toBe('normal');
+    expect(p.layout.easing).toBe('standard');
+    expect(p.layout.submitLoader).toBe('spinner');
+    // Background image filters are no-ops by default.
+    expect(p.background.imageBrightness).toBe(1);
+    expect(p.background.imageBlur).toBe(0);
+    expect(p.background.imageGrayscale).toBe(0);
+  });
+
+  it('accepts the Batch-5 enums and rejects out-of-set values', () => {
+    const ok = appearanceSchema.parse({
+      colors: { success: '#067647', link: '#2563eb', placeholder: '#9ca3af' },
+      typography: { headingFont: 'poppins', bodyFont: 'inter', scaleRatio: 'major-third' },
+      layout: {
+        buttonVariant: 'outline',
+        contentAlign: 'center',
+        layoutMode: 'flat',
+        fluidWidth: true,
+        motionSpeed: 'fast',
+        easing: 'spring',
+        submitLoader: 'none',
+      },
+    });
+    expect(ok.colors.success).toBe('#067647');
+    expect(ok.typography.headingFont).toBe('poppins');
+    expect(ok.typography.scaleRatio).toBe('major-third');
+    expect(ok.layout.buttonVariant).toBe('outline');
+    expect(ok.layout.contentAlign).toBe('center');
+    expect(ok.layout.layoutMode).toBe('flat');
+    expect(ok.layout.submitLoader).toBe('none');
+    expect(appearanceSchema.safeParse({ layout: { buttonVariant: 'raised' } }).success).toBe(false);
+    expect(appearanceSchema.safeParse({ layout: { contentAlign: 'right' } }).success).toBe(false);
+    expect(appearanceSchema.safeParse({ layout: { layoutMode: 'floating' } }).success).toBe(false);
+    expect(appearanceSchema.safeParse({ layout: { motionSpeed: 'instant' } }).success).toBe(false);
+    expect(appearanceSchema.safeParse({ layout: { easing: 'bounce' } }).success).toBe(false);
+    expect(appearanceSchema.safeParse({ layout: { submitLoader: 'dots' } }).success).toBe(false);
+    expect(appearanceSchema.safeParse({ typography: { scaleRatio: 'golden' } }).success).toBe(
+      false,
+    );
+    expect(appearanceSchema.safeParse({ colors: { success: 'green' } }).success).toBe(false);
+  });
+
+  it('bounds the Batch-5 numeric fine-tunes', () => {
+    expect(appearanceSchema.parse({ layout: { inputPadX: 16 } }).layout.inputPadX).toBe(16);
+    expect(appearanceSchema.parse({ layout: { cardPadding: 40 } }).layout.cardPadding).toBe(40);
+    expect(appearanceSchema.parse({ layout: { focusOffset: 6 } }).layout.focusOffset).toBe(6);
+    expect(
+      appearanceSchema.parse({ typography: { bodyLineHeight: 1.6 } }).typography.bodyLineHeight,
+    ).toBe(1.6);
+    expect(appearanceSchema.parse({ background: { imageBlur: 8 } }).background.imageBlur).toBe(8);
+    expect(appearanceSchema.safeParse({ layout: { inputPadX: 3 } }).success).toBe(false);
+    expect(appearanceSchema.safeParse({ layout: { cardPadding: 7 } }).success).toBe(false);
+    expect(appearanceSchema.safeParse({ layout: { focusOffset: 7 } }).success).toBe(false);
+    expect(appearanceSchema.safeParse({ typography: { bodyLineHeight: 2.1 } }).success).toBe(false);
+    expect(appearanceSchema.safeParse({ typography: { headingLineHeight: 0.9 } }).success).toBe(
+      false,
+    );
+    expect(appearanceSchema.safeParse({ background: { imageBrightness: 2 } }).success).toBe(false);
+    expect(appearanceSchema.safeParse({ background: { imageGrayscale: 1.1 } }).success).toBe(false);
   });
 
   it('accepts #rgb, #rrggbb and #rrggbbaa hex colors', () => {

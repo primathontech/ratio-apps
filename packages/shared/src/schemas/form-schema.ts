@@ -195,8 +195,40 @@ export const FORM_BUTTON_SHAPES = ['sharp', 'rounded', 'pill'] as const;
 export const FORM_DENSITIES = ['compact', 'comfortable', 'spacious'] as const;
 // 'floating' (§1.4): label rests inside the input, animates up on focus/fill.
 export const FORM_LABEL_POSITIONS = ['top', 'left', 'floating'] as const;
-export const FORM_SHADOWS = ['none', 'sm', 'md'] as const;
+// Card drop shadow scale (§1.6). 'sm' = today; 'lg'/'xl' extend the elevation
+// scale (added in the theme.ts SHADOWS map).
+export const FORM_SHADOWS = ['none', 'sm', 'md', 'lg', 'xl'] as const;
 export const FORM_BUTTON_ALIGNMENTS = ['left', 'center', 'right'] as const;
+
+// §1.5 — submit button fill; 'solid' = today (primary bg, buttonText fg).
+export const FORM_BUTTON_VARIANTS = ['solid', 'outline', 'ghost', 'soft'] as const;
+export type FormButtonVariant = (typeof FORM_BUTTON_VARIANTS)[number];
+
+// §1.3 — content/heading alignment inside the card; 'left' = today.
+export const FORM_CONTENT_ALIGNS = ['left', 'center'] as const;
+export type FormContentAlign = (typeof FORM_CONTENT_ALIGNS)[number];
+
+// §1.3 — card vs flat surface; 'card' = today (bordered, shadowed surface).
+export const FORM_LAYOUT_MODES = ['card', 'flat'] as const;
+export type FormLayoutMode = (typeof FORM_LAYOUT_MODES)[number];
+
+// §1.2 — modular type-scale ratio driving the heading role tokens. Optional:
+// unset ⇒ today's additive title/h2/h3 sizes, unchanged.
+export const FORM_TYPE_SCALES = ['minor-third', 'major-third', 'perfect-fourth'] as const;
+export type FormTypeScale = (typeof FORM_TYPE_SCALES)[number];
+
+// §1.8 — transition speed scale; 'normal' = today's 0.12s (when animations on).
+export const FORM_MOTION_SPEEDS = ['slow', 'normal', 'fast'] as const;
+export type FormMotionSpeed = (typeof FORM_MOTION_SPEEDS)[number];
+
+// §1.8 — easing curve preset; 'standard' = today's cubic-bezier(0.4,0,0.2,1).
+export const FORM_EASINGS = ['standard', 'linear', 'emphasized', 'spring'] as const;
+export type FormEasing = (typeof FORM_EASINGS)[number];
+
+// §1.8 — submit busy indicator; 'spinner' = animated ring (a static ring under
+// prefers-reduced-motion), 'none' = label text only.
+export const FORM_SUBMIT_LOADERS = ['spinner', 'none'] as const;
+export type FormSubmitLoader = (typeof FORM_SUBMIT_LOADERS)[number];
 
 // Form-wide column count (§2.1): '1' = today's single column. '2'/'auto'
 // reflect to a host data-cols attribute and drive a container-query grid;
@@ -257,6 +289,12 @@ const appearanceColorsSchema = z
     border: hexColor.default('#e5e7eb'), // borders    (today's --wz-border)
     error: hexColor.default('#c0392b'), // error text (today's literal)
     buttonText: hexColor.default('#ffffff'), // submit label (today's literal #fff)
+    // Optional semantic colors — absent ⇒ derived at the SDK from primary/muted,
+    // so today's look is unchanged. success → status panel; link → anchors;
+    // placeholder → input placeholder (defaults to muted).
+    success: hexColor.optional(),
+    link: hexColor.optional(),
+    placeholder: hexColor.optional(),
   })
   .prefault({}); // parse the empty default so each sub-token default applies
 
@@ -274,6 +312,16 @@ const appearanceTypographySchema = z
       .max(50) // cheap DoS guard
       .regex(/^[A-Za-z0-9][A-Za-z0-9 -]{0,49}$/, 'Must be a plain font family name')
       .optional(),
+    // §1.2 — optional heading/body font pairing (reuse the curated families).
+    // Absent ⇒ both roles inherit `fontFamily`, unchanged.
+    headingFont: z.enum(FORM_FONT_FAMILIES).optional(),
+    bodyFont: z.enum(FORM_FONT_FAMILIES).optional(),
+    // §1.2 — modular type-scale ratio for the heading tokens. Absent ⇒ today's
+    // additive title/h2/h3 sizes.
+    scaleRatio: z.enum(FORM_TYPE_SCALES).optional(),
+    // §1.2 — line-height per role. Absent ⇒ `normal`, unchanged.
+    bodyLineHeight: z.number().min(1.1).max(2).optional(),
+    headingLineHeight: z.number().min(1).max(1.6).optional(),
   })
   .prefault({});
 
@@ -309,6 +357,25 @@ const appearanceLayoutSchema = z
     // §2.4 — micro-animations toggle; false = today. Gated by
     // prefers-reduced-motion at render, so it never overrides the OS setting.
     animations: z.boolean().default(false),
+    // §1.5 — submit button fill; 'solid' = today.
+    buttonVariant: z.enum(FORM_BUTTON_VARIANTS).default('solid'),
+    // §1.6 — horizontal input padding override; absent ⇒ 10px (today).
+    inputPadX: z.number().int().min(4).max(24).optional(),
+    // §1.3 — card inner padding override; absent ⇒ the density preset (today).
+    cardPadding: z.number().int().min(8).max(64).optional(),
+    // §1.3 — content/heading alignment; 'left' = today.
+    contentAlign: z.enum(FORM_CONTENT_ALIGNS).default('left'),
+    // §1.3 — card vs flat surface; 'card' = today.
+    layoutMode: z.enum(FORM_LAYOUT_MODES).default('card'),
+    // §1.3 — ignore maxWidth and fill the container; false = today.
+    fluidWidth: z.boolean().default(false),
+    // §1.8 — focus outline offset (px); 2 = today's literal.
+    focusOffset: z.number().int().min(0).max(6).default(2),
+    // §1.8 — transition speed + easing; defaults reproduce today.
+    motionSpeed: z.enum(FORM_MOTION_SPEEDS).default('normal'),
+    easing: z.enum(FORM_EASINGS).default('standard'),
+    // §1.8 — submit busy indicator; 'spinner' = animated/reduced-motion ring.
+    submitLoader: z.enum(FORM_SUBMIT_LOADERS).default('spinner'),
   })
   .prefault({});
 
@@ -334,6 +401,11 @@ const appearanceBackgroundSchema = z
     // §2.6 — frosted card: backdrop-filter blur radius (px); 0 = today (no blur).
     // Progressive enhancement over the always-on scrim; contrast never depends on it.
     cardBlur: z.number().min(0).max(20).default(0),
+    // §1.6 — filters applied to the page background image layer ONLY (never the
+    // card — distinct from cardBlur). Defaults are no-ops ⇒ unchanged.
+    imageBrightness: z.number().min(0.5).max(1.5).default(1),
+    imageBlur: z.number().min(0).max(20).default(0),
+    imageGrayscale: z.number().min(0).max(1).default(0),
   })
   .prefault({});
 

@@ -19,16 +19,23 @@ import {
   FORM_BUTTON_ICONS,
   FORM_BUTTON_SHAPES,
   FORM_BUTTON_SIZES,
+  FORM_BUTTON_VARIANTS,
   FORM_COLUMN_MODES,
+  FORM_CONTENT_ALIGNS,
   FORM_DENSITIES,
+  FORM_EASINGS,
   FORM_FOCUS_STYLES,
   FORM_FONT_FAMILIES,
   FORM_GRADIENT_DIRS,
   FORM_INPUT_SIZES,
   FORM_INPUT_VARIANTS,
   FORM_LABEL_POSITIONS,
+  FORM_LAYOUT_MODES,
+  FORM_MOTION_SPEEDS,
   FORM_REQUIRED_MARKS,
   FORM_SHADOWS,
+  FORM_SUBMIT_LOADERS,
+  FORM_TYPE_SCALES,
   type FormAppearance,
 } from '@shared/schemas/form-schema';
 import type { Dispatch } from 'react';
@@ -36,8 +43,12 @@ import { type AppearancePatch, type BuilderAction, DEFAULT_APPEARANCE } from '@/
 import { bestTextOn, type ContrastState, gradeContrast, scrimmed } from '@/lib/contrast';
 import { type AppearancePreset, FORM_APPEARANCE_PRESETS } from '@/lib/presets';
 
+/** The always-present color tokens (the optional Batch-5 semantic colors —
+ * success/link/placeholder — are edited separately). */
+type ColorToken = Exclude<keyof FormAppearance['colors'], 'success' | 'link' | 'placeholder'>;
+
 /** Color tokens, in edit order, with the label shown next to each picker. */
-const COLOR_TOKENS: { key: keyof FormAppearance['colors']; label: string }[] = [
+const COLOR_TOKENS: { key: ColorToken; label: string }[] = [
   { key: 'primary', label: 'Primary' },
   { key: 'background', label: 'Form background' },
   { key: 'pageBackground', label: 'Page background' },
@@ -82,7 +93,50 @@ const COLUMN_MODE_LABELS: Record<(typeof FORM_COLUMN_MODES)[number], string> = {
   auto: 'Auto',
 };
 
-type ColorToken = keyof FormAppearance['colors'];
+/** Optional semantic colors (Batch 5) — absent ⇒ derived at the SDK. The picker
+ * shows the derived fallback so the swatch is never empty. */
+const OPTIONAL_COLOR_TOKENS: {
+  key: 'success' | 'link' | 'placeholder';
+  label: string;
+  fallback: (c: FormAppearance['colors']) => string;
+}[] = [
+  { key: 'success', label: 'Success', fallback: (c) => c.primary },
+  { key: 'link', label: 'Link', fallback: (c) => c.primary },
+  { key: 'placeholder', label: 'Placeholder', fallback: (c) => c.muted },
+];
+
+/** Content-alignment labels — 'Centered' avoids colliding with the button
+ * alignment's 'Center' segment. */
+const CONTENT_ALIGN_LABELS: Record<(typeof FORM_CONTENT_ALIGNS)[number], string> = {
+  left: 'Left',
+  center: 'Centered',
+};
+
+/** Card-vs-flat surface labels. */
+const LAYOUT_MODE_LABELS: Record<(typeof FORM_LAYOUT_MODES)[number], string> = {
+  card: 'Card',
+  flat: 'Flat',
+};
+
+/** Motion-speed labels. */
+const MOTION_SPEED_LABELS: Record<(typeof FORM_MOTION_SPEEDS)[number], string> = {
+  slow: 'Slow',
+  normal: 'Normal',
+  fast: 'Fast',
+};
+
+/** Submit-loader labels — 'Off' reads clearer than 'None'. */
+const SUBMIT_LOADER_LABELS: Record<(typeof FORM_SUBMIT_LOADERS)[number], string> = {
+  spinner: 'Spinner',
+  none: 'Off',
+};
+
+/** Type-scale labels for the pairing Select. */
+const TYPE_SCALE_LABELS: Record<(typeof FORM_TYPE_SCALES)[number], string> = {
+  'minor-third': 'Minor third',
+  'major-third': 'Major third',
+  'perfect-fourth': 'Perfect fourth',
+};
 
 /** `fix` = token to flip black/white (text pairs); `pageAware` = resolve scrim/gradient/image. */
 interface ContrastPair {
@@ -96,7 +150,14 @@ interface ContrastPair {
 
 const CONTRAST_PAIRS: ContrastPair[] = [
   { fg: 'text', bg: 'background', label: 'Text on form', kind: 'text', fix: 'text' },
-  { fg: 'text', bg: 'pageBackground', label: 'Text on page', kind: 'text', fix: 'text', pageAware: true },
+  {
+    fg: 'text',
+    bg: 'pageBackground',
+    label: 'Text on page',
+    kind: 'text',
+    fix: 'text',
+    pageAware: true,
+  },
   { fg: 'text', bg: 'surface', label: 'Text on inputs', kind: 'text', fix: 'text' },
   { fg: 'muted', bg: 'background', label: 'Muted text on form', kind: 'text', fix: 'muted' },
   { fg: 'buttonText', bg: 'primary', label: 'Button text', kind: 'text', fix: 'buttonText' },
@@ -194,6 +255,41 @@ export function DesignSettings({ appearance, dispatch }: Props) {
                     </div>
                   ))}
                 </div>
+                {/* Optional semantic colors (Batch 5). Unset ⇒ derived at the
+                    SDK, so the swatch shows the fallback. */}
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                    gap: 12,
+                  }}
+                >
+                  {OPTIONAL_COLOR_TOKENS.map(({ key, label, fallback }) => (
+                    <div
+                      key={key}
+                      style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}
+                    >
+                      <Typography.Text
+                        title={label}
+                        style={{
+                          fontSize: 13,
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                      >
+                        {label}
+                      </Typography.Text>
+                      <ColorPicker
+                        aria-label={`${label} color`}
+                        value={colors[key] ?? fallback(colors)}
+                        format="hex"
+                        showText
+                        onChangeComplete={(c) => patch({ colors: { [key]: c.toHexString() } })}
+                      />
+                    </div>
+                  ))}
+                </div>
                 <ContrastReport appearance={appearance} patch={patch} />
               </div>
             ),
@@ -235,12 +331,91 @@ export function DesignSettings({ appearance, dispatch }: Props) {
                     value={typography.customGoogleFont ?? ''}
                     style={{ width: '100%' }}
                     onChange={(e) =>
-                      patch({ typography: { customGoogleFont: e.target.value.trim() || undefined } })
+                      patch({
+                        typography: { customGoogleFont: e.target.value.trim() || undefined },
+                      })
                     }
                   />
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                     Overrides the preset above; must be on Google Fonts.
                   </Typography.Text>
+                </Row>
+                {/* Batch 5 — heading/body font pairing, type scale, line-heights. */}
+                <Row label="Heading font">
+                  <Select
+                    aria-label="Heading font"
+                    style={{ width: '100%' }}
+                    allowClear
+                    placeholder="Same as body"
+                    value={typography.headingFont}
+                    onChange={(value) =>
+                      patch({
+                        typography: {
+                          headingFont: value as FormAppearance['typography']['headingFont'],
+                        },
+                      })
+                    }
+                    options={FORM_FONT_FAMILIES.map((f) => ({ value: f, label: FONT_LABELS[f] }))}
+                  />
+                </Row>
+                <Row label="Body font">
+                  <Select
+                    aria-label="Body font"
+                    style={{ width: '100%' }}
+                    allowClear
+                    placeholder="Default"
+                    value={typography.bodyFont}
+                    onChange={(value) =>
+                      patch({
+                        typography: {
+                          bodyFont: value as FormAppearance['typography']['bodyFont'],
+                        },
+                      })
+                    }
+                    options={FORM_FONT_FAMILIES.map((f) => ({ value: f, label: FONT_LABELS[f] }))}
+                  />
+                </Row>
+                <Row label="Type scale">
+                  <Select
+                    aria-label="Type scale"
+                    style={{ width: '100%' }}
+                    allowClear
+                    placeholder="Default"
+                    value={typography.scaleRatio}
+                    onChange={(value) =>
+                      patch({
+                        typography: {
+                          scaleRatio: value as FormAppearance['typography']['scaleRatio'],
+                        },
+                      })
+                    }
+                    options={FORM_TYPE_SCALES.map((s) => ({
+                      value: s,
+                      label: TYPE_SCALE_LABELS[s],
+                    }))}
+                  />
+                </Row>
+                <Row label={`Body line height (${typography.bodyLineHeight ?? 'auto'})`}>
+                  <Slider
+                    aria-label="Body line height"
+                    min={1.1}
+                    max={2}
+                    step={0.1}
+                    value={typography.bodyLineHeight ?? 1.5}
+                    onChange={(value) => patch({ typography: { bodyLineHeight: value as number } })}
+                  />
+                </Row>
+                <Row label={`Heading line height (${typography.headingLineHeight ?? 'auto'})`}>
+                  <Slider
+                    aria-label="Heading line height"
+                    min={1}
+                    max={1.6}
+                    step={0.1}
+                    value={typography.headingLineHeight ?? 1.2}
+                    onChange={(value) =>
+                      patch({ typography: { headingLineHeight: value as number } })
+                    }
+                  />
                 </Row>
               </div>
             ),
@@ -276,10 +451,19 @@ export function DesignSettings({ appearance, dispatch }: Props) {
                     min={280}
                     max={960}
                     step={10}
+                    disabled={layout.fluidWidth}
                     value={layout.maxWidth}
                     onChange={(value) => patch({ layout: { maxWidth: value as number } })}
                   />
                 </Row>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Switch
+                    aria-label="Fluid width"
+                    checked={layout.fluidWidth}
+                    onChange={(checked) => patch({ layout: { fluidWidth: checked } })}
+                  />
+                  <Typography.Text>Fluid width (ignore max width)</Typography.Text>
+                </div>
                 <Row label="Label position">
                   <Segmented
                     aria-label="Label position"
@@ -292,6 +476,36 @@ export function DesignSettings({ appearance, dispatch }: Props) {
                       })
                     }
                     options={FORM_LABEL_POSITIONS.map((p) => ({ value: p, label: titleCase(p) }))}
+                  />
+                </Row>
+                <Row label="Content alignment">
+                  <Segmented
+                    aria-label="Content alignment"
+                    value={layout.contentAlign}
+                    onChange={(value) =>
+                      patch({
+                        layout: { contentAlign: value as FormAppearance['layout']['contentAlign'] },
+                      })
+                    }
+                    options={FORM_CONTENT_ALIGNS.map((a) => ({
+                      value: a,
+                      label: CONTENT_ALIGN_LABELS[a],
+                    }))}
+                  />
+                </Row>
+                <Row label="Card style">
+                  <Segmented
+                    aria-label="Card style"
+                    value={layout.layoutMode}
+                    onChange={(value) =>
+                      patch({
+                        layout: { layoutMode: value as FormAppearance['layout']['layoutMode'] },
+                      })
+                    }
+                    options={FORM_LAYOUT_MODES.map((m) => ({
+                      value: m,
+                      label: LAYOUT_MODE_LABELS[m],
+                    }))}
                   />
                 </Row>
                 <Row label="Columns">
@@ -352,6 +566,24 @@ export function DesignSettings({ appearance, dispatch }: Props) {
                     max={18}
                     value={layout.inputPadY ?? 10}
                     onChange={(value) => patch({ layout: { inputPadY: value as number } })}
+                  />
+                </Row>
+                <Row label={`Horizontal padding (${layout.inputPadX ?? 'auto'})`}>
+                  <Slider
+                    aria-label="Horizontal padding"
+                    min={4}
+                    max={24}
+                    value={layout.inputPadX ?? 10}
+                    onChange={(value) => patch({ layout: { inputPadX: value as number } })}
+                  />
+                </Row>
+                <Row label={`Card padding (${layout.cardPadding ?? 'auto'})`}>
+                  <Slider
+                    aria-label="Card padding"
+                    min={8}
+                    max={64}
+                    value={layout.cardPadding ?? 28}
+                    onChange={(value) => patch({ layout: { cardPadding: value as number } })}
                   />
                 </Row>
               </div>
@@ -436,6 +668,20 @@ export function DesignSettings({ appearance, dispatch }: Props) {
             label: 'Buttons',
             children: (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <Row label="Button variant">
+                  <Segmented
+                    aria-label="Button variant"
+                    value={layout.buttonVariant}
+                    onChange={(value) =>
+                      patch({
+                        layout: {
+                          buttonVariant: value as FormAppearance['layout']['buttonVariant'],
+                        },
+                      })
+                    }
+                    options={FORM_BUTTON_VARIANTS.map((v) => ({ value: v, label: titleCase(v) }))}
+                  />
+                </Row>
                 <Row label="Button shape">
                   <Segmented
                     aria-label="Button shape"
@@ -496,6 +742,67 @@ export function DesignSettings({ appearance, dispatch }: Props) {
                       })
                     }
                     options={FORM_BUTTON_ALIGNMENTS.map((a) => ({ value: a, label: titleCase(a) }))}
+                  />
+                </Row>
+              </div>
+            ),
+          },
+          {
+            key: 'motion',
+            forceRender: true,
+            label: 'Motion',
+            children: (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <Row label="Motion speed">
+                  <Segmented
+                    aria-label="Motion speed"
+                    // Only meaningful once animations are enabled (Layout tab).
+                    disabled={!layout.animations}
+                    value={layout.motionSpeed}
+                    onChange={(value) =>
+                      patch({
+                        layout: { motionSpeed: value as FormAppearance['layout']['motionSpeed'] },
+                      })
+                    }
+                    options={FORM_MOTION_SPEEDS.map((s) => ({
+                      value: s,
+                      label: MOTION_SPEED_LABELS[s],
+                    }))}
+                  />
+                </Row>
+                <Row label="Easing">
+                  <Segmented
+                    aria-label="Easing"
+                    disabled={!layout.animations}
+                    value={layout.easing}
+                    onChange={(value) =>
+                      patch({ layout: { easing: value as FormAppearance['layout']['easing'] } })
+                    }
+                    options={FORM_EASINGS.map((e) => ({ value: e, label: titleCase(e) }))}
+                  />
+                </Row>
+                <Row label={`Focus offset (${layout.focusOffset}px)`}>
+                  <Slider
+                    aria-label="Focus offset"
+                    min={0}
+                    max={6}
+                    value={layout.focusOffset}
+                    onChange={(value) => patch({ layout: { focusOffset: value as number } })}
+                  />
+                </Row>
+                <Row label="Submit loader">
+                  <Segmented
+                    aria-label="Submit loader"
+                    value={layout.submitLoader}
+                    onChange={(value) =>
+                      patch({
+                        layout: { submitLoader: value as FormAppearance['layout']['submitLoader'] },
+                      })
+                    }
+                    options={FORM_SUBMIT_LOADERS.map((s) => ({
+                      value: s,
+                      label: SUBMIT_LOADER_LABELS[s],
+                    }))}
                   />
                 </Row>
               </div>
@@ -587,6 +894,40 @@ export function DesignSettings({ appearance, dispatch }: Props) {
                         max={20}
                         value={background.cardBlur}
                         onChange={(value) => patch({ background: { cardBlur: value as number } })}
+                      />
+                    </Row>
+                    {/* Batch 5 — filters on the image layer only (not the card). */}
+                    <Row label={`Image brightness (${background.imageBrightness.toFixed(2)})`}>
+                      <Slider
+                        aria-label="Image brightness"
+                        min={0.5}
+                        max={1.5}
+                        step={0.05}
+                        value={background.imageBrightness}
+                        onChange={(value) =>
+                          patch({ background: { imageBrightness: value as number } })
+                        }
+                      />
+                    </Row>
+                    <Row label={`Image blur (${background.imageBlur}px)`}>
+                      <Slider
+                        aria-label="Image blur"
+                        min={0}
+                        max={20}
+                        value={background.imageBlur}
+                        onChange={(value) => patch({ background: { imageBlur: value as number } })}
+                      />
+                    </Row>
+                    <Row label={`Image grayscale (${background.imageGrayscale.toFixed(2)})`}>
+                      <Slider
+                        aria-label="Image grayscale"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={background.imageGrayscale}
+                        onChange={(value) =>
+                          patch({ background: { imageGrayscale: value as number } })
+                        }
                       />
                     </Row>
                   </>
@@ -820,7 +1161,10 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 }
 
 /** Effective background for a pair, honouring scrim/gradient; note when it's an image. */
-function resolvePairBg(pair: ContrastPair, appearance: FormAppearance): { bg: string; note?: string } {
+function resolvePairBg(
+  pair: ContrastPair,
+  appearance: FormAppearance,
+): { bg: string; note?: string } {
   const { colors, background } = appearance;
   if (!pair.pageAware || background.type === 'solid') {
     const base = colors[pair.bg];
@@ -882,7 +1226,8 @@ function ContrastReport({
                   borderRadius: 4,
                   background: bg,
                   color: fg,
-                  border: pair.kind === 'nonText' ? `2px solid ${fg}` : `1px solid ${colors.border}`,
+                  border:
+                    pair.kind === 'nonText' ? `2px solid ${fg}` : `1px solid ${colors.border}`,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -895,14 +1240,24 @@ function ContrastReport({
               </span>
               <span style={{ fontSize: 12, flex: 1 }}>{pair.label}</span>
               <span
-                style={{ fontSize: 12, color: 'var(--admin-text-muted, #5f6368)', fontVariantNumeric: 'tabular-nums' }}
+                style={{
+                  fontSize: 12,
+                  color: 'var(--admin-text-muted, #5f6368)',
+                  fontVariantNumeric: 'tabular-nums',
+                }}
               >
                 {grade.ratio === null ? 'n/a' : `${grade.ratio.toFixed(2)}:1`}
               </span>
             </div>
             <div
               data-testid={`contrast-${pair.fg}-${pair.bg}`}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, paddingLeft: 38, fontSize: 12 }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                paddingLeft: 38,
+                fontSize: 12,
+              }}
             >
               <span aria-hidden style={{ color: st.color }}>
                 {st.glyph}
@@ -928,7 +1283,9 @@ function ContrastReport({
               )}
             </div>
             {note && (
-              <span style={{ paddingLeft: 38, fontSize: 11, color: 'var(--admin-text-muted, #5f6368)' }}>
+              <span
+                style={{ paddingLeft: 38, fontSize: 11, color: 'var(--admin-text-muted, #5f6368)' }}
+              >
                 {note}
               </span>
             )}

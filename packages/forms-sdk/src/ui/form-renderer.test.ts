@@ -1910,3 +1910,165 @@ describe('ratio-form checkbox + file aria wiring (P2-8)', () => {
     expect(file.getAttribute('aria-describedby')).toBe('rf-err-resume');
   });
 });
+
+describe('ratio-form Batch 5 (visual-payoff theming)', () => {
+  it('reflects data-btn-variant on the submit button; solid sets nothing', async () => {
+    const outline = await mount({
+      schema: {
+        status: 200,
+        body: {
+          data: kitchenSinkSchema({
+            appearance: appearanceWith({ layout: { buttonVariant: 'outline' } }),
+          }),
+        },
+      },
+    });
+    expect(shadow(outline.el).querySelector('.rf-submit')?.getAttribute('data-btn-variant')).toBe(
+      'outline',
+    );
+
+    const solid = await mount();
+    expect(shadow(solid.el).querySelector('.rf-submit')?.hasAttribute('data-btn-variant')).toBe(
+      false,
+    );
+  });
+
+  it('reflects data-align / data-layout on the host; defaults reflect nothing', async () => {
+    const centered = await mount({
+      schema: {
+        status: 200,
+        body: {
+          data: kitchenSinkSchema({
+            appearance: appearanceWith({ layout: { contentAlign: 'center', layoutMode: 'flat' } }),
+          }),
+        },
+      },
+    });
+    expect(centered.el.getAttribute('data-align')).toBe('center');
+    expect(centered.el.getAttribute('data-layout')).toBe('flat');
+
+    const plain = await mount();
+    expect(plain.el.hasAttribute('data-align')).toBe(false);
+    expect(plain.el.hasAttribute('data-layout')).toBe(false);
+  });
+
+  it('ships the button-variant token-flip, flat, align, spinner, and bg-layer rules', () => {
+    const css = staticCss();
+    expect(css).toContain(".rf-submit[data-btn-variant='outline'] {");
+    expect(css).toContain(".rf-submit[data-btn-variant='ghost'] {");
+    expect(css).toContain(".rf-submit[data-btn-variant='soft'] {");
+    expect(css).toContain(":host([data-layout='flat']) .rf-card {");
+    expect(css).toContain(":host([data-align='center']) .rf-head {");
+    // Dedicated filterable background layer + spinner.
+    expect(css).toContain('.rf-bg {');
+    expect(css).toContain('filter: var(--wz-bg-filter)');
+    expect(css).toContain('.rf-spinner {');
+    expect(css).toContain('@keyframes rf-spin');
+    // Placeholder + focus-offset token wired.
+    expect(css).toContain('::placeholder');
+    expect(css).toContain('outline-offset: var(--wz-focus-offset)');
+  });
+
+  it('renders the bg layer as a sibling above which the card still sits', async () => {
+    const { el } = await mount();
+    const root = shadow(el);
+    expect(root.querySelector('.rf-root > .rf-bg')).toBeTruthy();
+    expect(root.querySelector('.rf-root > .rf-card')).toBeTruthy();
+  });
+
+  it('shows the spinner + aria-busy while submitting, then clears on success', async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fetchImpl = vi.fn((url: string) => {
+      if (String(url).endsWith('/submissions')) {
+        return gate.then(
+          () =>
+            ({
+              ok: true,
+              status: 200,
+              text: () => Promise.resolve(JSON.stringify({ data: { submissionId: 's' } })),
+            }) as unknown as Response,
+        );
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve(JSON.stringify({ data: kitchenSinkSchema() })),
+      } as unknown as Response);
+    }) as unknown as typeof fetch & ReturnType<typeof vi.fn>;
+
+    const el = document.createElement('ratio-form') as RatioForm;
+    el.formId = 'form_1';
+    el.client = new FormsClient({ apiBase: '/forms' }, fetchImpl);
+    document.body.appendChild(el);
+    await flush();
+    await el.updateComplete;
+    setInput(el, 'full_name', 'Asha Rao');
+    setInput(el, 'email', 'asha@example.com');
+
+    const button = shadow(el).querySelector('.rf-submit') as HTMLButtonElement;
+    button.click();
+    await flush(2);
+    await el.updateComplete;
+    // In flight: a spinner glyph is present and the busy label shows.
+    expect(button.querySelector('.rf-spinner')).toBeTruthy();
+    expect(button.textContent).toContain('Submitting...');
+    expect(button.getAttribute('aria-busy')).toBe('true');
+
+    release?.();
+    await flush();
+    await el.updateComplete;
+    expect(shadow(el).querySelector('[data-state="success"]')).toBeTruthy();
+  });
+
+  it('omits the spinner when submitLoader is none', async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fetchImpl = vi.fn((url: string) => {
+      if (String(url).endsWith('/submissions')) {
+        return gate.then(
+          () =>
+            ({
+              ok: true,
+              status: 200,
+              text: () => Promise.resolve(JSON.stringify({ data: { submissionId: 's' } })),
+            }) as unknown as Response,
+        );
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        text: () =>
+          Promise.resolve(
+            JSON.stringify({
+              data: kitchenSinkSchema({
+                appearance: appearanceWith({ layout: { submitLoader: 'none' } }),
+              }),
+            }),
+          ),
+      } as unknown as Response);
+    }) as unknown as typeof fetch & ReturnType<typeof vi.fn>;
+
+    const el = document.createElement('ratio-form') as RatioForm;
+    el.formId = 'form_1';
+    el.client = new FormsClient({ apiBase: '/forms' }, fetchImpl);
+    document.body.appendChild(el);
+    await flush();
+    await el.updateComplete;
+    setInput(el, 'full_name', 'Asha Rao');
+    setInput(el, 'email', 'asha@example.com');
+
+    const button = shadow(el).querySelector('.rf-submit') as HTMLButtonElement;
+    button.click();
+    await flush(2);
+    await el.updateComplete;
+    expect(button.querySelector('.rf-spinner')).toBeNull();
+    expect(button.textContent).toContain('Submitting...');
+    release?.();
+    await flush();
+  });
+});
