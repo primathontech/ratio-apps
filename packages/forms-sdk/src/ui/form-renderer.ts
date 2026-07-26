@@ -716,6 +716,88 @@ export class RatioForm extends LitElement {
         padding: var(--wz-pad-y) var(--wz-pad-x);
         color: var(--wz-muted);
       }
+      /* Multi-file field (file.maxFiles > 1): the dropzone input plus a list of
+         chosen files, each with an image preview / name / size and a remove
+         control. A single-file field renders a bare <input> and none of this. */
+      .rf-filefield {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .rf-file-hint {
+        margin: 0;
+        color: var(--wz-muted);
+        font-size: calc(var(--wz-font-size) - 2px);
+      }
+      .rf-files {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .rf-file {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 8px;
+        border: 1px solid var(--wz-border);
+        border-radius: var(--wz-radius);
+        background: var(--wz-subtle);
+      }
+      .rf-file-thumb {
+        flex: none;
+        width: 32px;
+        height: 32px;
+        object-fit: cover;
+        border-radius: calc(var(--wz-radius) / 2);
+      }
+      .rf-file-thumb-doc {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        color: var(--wz-muted);
+        background: var(--wz-surface);
+      }
+      .rf-file-meta {
+        flex: 1 1 auto;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .rf-file-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: calc(var(--wz-font-size) - 1px);
+      }
+      .rf-file-size {
+        color: var(--wz-muted);
+        font-size: calc(var(--wz-font-size) - 3px);
+        font-variant-numeric: tabular-nums;
+      }
+      .rf-file-remove {
+        flex: none;
+        width: 24px;
+        height: 24px;
+        padding: 0;
+        border: none;
+        border-radius: 50%;
+        background: transparent;
+        color: var(--wz-muted);
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+      }
+      .rf-file-remove:hover {
+        color: var(--wz-error);
+        background: color-mix(in srgb, var(--wz-error) 12%, transparent);
+      }
       /* Honeypot: visually hidden but focusable-by-bots. */
       .rf-hp {
         position: absolute !important;
@@ -989,7 +1071,9 @@ export class RatioForm extends LitElement {
   // it. Only ticked when endings.showRedirectCountdown is on (see maybeRedirect).
   @state() private redirectRemaining = 0;
 
-  private files: Record<string, File | null> = {};
+  // Per file-field selection. A single-file field holds 0..1 entries; a
+  // multi-file field (maxFiles > 1) holds 0..maxFiles. Uploaded on submit.
+  private files: Record<string, File[]> = {};
   private recaptchaInjected = false;
   // Number fields currently focused (blur-format / focus-raw display). Owned
   // here — per form instance — so the display state can't leak across concurrent
@@ -1324,19 +1408,27 @@ export class RatioForm extends LitElement {
 
     this.status = 'submitting';
     try {
-      // File flow: presign → PUT bytes → attach object keys.
-      const fileKeys: Record<string, string> = {};
+      // File flow: presign → PUT bytes → attach object key(s). Each selected
+      // file gets its own presign+PUT (distinct draft-scoped object key). The
+      // stored shape is pinned to the field's config: a single-file field
+      // attaches a scalar key (byte-identical), a multi-file field an array.
+      const fileKeys: Record<string, string | string[]> = {};
       for (const field of schema.schema) {
         if (field.type !== 'file') continue;
-        const file = this.files[field.key];
-        if (!file) continue;
-        const target = await client.requestUpload(this.formId, {
-          fieldKey: field.key,
-          contentType: file.type,
-          size: file.size,
-        });
-        await client.uploadFile(target, file);
-        fileKeys[field.key] = target.objectKey;
+        const selected = this.files[field.key] ?? [];
+        if (selected.length === 0) continue;
+        const keys: string[] = [];
+        for (const file of selected) {
+          const target = await client.requestUpload(this.formId, {
+            fieldKey: field.key,
+            contentType: file.type,
+            size: file.size,
+          });
+          await client.uploadFile(target, file);
+          keys.push(target.objectKey);
+        }
+        // keys is non-empty (selected.length === 0 skipped above).
+        fileKeys[field.key] = (field.maxFiles ?? 1) > 1 ? keys : (keys[0] as string);
       }
 
       const recaptchaToken = await this.recaptchaToken();

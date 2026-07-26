@@ -900,6 +900,96 @@ describe('SchemaValidatorService — P1 field types (url / rating / hidden, §4)
     });
   });
 
+  describe('file multi-file (maxFiles)', () => {
+    const multi: FormField[] = [
+      {
+        key: 'docs',
+        type: 'file',
+        label: 'Docs',
+        required: true,
+        maxFiles: 3,
+        validation: { allowedMimeTypes: ['application/pdf'], maxBytes: 1024 },
+      },
+    ];
+    const key = (n: string) => `${MERCHANT_ID}/${FORM_ID}/${n}/docs`;
+
+    it('accepts an ARRAY of object keys within maxFiles and stores it as an array', () => {
+      const result = service.validate(multi, {}, { docs: [key('draft_a'), key('draft_b')] }, scope);
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.files.docs).toEqual([key('draft_a'), key('draft_b')]);
+    });
+
+    it('rejects more files than maxFiles', () => {
+      const result = service.validate(
+        multi,
+        {},
+        { docs: [key('a'), key('b'), key('c'), key('d')] },
+        scope,
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.docs).toBe('Please attach at most 3 files.');
+    });
+
+    it('structurally validates EVERY key in the array (one bad key fails the field)', () => {
+      const result = service.validate(
+        multi,
+        {},
+        { docs: [key('draft_a'), `${MERCHANT_ID}/form_other/draft_b/docs`] },
+        scope,
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.docs).toBe('This file does not belong to this form.');
+    });
+
+    it('rejects a missing required multi-file field (empty array)', () => {
+      const result = service.validate(multi, {}, { docs: [] }, scope);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.docs).toBe('Please attach a file.');
+    });
+
+    it('accepts a single object key even on a multi-file field (stored as a 1-element array)', () => {
+      const result = service.validate(multi, {}, { docs: key('draft_a') }, scope);
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.files.docs).toEqual([key('draft_a')]);
+    });
+
+    it('single-file field (maxFiles default 1) still stores a SCALAR key — byte-identical', () => {
+      const single: FormField[] = [
+        {
+          key: 'resume',
+          type: 'file',
+          label: 'Resume',
+          required: true,
+          validation: { allowedMimeTypes: ['application/pdf'], maxBytes: 1024 },
+        },
+      ];
+      const objectKey = `${MERCHANT_ID}/${FORM_ID}/draft_a/resume`;
+      const result = service.validate(single, {}, { resume: objectKey }, scope);
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.files.resume).toBe(objectKey);
+    });
+
+    it('a single-file field rejects an array of more than one key', () => {
+      const single: FormField[] = [
+        {
+          key: 'resume',
+          type: 'file',
+          label: 'Resume',
+          required: true,
+          validation: { allowedMimeTypes: ['application/pdf'], maxBytes: 1024 },
+        },
+      ];
+      const result = service.validate(
+        single,
+        {},
+        { resume: [`${MERCHANT_ID}/${FORM_ID}/a/resume`, `${MERCHANT_ID}/${FORM_ID}/b/resume`] },
+        scope,
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.resume).toBe('Please attach a single file.');
+    });
+  });
+
   describe('hidden', () => {
     const schema: FormField[] = [
       {

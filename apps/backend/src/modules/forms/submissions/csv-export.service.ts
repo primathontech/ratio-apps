@@ -84,7 +84,10 @@ export class CsvExportService {
         .execute();
       for (const row of rows) {
         const data = CsvExportService.parse<Record<string, unknown>>(row.dataJson) ?? {};
-        const files = CsvExportService.parse<Record<string, string>>(row.filesJson) ?? {};
+        // A multi-file field's value is an object-key array; `cell` joins arrays
+        // with '; ' so the CSV emits every key in one cell.
+        const files =
+          CsvExportService.parse<Record<string, string | string[]>>(row.filesJson) ?? {};
         const cells = keys.map((key) =>
           CsvExportService.escape(CsvExportService.cell(data[key] ?? files[key])),
         );

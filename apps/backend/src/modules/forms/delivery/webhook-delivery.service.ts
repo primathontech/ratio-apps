@@ -201,10 +201,16 @@ export class WebhookDeliveryService {
     if (!form) return null;
 
     const data = WebhookDeliveryService.parseJson<Record<string, unknown>>(submission.dataJson);
-    const files = WebhookDeliveryService.parseJson<Record<string, string>>(submission.filesJson);
+    const files = WebhookDeliveryService.parseJson<Record<string, string | string[]>>(
+      submission.filesJson,
+    );
     const fields: Record<string, unknown> = { ...(data ?? {}) };
-    for (const [fieldKey, objectKey] of Object.entries(files ?? {})) {
-      fields[fieldKey] = await this.s3.signedGetUrl(objectKey);
+    for (const [fieldKey, value] of Object.entries(files ?? {})) {
+      // A multi-file field emits an ARRAY of signed URLs; a single-file field a
+      // lone URL (shape matches the stored files_json value).
+      fields[fieldKey] = Array.isArray(value)
+        ? await Promise.all(value.map((key) => this.s3.signedGetUrl(key)))
+        : await this.s3.signedGetUrl(value);
     }
     return {
       event: FORM_SUBMITTED_EVENT,

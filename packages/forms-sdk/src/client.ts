@@ -39,7 +39,8 @@ export interface UploadTarget {
 
 export interface SubmissionInput {
   fields: Record<string, unknown>;
-  files?: Record<string, string>;
+  /** field key → object key, or an object-key array for a multi-file field. */
+  files?: Record<string, string | string[]>;
   sessionId?: string;
   recaptchaToken?: string;
   /** Honeypot value — forwarded verbatim (must be empty for humans). */
