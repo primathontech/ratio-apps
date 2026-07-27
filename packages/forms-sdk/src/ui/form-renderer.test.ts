@@ -1617,6 +1617,107 @@ describe('ratio-form content blocks (§1.3)', () => {
   });
 });
 
+describe('ratio-form content-block appearance (§4.15)', () => {
+  // A schema exercising each new styling key across the four blocks.
+  function styledSchema(): PublicFormSchema {
+    return {
+      id: 'form_styled_blocks',
+      name: 'Styled blocks',
+      schema: [
+        {
+          key: 'sec',
+          type: 'heading',
+          text: 'Your details',
+          level: 'h3',
+          eyebrow: 'Step 1',
+          size: 'lg',
+          align: 'center',
+          width: 'full',
+        },
+        {
+          key: 'intro',
+          type: 'paragraph',
+          text: 'Tell us a little about yourself.',
+          align: 'right',
+          width: 'full',
+        },
+        { key: 'hr1', type: 'divider', variant: 'dashed', spacing: 32, width: 'full' },
+        { key: 'gap', type: 'divider', variant: 'spacer', spacing: 48, width: 'full' },
+        {
+          key: 'banner',
+          type: 'image',
+          url: 'https://cdn.example.com/banner.png',
+          alt: 'Banner',
+          align: 'center',
+          size: 'md',
+          caption: 'Our storefront',
+          linkUrl: 'https://example.com/shop',
+          width: 'full',
+        },
+      ] as PublicFormSchema['schema'],
+      submitLabel: 'Go',
+      successMessage: 'Done',
+      spamProtection: 'honeypot',
+    };
+  }
+
+  it('reflects heading eyebrow, size, and alignment in the shadow DOM', async () => {
+    const { el } = await mount({ schema: { status: 200, body: { data: styledSchema() } } });
+    const root = shadow(el);
+    // Semantic tag follows `level`; visual size is decoupled onto data-size.
+    const heading = root.querySelector('h3.rf-heading');
+    expect(heading?.getAttribute('data-size')).toBe('lg');
+    expect(root.querySelector('.rf-eyebrow')?.textContent).toContain('Step 1');
+    // Alignment lives on the block wrapper (inherited text-align).
+    expect(root.querySelector('[data-field="sec"]')?.getAttribute('data-align')).toBe('center');
+  });
+
+  it('reflects paragraph alignment on the block wrapper', async () => {
+    const { el } = await mount({ schema: { status: 200, body: { data: styledSchema() } } });
+    expect(shadow(el).querySelector('[data-field="intro"]')?.getAttribute('data-align')).toBe(
+      'right',
+    );
+  });
+
+  it('reflects divider variant + spacing (rule margin vs spacer height)', async () => {
+    const { el } = await mount({ schema: { status: 200, body: { data: styledSchema() } } });
+    const root = shadow(el);
+    const rule = root.querySelector('[data-field="hr1"] hr.rf-divider') as HTMLElement;
+    expect(rule.getAttribute('data-variant')).toBe('dashed');
+    // A rule takes spacing as vertical margin.
+    expect(rule.style.margin).toBe('32px 0px');
+    const spacer = root.querySelector('[data-field="gap"] hr.rf-divider') as HTMLElement;
+    expect(spacer.getAttribute('data-variant')).toBe('spacer');
+    // A spacer takes spacing as an explicit height.
+    expect(spacer.style.height).toBe('48px');
+  });
+
+  it('wraps the image in a figure with align/size, a caption, and an https link', async () => {
+    const { el } = await mount({ schema: { status: 200, body: { data: styledSchema() } } });
+    const root = shadow(el);
+    const figure = root.querySelector('[data-field="banner"] figure.rf-figure') as HTMLElement;
+    expect(figure.getAttribute('data-align')).toBe('center');
+    expect(figure.getAttribute('data-size')).toBe('md');
+    expect(root.querySelector('figcaption.rf-figcaption')?.textContent).toContain('Our storefront');
+    const link = root.querySelector('a.rf-block-link') as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe('https://example.com/shop');
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer');
+    // The image sits inside the link.
+    expect(link.querySelector('img.rf-block-img')).toBeTruthy();
+  });
+
+  it('renders a bare image (no link) when linkUrl is absent', async () => {
+    const schema = styledSchema();
+    const img = schema.schema.find((f) => f.key === 'banner') as Record<string, unknown>;
+    img.linkUrl = undefined;
+    const { el } = await mount({ schema: { status: 200, body: { data: schema } } });
+    const root = shadow(el);
+    expect(root.querySelector('a.rf-block-link')).toBeNull();
+    expect(root.querySelector('[data-field="banner"] img.rf-block-img')).toBeTruthy();
+  });
+});
+
 describe('ratio-form page background (§1.1)', () => {
   it('injects the gradient/image tokens and keeps the scrim layer over the root', async () => {
     const bg = appearanceWith({

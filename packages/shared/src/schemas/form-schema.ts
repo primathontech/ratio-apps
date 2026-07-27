@@ -46,12 +46,15 @@ import { FORM_INPUT_VARIANTS, hexColor, httpsAssetUrl } from './fields/_shared/b
 import { fieldSchemaMembers } from './fields/registry';
 
 export {
+  FORM_BLOCK_ALIGNMENTS,
   FORM_FIELD_WIDTHS,
   FORM_INPUT_VARIANTS,
+  type FormBlockAlignment,
   type FormFieldWidth,
   type FormInputVariant,
   formFieldKeySchema,
 } from './fields/_shared/base';
+export { FORM_DIVIDER_VARIANTS, type FormDividerVariant } from './fields/divider/schema';
 export {
   FORM_SELECT_OTHER_DEFAULT_LABEL,
   FORM_SELECT_OTHER_MAX_LENGTH,
@@ -63,7 +66,13 @@ export {
   FORM_FILE_MAX_FILES,
   type FormFileAllowedMimeType,
 } from './fields/file/schema';
-export { FORM_HEADING_LEVELS, type FormHeadingLevel } from './fields/heading/schema';
+export {
+  FORM_HEADING_LEVELS,
+  FORM_HEADING_SIZES,
+  type FormHeadingLevel,
+  type FormHeadingSize,
+} from './fields/heading/schema';
+export { FORM_IMAGE_SIZES, type FormImageSize } from './fields/image/schema';
 export {
   FORM_NUMBER_CURRENCIES,
   FORM_NUMBER_LOCALES,

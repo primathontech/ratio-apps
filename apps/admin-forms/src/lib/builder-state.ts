@@ -162,13 +162,34 @@ export function makeField(fieldType: FormFieldType, existing: readonly FormField
   // placeholder the merchant replaces in the property panel.
   switch (fieldType) {
     case 'heading':
-      return { key, type: 'heading', text: 'Section heading', level: 'h2', width: 'full' };
+      // §4.15 appearance defaults reproduce today's rendering (md ≈ prior h2).
+      return {
+        key,
+        type: 'heading',
+        text: 'Section heading',
+        level: 'h2',
+        size: 'md',
+        align: 'left',
+        width: 'full',
+      };
     case 'divider':
-      return { key, type: 'divider', width: 'full' };
+      return { key, type: 'divider', variant: 'line', width: 'full' };
     case 'paragraph':
-      return { key, type: 'paragraph', text: 'Add a short description here.', width: 'full' };
+      return {
+        key,
+        type: 'paragraph',
+        text: 'Add a short description here.',
+        align: 'left',
+        width: 'full',
+      };
     case 'image':
-      return { key, type: 'image', url: 'https://cdn.example.com/image.png', width: 'full' };
+      return {
+        key,
+        type: 'image',
+        url: 'https://cdn.example.com/image.png',
+        align: 'left',
+        width: 'full',
+      };
     case 'html':
       // Display-only raw-HTML block; seeds a small placeholder the merchant
       // replaces in the property panel. Rendered as-is (no sanitization).
