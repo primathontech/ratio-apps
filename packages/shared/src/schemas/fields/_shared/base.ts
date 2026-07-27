@@ -36,6 +36,13 @@ export const FORM_FIELD_WIDTHS = ['full', 'half'] as const;
 
 export type FormFieldWidth = (typeof FORM_FIELD_WIDTHS)[number];
 
+// Text/box alignment shared by the content blocks (§4.15): heading, paragraph,
+// and image. 'left' reproduces today's rendering. A bounded enum so only these
+// three literals ever reach a text-align / margin value — never a raw string.
+export const FORM_BLOCK_ALIGNMENTS = ['left', 'center', 'right'] as const;
+
+export type FormBlockAlignment = (typeof FORM_BLOCK_ALIGNMENTS)[number];
+
 // Asset URL for hosted images (content-block image, logo/cover, background) —
 // https-only, same posture as webhookUrl/linkUrl so nothing dynamic (http,
 // data:, javascript:) reaches an <img src> or CSS url().

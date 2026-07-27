@@ -452,6 +452,85 @@ describe('content-block field types (§1.3 — heading / divider / paragraph / i
   });
 });
 
+describe('content-block appearance (§4.15 — styling for heading/divider/paragraph/image)', () => {
+  it('heading defaults size to md and align to left; eyebrow is optional', () => {
+    const parsed = formFieldSchema.parse(headingField);
+    if (parsed.type === 'heading') {
+      expect(parsed.size).toBe('md');
+      expect(parsed.align).toBe('left');
+      expect(parsed.eyebrow).toBeUndefined();
+    }
+  });
+
+  it('heading accepts each size/align and a bounded eyebrow, rejecting out-of-set/oversized', () => {
+    for (const size of ['sm', 'md', 'lg'] as const) {
+      expect(formFieldSchema.safeParse({ ...headingField, size }).success).toBe(true);
+    }
+    for (const align of ['left', 'center', 'right'] as const) {
+      expect(formFieldSchema.safeParse({ ...headingField, align }).success).toBe(true);
+    }
+    expect(formFieldSchema.safeParse({ ...headingField, eyebrow: 'New' }).success).toBe(true);
+    expect(formFieldSchema.safeParse({ ...headingField, size: 'xl' }).success).toBe(false);
+    expect(formFieldSchema.safeParse({ ...headingField, align: 'justify' }).success).toBe(false);
+    expect(formFieldSchema.safeParse({ ...headingField, eyebrow: 'a'.repeat(121) }).success).toBe(
+      false,
+    );
+  });
+
+  it('divider defaults variant to line and leaves spacing absent; both are bounded', () => {
+    const parsed = formFieldSchema.parse(dividerField);
+    if (parsed.type === 'divider') {
+      expect(parsed.variant).toBe('line');
+      expect(parsed.spacing).toBeUndefined();
+    }
+    for (const variant of ['line', 'dashed', 'dotted', 'spacer'] as const) {
+      expect(formFieldSchema.safeParse({ ...dividerField, variant }).success).toBe(true);
+    }
+    expect(formFieldSchema.safeParse({ ...dividerField, spacing: 0 }).success).toBe(true);
+    expect(formFieldSchema.safeParse({ ...dividerField, spacing: 80 }).success).toBe(true);
+    expect(formFieldSchema.safeParse({ ...dividerField, variant: 'ghost' }).success).toBe(false);
+    expect(formFieldSchema.safeParse({ ...dividerField, spacing: 81 }).success).toBe(false);
+    expect(formFieldSchema.safeParse({ ...dividerField, spacing: 8.5 }).success).toBe(false);
+  });
+
+  it('paragraph defaults align to left and rejects an out-of-set align', () => {
+    const parsed = formFieldSchema.parse(paragraphField);
+    if (parsed.type === 'paragraph') {
+      expect(parsed.align).toBe('left');
+    }
+    expect(formFieldSchema.safeParse({ ...paragraphField, align: 'center' }).success).toBe(true);
+    expect(formFieldSchema.safeParse({ ...paragraphField, align: 'top' }).success).toBe(false);
+  });
+
+  it('image defaults align to left; size/caption/linkUrl are optional and bounded', () => {
+    const parsed = formFieldSchema.parse(imageField);
+    if (parsed.type === 'image') {
+      expect(parsed.align).toBe('left');
+      expect(parsed.size).toBeUndefined();
+      expect(parsed.caption).toBeUndefined();
+      expect(parsed.linkUrl).toBeUndefined();
+    }
+    for (const size of ['sm', 'md', 'lg'] as const) {
+      expect(formFieldSchema.safeParse({ ...imageField, size }).success).toBe(true);
+    }
+    expect(formFieldSchema.safeParse({ ...imageField, caption: 'A caption' }).success).toBe(true);
+    expect(
+      formFieldSchema.safeParse({ ...imageField, linkUrl: 'https://example.com' }).success,
+    ).toBe(true);
+    expect(formFieldSchema.safeParse({ ...imageField, size: 'xl' }).success).toBe(false);
+    expect(formFieldSchema.safeParse({ ...imageField, caption: 'a'.repeat(201) }).success).toBe(
+      false,
+    );
+    // linkUrl reuses the audited https-only asset posture — http/js are rejected.
+    expect(
+      formFieldSchema.safeParse({ ...imageField, linkUrl: 'http://example.com' }).success,
+    ).toBe(false);
+    expect(
+      formFieldSchema.safeParse({ ...imageField, linkUrl: 'javascript:alert(1)' }).success,
+    ).toBe(false);
+  });
+});
+
 describe('per-field style override (§2.2) and adornments (§2.3)', () => {
   it('omits style and adornments by default (absent ⇒ inherits global)', () => {
     const parsed = formFieldSchema.parse(emailField);

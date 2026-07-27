@@ -46,6 +46,9 @@ import {
 /** Defensive hex re-check for the per-field accent (§2.2); the schema already
  * guarantees hex, so this only confines what reaches the inline style. */
 const HEX_COLOR_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+/** Defensive https re-check for the image block's linkUrl (§4.15); the schema
+ * already guarantees https, so this only confines what reaches an <a href>. */
+const HTTPS_URL_RE = /^https:\/\//i;
 /** Delay before following a form's redirectUrl, so the success state is seen. */
 const REDIRECT_DELAY_MS = 1500;
 
@@ -391,7 +394,17 @@ export class RatioForm extends LitElement {
         transform: translateY(-1.4em) scale(0.85);
         color: var(--wz-focus);
       }
-      /* Content blocks (§1.3): display-only, no label/control. */
+      /* Content blocks (§1.3, §4.15): display-only, no label/control. */
+      /* §4.15 — small uppercase kicker above the heading. */
+      .rf-eyebrow {
+        display: block;
+        margin: 0 0 2px;
+        font-size: calc(var(--wz-font-size) - 3px);
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--wz-muted);
+      }
       .rf-heading {
         margin: 0;
         /* §1.2 — heading font + line-height roles (default to --wz-font / normal). */
@@ -400,11 +413,15 @@ export class RatioForm extends LitElement {
         font-weight: 700;
         color: var(--wz-fg);
       }
-      h2.rf-heading {
-        font-size: var(--wz-fs-h2);
+      /* §4.15 — visual size decoupled from the h2/h3 tag; 'md' = the prior h2 size. */
+      .rf-heading[data-size='sm'] {
+        font-size: calc(var(--wz-font-size) + 2px);
       }
-      h3.rf-heading {
-        font-size: var(--wz-fs-h3);
+      .rf-heading[data-size='md'] {
+        font-size: calc(var(--wz-font-size) + 4px);
+      }
+      .rf-heading[data-size='lg'] {
+        font-size: calc(var(--wz-font-size) + 8px);
       }
       .rf-paragraph {
         margin: 0;
@@ -412,17 +429,70 @@ export class RatioForm extends LitElement {
         font-size: var(--wz-font-size);
         overflow-wrap: break-word;
       }
+      /* §4.15 — alignment inherits from the wrapper into heading/paragraph text. */
+      .rf-block[data-align='center'] {
+        text-align: center;
+      }
+      .rf-block[data-align='right'] {
+        text-align: right;
+      }
       .rf-divider {
         width: 100%;
         border: none;
         border-top: 1px solid var(--wz-border);
         margin: 4px 0;
       }
+      /* §4.15 — variant flips only the border-style; 'spacer' drops the rule. */
+      .rf-divider[data-variant='dashed'] {
+        border-top-style: dashed;
+      }
+      .rf-divider[data-variant='dotted'] {
+        border-top-style: dotted;
+      }
+      .rf-divider[data-variant='spacer'] {
+        border-top: none;
+      }
+      /* §4.15 — figure caps width (size) and aligns itself via auto margins. */
+      .rf-figure {
+        margin: 0;
+        max-width: 100%;
+      }
+      .rf-figure[data-size='sm'] {
+        max-width: 240px;
+      }
+      .rf-figure[data-size='md'] {
+        max-width: 480px;
+      }
+      .rf-figure[data-size='lg'] {
+        max-width: 720px;
+      }
+      .rf-figure[data-align='center'] {
+        margin-left: auto;
+        margin-right: auto;
+      }
+      .rf-figure[data-align='right'] {
+        margin-left: auto;
+      }
+      .rf-block-link {
+        display: block;
+      }
       .rf-block-img {
         display: block;
         max-width: 100%;
         height: auto;
         border-radius: var(--wz-radius);
+      }
+      /* §4.15 — caption under the image; follows the figure's alignment. */
+      .rf-figcaption {
+        margin-top: 6px;
+        font-size: calc(var(--wz-font-size) - 2px);
+        color: var(--wz-muted);
+      }
+      .rf-figure[data-align='center'] .rf-figcaption {
+        text-align: center;
+      }
+      .rf-figure[data-align='right'] .rf-figcaption {
+        text-align: right;
       }
       /* Input look (§1.2): one rule block driven by private tokens; only the
          differing tokens flip per variant, so focus/hover/error stay shared.
@@ -1962,33 +2032,85 @@ export class RatioForm extends LitElement {
     return html`<span class="rf-required"> ${mark === 'text' ? 'Required' : '*'}</span>`;
   }
 
-  /** Render a content block (§1.3): heading, divider, paragraph, or image. */
+  /** Render a content block (§1.3 / §4.15): heading, divider, paragraph, or
+   * image. Appearance keys (§4.15) are optional/defaulted so an unstyled block
+   * renders exactly as before; every value comes from a bounded enum/int (or a
+   * re-checked https url), so nothing dynamic reaches an inline style or href. */
   private renderBlock(field: ContentBlockField): TemplateResult {
+    // Heading returns early: the optional eyebrow and the <h> tag are two
+    // children of the statically-wrapped block div. Visual size drives
+    // font-size via data-size (decoupled from the semantic level); both the
+    // eyebrow and heading bind as textContent — never innerHTML.
+    if (field.type === 'heading') {
+      const eyebrow = field.eyebrow
+        ? html`<span class="rf-eyebrow">${field.eyebrow}</span>`
+        : nothing;
+      const body =
+        field.level === 'h3'
+          ? html`<h3 class="rf-heading" data-size=${field.size}>${field.text}</h3>`
+          : html`<h2 class="rf-heading" data-size=${field.size}>${field.text}</h2>`;
+      return html`<div
+        class="rf-field rf-block"
+        data-field=${field.key}
+        data-width=${field.width ?? 'full'}
+        data-align=${field.align}
+      >
+        ${eyebrow}${body}
+      </div>`;
+    }
     let inner: TemplateResult;
     switch (field.type) {
-      case 'heading':
-        // textContent binding — never innerHTML.
-        inner =
-          field.level === 'h3'
-            ? html`<h3 class="rf-heading">${field.text}</h3>`
-            : html`<h2 class="rf-heading">${field.text}</h2>`;
+      case 'divider': {
+        // variant flips the border-style (or drops the rule for 'spacer');
+        // spacing is a bounded int, so an inline px value is injection-free. A
+        // spacer carries its gap as an explicit height; a rule as vertical margin.
+        const style =
+          field.variant === 'spacer'
+            ? `height:${field.spacing ?? 24}px`
+            : field.spacing != null
+              ? `margin:${field.spacing}px 0`
+              : nothing;
+        inner = html`<hr class="rf-divider" data-variant=${field.variant} style=${style} />`;
         break;
-      case 'divider':
-        inner = html`<hr class="rf-divider" />`;
-        break;
+      }
       case 'paragraph':
         inner = html`<p class="rf-paragraph">${field.text}</p>`;
         break;
-      case 'image':
+      case 'image': {
         // src via the audited https asset flow (validated in the schema),
         // loading=lazy, capped width.
-        inner = html`<img
+        const img = html`<img
           class="rf-block-img"
           src=${field.url}
           alt=${field.alt ?? ''}
           loading="lazy"
         />`;
+        // linkUrl (re-checked https, mirroring the accent hex guard) wraps the
+        // image in a new-tab, noopener link; otherwise the bare image renders.
+        const media =
+          field.linkUrl && HTTPS_URL_RE.test(field.linkUrl)
+            ? html`<a
+                class="rf-block-link"
+                href=${field.linkUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                >${img}</a
+              >`
+            : img;
+        const caption = field.caption
+          ? html`<figcaption class="rf-figcaption">${field.caption}</figcaption>`
+          : nothing;
+        // <figure> carries align + size via data-*; the CSS caps width (size)
+        // and aligns the figure with auto margins (align).
+        inner = html`<figure
+          class="rf-figure"
+          data-align=${field.align}
+          data-size=${field.size ?? nothing}
+        >
+          ${media}${caption}
+        </figure>`;
         break;
+      }
       case 'html':
         // Raw, merchant-authored HTML rendered as-is via `unsafeHTML` — NO
         // sanitization (a deliberate product decision by the owner). This
@@ -1997,7 +2119,16 @@ export class RatioForm extends LitElement {
         inner = html`<div class="rf-html">${unsafeHTML(field.html)}</div>`;
         break;
     }
-    return html`<div class="rf-field rf-block" data-field=${field.key} data-width=${field.width ?? 'full'}>
+    // data-align on the wrapper aligns paragraph text (inherited text-align);
+    // the image aligns itself via the figure's margins and the divider spans
+    // full width, so both leave the wrapper unset.
+    const align = field.type === 'paragraph' ? field.align : nothing;
+    return html`<div
+      class="rf-field rf-block"
+      data-field=${field.key}
+      data-width=${field.width ?? 'full'}
+      data-align=${align}
+    >
       ${inner}
     </div>`;
   }
