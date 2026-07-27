@@ -20,8 +20,10 @@ export default defineConfig({
         replacement: resolve(__dirname, '../shared/src/schemas/form-adornments.ts'),
       },
       {
-        find: /^@ratio-app\/shared\/schemas\/fields\/([^/]+)\/constants$/,
-        replacement: resolve(__dirname, '../shared/src/schemas/fields/$1/constants.ts'),
+        // Per-field runtime constants: `<type>/constants` plus the shared
+        // select-family `_shared/select-constants` (all Zod-free).
+        find: /^@ratio-app\/shared\/schemas\/fields\/([^/]+)\/([\w-]*constants)$/,
+        replacement: resolve(__dirname, '../shared/src/schemas/fields/$1/$2.ts'),
       },
     ],
   },

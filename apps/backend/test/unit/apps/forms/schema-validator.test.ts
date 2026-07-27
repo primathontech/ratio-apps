@@ -156,6 +156,72 @@ describe('SchemaValidatorService — new P0 field types (radio / checkbox / numb
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.errors.plan).toBe('This field is required.');
     });
+
+    describe('"Other" free-text (client↔server parity, §4.9 P0)', () => {
+      const otherSchema = (allowOther: boolean): FormField[] => [
+        {
+          key: 'plan',
+          type: 'radio',
+          label: 'Plan',
+          required: false,
+          options: [
+            { value: 'basic', label: 'basic' },
+            { value: 'pro', label: 'pro' },
+          ],
+          ...(allowOther ? { allowOther: true } : {}),
+        },
+      ];
+
+      it('accepts a non-option value when allowOther is on', () => {
+        const result = run(otherSchema(true), { plan: 'my own plan' });
+        expect(result.ok).toBe(true);
+        if (result.ok) expect(result.data.plan).toBe('my own plan');
+      });
+
+      it('rejects a non-option value when allowOther is off', () => {
+        expect(run(otherSchema(false), { plan: 'my own plan' }).ok).toBe(false);
+      });
+
+      it('rejects an over-long "Other" value even when allowOther is on', () => {
+        expect(run(otherSchema(true), { plan: 'x'.repeat(256) }).ok).toBe(false);
+      });
+    });
+  });
+
+  describe('dropdown', () => {
+    const dropdownSchema = (allowOther: boolean): FormField[] => [
+      {
+        key: 'size',
+        type: 'dropdown',
+        label: 'Size',
+        required: false,
+        options: [
+          { value: 's', label: 'Small' },
+          { value: 'm', label: 'Medium' },
+        ],
+        ...(allowOther ? { allowOther: true } : {}),
+      },
+    ];
+
+    it('accepts a configured option', () => {
+      const result = run(dropdownSchema(false), { size: 'm' });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.data.size).toBe('m');
+    });
+
+    it('rejects a non-option value when allowOther is off (parity)', () => {
+      expect(run(dropdownSchema(false), { size: 'xl' }).ok).toBe(false);
+    });
+
+    it('accepts a free-text "Other" value when allowOther is on (parity)', () => {
+      const result = run(dropdownSchema(true), { size: 'XXL custom' });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.data.size).toBe('XXL custom');
+    });
+
+    it('rejects an over-long "Other" value even when allowOther is on', () => {
+      expect(run(dropdownSchema(true), { size: 'x'.repeat(256) }).ok).toBe(false);
+    });
   });
 
   describe('checkbox (single consent)', () => {
@@ -713,6 +779,40 @@ describe('SchemaValidatorService — P1 field types (url / rating / hidden, §4)
 
       it('accepts a value inside the configured bounds', () => {
         expect(run(withSelection({ min: 1, max: 2 }), { ch: ['email', 'sms'] }).ok).toBe(true);
+      });
+    });
+
+    describe('"Other" free-text (client↔server parity, §4.5 P0)', () => {
+      const withOther = (allowOther: boolean): FormField[] => [
+        {
+          key: 'ch',
+          type: 'multi_select',
+          label: 'Channels',
+          required: false,
+          options: [
+            { value: 'email', label: 'email' },
+            { value: 'sms', label: 'sms' },
+          ],
+          ...(allowOther ? { allowOther: true } : {}),
+        },
+      ];
+
+      it('accepts one non-member value when allowOther is on', () => {
+        const result = run(withOther(true), { ch: ['email', 'carrier pigeon'] });
+        expect(result.ok).toBe(true);
+        if (result.ok) expect(result.data.ch).toEqual(['email', 'carrier pigeon']);
+      });
+
+      it('rejects a non-member value when allowOther is off', () => {
+        expect(run(withOther(false), { ch: ['email', 'carrier pigeon'] }).ok).toBe(false);
+      });
+
+      it('rejects more than one non-member value even when allowOther is on', () => {
+        expect(run(withOther(true), { ch: ['one', 'two'] }).ok).toBe(false);
+      });
+
+      it('rejects an over-long non-member value when allowOther is on', () => {
+        expect(run(withOther(true), { ch: ['email', 'x'.repeat(256)] }).ok).toBe(false);
       });
     });
   });

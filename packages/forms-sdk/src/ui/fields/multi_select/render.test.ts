@@ -35,6 +35,7 @@ const ctx = (value: unknown): FieldRenderCtx =>
     adorn: (_f: unknown, c: unknown) => c,
     requestUpdate: () => {},
     numberFocus: new Set(),
+    selectUi: new Map(),
   }) as unknown as FieldRenderCtx;
 
 function mount(f: ControlFieldOf<'multi_select'>, c: FieldRenderCtx): HTMLElement {
@@ -56,5 +57,23 @@ describe('renderMultiSelect selection count (Batch-4 over-max hint)', () => {
     const host = mount(field({ selection: { max: 3 } }), ctx(['a', 'b', 'c', 'd']));
     expect(count(host)).toContain('4 of 3 selected');
     expect(count(host)).toContain('remove 1');
+  });
+});
+
+describe('renderMultiSelect — "Other"', () => {
+  it('renders an Other choice + free-text input holding the non-member value', () => {
+    const host = mount(
+      field({ allowOther: true, otherLabel: 'Custom' }),
+      ctx(['a', 'typed thing']),
+    );
+    const labels = [...host.querySelectorAll('label')].map((l) => l.textContent?.trim());
+    expect(labels.some((t) => t?.includes('Custom'))).toBe(true);
+    const other = host.querySelector('.rf-other-input') as HTMLInputElement | null;
+    expect(other?.value).toBe('typed thing');
+  });
+
+  it('has no Other choice when allowOther is off', () => {
+    const host = mount(field(), ctx(['a']));
+    expect(host.querySelector('.rf-other-input')).toBeNull();
   });
 });

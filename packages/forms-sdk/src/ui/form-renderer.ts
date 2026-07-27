@@ -32,6 +32,7 @@ import type {
   FieldControlModule,
   FieldRenderCtx,
   FieldValidateCtx,
+  SelectUiState,
 } from './fields/types';
 import {
   baseStyles,
@@ -494,6 +495,93 @@ export class RatioForm extends LitElement {
       input[type='file'] {
         min-height: 0;
       }
+      /* §4.5 — "Other" free-text input, revealed under a select/radio/multi
+         when the Other choice is picked. A normal themed text input. */
+      .rf-other-input {
+        margin-top: 6px;
+      }
+      /* §4.9 — radio layout. vertical (no data-layout) is the .rf-checks
+         column default; horizontal wraps into a row; grid sets its own
+         inline grid-template from the bounded gridColumns. */
+      .rf-checks[data-layout='horizontal'] {
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+      /* §4.9 — radio visual variants. list (no data-variant) keeps today's
+         plain rows. button/card keep the real input for a11y but hide it
+         visually and style the label as a segment / bordered card, filled with
+         the accent when checked. */
+      .rf-checks[data-variant='button'] .rf-check,
+      .rf-checks[data-variant='card'] .rf-check {
+        position: relative;
+        cursor: pointer;
+        border: 1px solid var(--wz-border);
+        border-radius: var(--wz-radius);
+        padding: var(--wz-pad-y) var(--wz-pad-x);
+        transition:
+          border-color var(--wz-dur) var(--wz-ease),
+          background-color var(--wz-dur) var(--wz-ease);
+      }
+      .rf-checks[data-variant='button'] .rf-check {
+        justify-content: center;
+      }
+      .rf-checks[data-variant='button'] .rf-check input,
+      .rf-checks[data-variant='card'] .rf-check input {
+        position: absolute;
+        opacity: 0;
+        width: 1px;
+        height: 1px;
+        margin: 0;
+        pointer-events: none;
+      }
+      .rf-checks[data-variant='button'] .rf-check:has(input:checked),
+      .rf-checks[data-variant='card'] .rf-check:has(input:checked) {
+        border-color: var(--wz-primary);
+        background: color-mix(in srgb, var(--wz-primary) 12%, transparent);
+      }
+      .rf-checks[data-variant='button'] .rf-check:has(input:focus-visible),
+      .rf-checks[data-variant='card'] .rf-check:has(input:focus-visible) {
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--wz-focus) 40%, transparent);
+      }
+      /* §4.5 — searchable combobox: a text input over a floating listbox. */
+      .rf-combo {
+        position: relative;
+      }
+      .rf-combo-list {
+        position: absolute;
+        z-index: 20;
+        left: 0;
+        right: 0;
+        margin: 4px 0 0;
+        padding: 4px;
+        list-style: none;
+        max-height: 240px;
+        overflow-y: auto;
+        background: var(--wz-bg, #fff);
+        border: 1px solid var(--wz-border);
+        border-radius: var(--wz-radius);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+      }
+      .rf-combo-list[hidden] {
+        display: none;
+      }
+      .rf-combo-opt {
+        padding: var(--wz-pad-y) var(--wz-pad-x);
+        border-radius: var(--wz-radius);
+        cursor: pointer;
+      }
+      .rf-combo-opt[data-active],
+      .rf-combo-opt:hover {
+        background: color-mix(in srgb, var(--wz-primary) 12%, transparent);
+      }
+      .rf-combo-opt[aria-selected='true'] {
+        font-weight: 600;
+      }
+      .rf-combo-empty {
+        padding: var(--wz-pad-y) var(--wz-pad-x);
+        color: var(--wz-muted);
+      }
       /* Honeypot: visually hidden but focusable-by-bots. */
       .rf-hp {
         position: absolute !important;
@@ -689,10 +777,16 @@ export class RatioForm extends LitElement {
   // here — per form instance — so the display state can't leak across concurrent
   // embeds or linger when a field is hidden without a blur (cleared on disconnect).
   private numberFocus = new Set<string>();
+  // Ephemeral select-family UI state (dropdown combobox open/filter; radio/
+  // dropdown/multi_select "Other" free-text mode), keyed by field.key. Owned
+  // here — per form instance — so it can't leak across concurrent embeds; the
+  // submitted value always lives in `values`, never here.
+  private selectUi = new Map<string, SelectUiState>();
 
   override disconnectedCallback(): void {
     super.disconnectedCallback();
     this.numberFocus.clear();
+    this.selectUi.clear();
   }
 
   override connectedCallback(): void {
@@ -738,6 +832,8 @@ export class RatioForm extends LitElement {
     this.appearance = this.previewAppearance;
     // previewState is a subset of Status, so it maps straight through.
     this.status = this.previewState;
+    // Preselect select-family defaults so the preview mirrors the live embed.
+    this.seedDefaultValues();
     // Web fonts still resolve only at document scope, even in preview.
     this.maybeInjectFont();
   }
@@ -762,6 +858,7 @@ export class RatioForm extends LitElement {
       this.status = 'ready';
       this.captureHiddenValues();
       this.captureDefaultValues();
+      this.seedDefaultValues();
       this.maybeInjectFont();
       this.maybeInjectRecaptcha();
     } catch (err) {
@@ -830,6 +927,32 @@ export class RatioForm extends LitElement {
         this.isEmpty(next[field.key])
       ) {
         next[field.key] = todayISO();
+        changed = true;
+      }
+    }
+    if (changed) this.values = next;
+  }
+
+  /**
+   * Seed select-family default values (§4.5 P0) — preselect a dropdown/radio
+   * option or a multi_select subset when the field is UNTOUCHED (no value yet).
+   * Server never trusts this; the shopper can change it. Mirrors the hidden
+   * seed: only sets keys that are currently unset so it never clobbers input.
+   */
+  private seedDefaultValues(): void {
+    const fields = this.schema?.schema ?? [];
+    const next = { ...this.values };
+    let changed = false;
+    for (const field of fields) {
+      if (next[field.key] !== undefined) continue;
+      if (
+        (field.type === 'dropdown' || field.type === 'radio') &&
+        field.defaultValue !== undefined
+      ) {
+        next[field.key] = field.defaultValue;
+        changed = true;
+      } else if (field.type === 'multi_select' && field.defaultValue !== undefined) {
+        next[field.key] = [...field.defaultValue];
         changed = true;
       }
     }
@@ -1395,6 +1518,7 @@ export class RatioForm extends LitElement {
       adorn: (f, control) => this.adorn(f, control),
       requestUpdate: () => this.requestUpdate(),
       numberFocus: this.numberFocus,
+      selectUi: this.selectUi,
     };
     const mod = fieldControls[field.type] as FieldControlModule<ControlField['type']>;
     return mod.render(field, ctx);

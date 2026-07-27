@@ -1,5 +1,9 @@
+import {
+  FORM_SELECT_OTHER_DEFAULT_LABEL,
+  FORM_SELECT_OTHER_MAX_LENGTH,
+} from '@ratio-app/shared/schemas/fields/_shared/select-constants';
 import { html, nothing, type TemplateResult } from 'lit';
-import type { ControlFieldOf, FieldRenderCtx } from '../types';
+import { type ControlFieldOf, type FieldRenderCtx, selectUiState } from '../types';
 
 // Visually-hidden but focusable — keeps the native checkbox reachable by
 // keyboard in `chips` mode while the label pill carries the visible state.
@@ -27,6 +31,28 @@ export function renderMultiSelect(
   const showSelectAll = field.showSelectAll === true && max === undefined;
   const allValues = field.options.map((o) => o.value);
   const allChecked = allValues.length > 0 && allValues.every((v) => current.includes(v));
+
+  // "Other" free-text (§4.5 P0): the typed string rides in the array as the
+  // single non-member entry; the server accepts one bounded, non-empty value
+  // outside the option set when allowOther. `members` are the real option
+  // values; `otherText` is the persisted free-text entry (if any).
+  const allowOther = field.allowOther === true;
+  const otherLabel = field.otherLabel ?? FORM_SELECT_OTHER_DEFAULT_LABEL;
+  const allowedSet = new Set(allValues);
+  const members = current.filter((v) => allowedSet.has(v));
+  const otherText = current.find((v) => !allowedSet.has(v));
+  const ui = selectUiState(ctx, field.key);
+  const otherChecked = allowOther && (otherText !== undefined || ui.otherActive === true);
+  const toggleOther = (checked: boolean) => {
+    ui.otherActive = checked;
+    // Unchecking drops the free-text entry; checking reveals the input (no
+    // value until text is typed).
+    if (!checked) ctx.setValue(field.key, members);
+    else ctx.requestUpdate();
+  };
+  const setOtherText = (text: string) => {
+    ctx.setValue(field.key, text.trim() === '' ? [...members] : [...members, text]);
+  };
 
   const containerStyle = isChips
     ? // explicit row direction: the widget's `.rf-checks` CSS is a column stack.
@@ -82,6 +108,45 @@ export function renderMultiSelect(
         ${opt.label}
       </label>`;
     })}
+    ${
+      allowOther
+        ? (
+            () => {
+              const chipStyle = `display:inline-flex;align-items:center;gap:6px;border:1px solid ${
+                otherChecked ? 'var(--wz-primary, #16a34a)' : 'var(--wz-border, #d0d5dd)'
+              };border-radius:999px;padding:4px 12px;cursor:pointer;font-size:var(--wz-font-size);${
+                otherChecked ? 'background:var(--wz-subtle, #f0fdf4);' : ''
+              }`;
+              return html`<label
+              class=${isChips ? 'rf-chip' : 'rf-check'}
+              data-checked=${otherChecked || nothing}
+              style=${isChips ? chipStyle : nothing}
+            >
+              <input
+                type="checkbox"
+                style=${isChips ? SR_ONLY : nothing}
+                .checked=${otherChecked}
+                @change=${(e: Event) => toggleOther((e.target as HTMLInputElement).checked)}
+              />
+              ${otherLabel}
+            </label>`;
+            }
+          )()
+        : nothing
+    }
+    ${
+      otherChecked
+        ? html`<input
+            class="rf-other-input"
+            type="text"
+            aria-label=${`${field.label} — ${otherLabel}`}
+            maxlength=${FORM_SELECT_OTHER_MAX_LENGTH}
+            placeholder=${otherLabel}
+            .value=${otherText ?? ''}
+            @input=${(e: Event) => setOtherText((e.target as HTMLInputElement).value)}
+          />`
+        : nothing
+    }
     ${
       min !== undefined || max !== undefined
         ? html`<div class="rf-selcount" aria-live="polite">

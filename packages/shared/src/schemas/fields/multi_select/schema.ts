@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { baseFieldShape, MAX_OPTIONS, optionsSchema } from '../_shared/base';
+import { baseFieldShape, MAX_OPTIONS, optionsSchema, selectOtherShape } from '../_shared/base';
 
 /**
  * multi_select display mode (P0 field-depth). `checklist` = today's stacked
@@ -36,6 +36,11 @@ export const multiSelectFieldSchema = z.object({
   type: z.literal('multi_select'),
   options: optionsSchema,
   // All new keys are OPTIONAL so forms saved before this enrichment stay valid.
+  ...selectOtherShape,
+  // Pre-selected option values (a subset of the option values). Subset
+  // membership is enforced at the `formFieldsSchema` level so this member stays
+  // a plain ZodObject for the discriminated union.
+  defaultValue: z.array(z.string().min(1).max(255)).max(MAX_OPTIONS).optional(),
   selection: multiSelectSelectionSchema.optional(),
   display: z.enum(MULTI_SELECT_DISPLAY_MODES).optional(),
   columns: z.number().int().min(MULTI_SELECT_MIN_COLUMNS).max(MULTI_SELECT_MAX_COLUMNS).optional(),

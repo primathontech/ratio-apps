@@ -51,4 +51,30 @@ describe('validateMultiSelect', () => {
     );
     expect(validateMultiSelect(field({ selection: { max: 2 } }), ctx(['a', 'b']))).toBeNull();
   });
+
+  describe('"Other" free-text (client↔server parity)', () => {
+    it('accepts one bounded non-member value when allowOther is on', () => {
+      expect(
+        validateMultiSelect(field({ allowOther: true }), ctx(['a', 'my own thing'])),
+      ).toBeNull();
+    });
+
+    it('rejects a non-member value when allowOther is off', () => {
+      expect(validateMultiSelect(field(), ctx(['a', 'my own thing']))).toBe(
+        'Please choose only from the available options.',
+      );
+    });
+
+    it('rejects more than one non-member value even when allowOther is on', () => {
+      expect(validateMultiSelect(field({ allowOther: true }), ctx(['one', 'two']))).toBe(
+        'Please choose only from the available options.',
+      );
+    });
+
+    it('rejects an over-long non-member value when allowOther is on', () => {
+      expect(validateMultiSelect(field({ allowOther: true }), ctx(['a', 'x'.repeat(256)]))).toBe(
+        'Please choose only from the available options.',
+      );
+    });
+  });
 });

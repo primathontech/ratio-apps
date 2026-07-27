@@ -52,6 +52,11 @@ export {
   formFieldKeySchema,
 } from './fields/_shared/base';
 export {
+  FORM_SELECT_OTHER_DEFAULT_LABEL,
+  FORM_SELECT_OTHER_MAX_LENGTH,
+  FORM_SELECT_OTHER_SENTINEL,
+} from './fields/_shared/select-constants';
+export {
   FORM_FILE_ALLOWED_MIME_TYPES,
   FORM_FILE_MAX_BYTES,
   type FormFileAllowedMimeType,
@@ -67,6 +72,14 @@ export {
   type FormNumberLocale,
   type FormNumberStyle,
 } from './fields/number/schema';
+export {
+  RADIO_LAYOUTS,
+  RADIO_MAX_GRID_COLUMNS,
+  RADIO_MIN_GRID_COLUMNS,
+  RADIO_VARIANTS,
+  type RadioLayout,
+  type RadioVariant,
+} from './fields/radio/schema';
 export { FORM_RATING_ICONS, type FormRatingIcon } from './fields/rating/schema';
 export {
   FORM_TEXTAREA_DEFAULT_MAX_LENGTH,
@@ -126,6 +139,36 @@ export const formFieldsSchema = z
         });
       }
       seen.add(field.key);
+
+      // Select-family default (P0 select depth): a preselected value must be one
+      // of the field's option values. Enforced here rather than on the field
+      // member so the discriminated-union members stay plain ZodObjects (a
+      // superRefine wraps them in ZodEffects, which the union rejects).
+      if (
+        (field.type === 'dropdown' || field.type === 'radio') &&
+        field.defaultValue !== undefined
+      ) {
+        const values = field.options.map((o) => o.value);
+        if (!values.includes(field.defaultValue)) {
+          ctx.addIssue({
+            code: 'custom',
+            message: 'default value must be one of the options',
+            path: [index, 'defaultValue'],
+          });
+        }
+      }
+      if (field.type === 'multi_select' && field.defaultValue !== undefined) {
+        const values = new Set(field.options.map((o) => o.value));
+        field.defaultValue.forEach((v, di) => {
+          if (!values.has(v)) {
+            ctx.addIssue({
+              code: 'custom',
+              message: 'default value must be one of the options',
+              path: [index, 'defaultValue', di],
+            });
+          }
+        });
+      }
     });
   });
 

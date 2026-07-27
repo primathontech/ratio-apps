@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { formFieldsSchema } from '../../form-schema';
 import { multiSelectFieldSchema } from './schema';
 
 const base = {
@@ -40,5 +41,25 @@ describe('multiSelectFieldSchema (P0 field-depth)', () => {
 
   it('rejects an unknown display mode', () => {
     expect(multiSelectFieldSchema.safeParse({ ...base, display: 'grid' }).success).toBe(false);
+  });
+
+  it('accepts the new optional other/default keys', () => {
+    const parsed = multiSelectFieldSchema.safeParse({
+      ...base,
+      allowOther: true,
+      otherLabel: 'Other',
+      defaultValue: ['a', 'b'],
+    });
+    expect(parsed.success).toBe(true);
+  });
+});
+
+describe('multi_select defaultValue membership (formFieldsSchema refine)', () => {
+  it('accepts a default subset of the options', () => {
+    expect(formFieldsSchema.safeParse([{ ...base, defaultValue: ['a'] }]).success).toBe(true);
+  });
+
+  it('rejects a default that includes a non-option', () => {
+    expect(formFieldsSchema.safeParse([{ ...base, defaultValue: ['a', 'z'] }]).success).toBe(false);
   });
 });

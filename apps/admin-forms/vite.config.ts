@@ -63,10 +63,11 @@ export default defineConfig({
         replacement: resolve(__dirname, '../../packages/shared/src/schemas/form-adornments.ts'),
       },
       // Per-field Zod-free constants modules (text formats, phone/checkbox/email/
-      // hidden runtime maps) the SDK field renderers import.
+      // hidden runtime maps + the shared `_shared/select-constants`) the SDK
+      // field renderers import. `[\w-]*constants` also matches select-constants.
       {
-        find: /^@ratio-app\/shared\/schemas\/fields\/([^/]+)\/constants$/,
-        replacement: resolve(__dirname, '../../packages/shared/src/schemas/fields/$1/constants.ts'),
+        find: /^@ratio-app\/shared\/schemas\/fields\/([^/]+)\/([\w-]*constants)$/,
+        replacement: resolve(__dirname, '../../packages/shared/src/schemas/fields/$1/$2.ts'),
       },
       { find: '@', replacement: resolve(__dirname, 'src') },
     ],

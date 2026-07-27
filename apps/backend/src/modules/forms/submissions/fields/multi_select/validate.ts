@@ -1,4 +1,5 @@
 import { optionValues } from '@ratio-app/shared/schemas/fields/_shared/base';
+import { isValidOtherValue } from '@ratio-app/shared/schemas/fields/_shared/select-constants';
 import type { FieldOfType, ServerValidateResult } from '../types';
 
 export function validateMultiSelect(
@@ -6,13 +7,24 @@ export function validateMultiSelect(
   value: unknown,
 ): ServerValidateResult {
   const allowed = new Set(optionValues(field.options));
-  if (!Array.isArray(value) || !value.every((v) => typeof v === 'string' && allowed.has(v))) {
+  if (!Array.isArray(value) || !value.every((v) => typeof v === 'string')) {
     return { error: 'Please choose only from the available options.' };
   }
-  // Cap the array at the number of defined options and reject duplicates (P2-6):
-  // without this a 2-option field accepts thousands of repeated valid values,
-  // bloating data_json / CSV / webhook payloads (bounded only by the body limit).
-  if (value.length > field.options.length) {
+  const nonMembers = value.filter((v) => !allowed.has(v as string));
+  if (field.allowOther) {
+    // Server-authoritative "Other" (§4.5 P0): at most ONE bounded, non-empty
+    // value outside the option set (the typed free text). Mirrors the SDK.
+    if (nonMembers.length > 1 || nonMembers.some((v) => !isValidOtherValue(v))) {
+      return { error: 'Please choose only from the available options.' };
+    }
+  } else if (nonMembers.length > 0) {
+    return { error: 'Please choose only from the available options.' };
+  }
+  // Cap the array at the number of defined options (+1 for the Other entry when
+  // allowOther) and reject duplicates (P2-6): without this a 2-option field
+  // accepts thousands of repeated valid values, bloating data_json / CSV /
+  // webhook payloads (bounded only by the body limit).
+  if (value.length > field.options.length + (field.allowOther ? 1 : 0)) {
     return { error: 'Please make fewer selections.' };
   }
   if (new Set(value).size !== value.length) {
