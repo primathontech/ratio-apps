@@ -16,6 +16,7 @@ import { emailFieldSchema } from './email/schema';
 import { fileFieldSchema } from './file/schema';
 import { headingFieldSchema } from './heading/schema';
 import { hiddenFieldSchema } from './hidden/schema';
+import { htmlFieldSchema } from './html/schema';
 import { imageFieldSchema } from './image/schema';
 import { multiSelectFieldSchema } from './multi_select/schema';
 import { numberFieldSchema } from './number/schema';
@@ -50,4 +51,5 @@ export const fieldSchemaMembers = [
   dividerFieldSchema,
   paragraphFieldSchema,
   imageFieldSchema,
+  htmlFieldSchema,
 ] as const;

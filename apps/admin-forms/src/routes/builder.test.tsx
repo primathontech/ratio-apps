@@ -87,6 +87,7 @@ describe('BuilderScreen', () => {
     expect(screen.getByRole('button', { name: 'Paragraph' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'File upload' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Text block' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Custom HTML' })).toBeInTheDocument();
   });
 
   it('Save PUTs a payload that parses with formInputSchema', async () => {
@@ -203,6 +204,25 @@ describe('BuilderScreen', () => {
       expect(parsed.success).toBe(true);
       const heading = parsed.success && parsed.data.schema.find((f) => f.type === 'heading');
       expect(heading && 'text' in heading && heading.text).toBe('Tell us about you');
+    });
+  });
+
+  it('adds a Custom HTML content block whose panel edits raw html and saves it (§1.3)', async () => {
+    routeApi(makeForm());
+    renderWithProviders(<BuilderScreen formId="form_1" />);
+    await screen.findByText('Full name');
+    fireEvent.click(screen.getByRole('button', { name: 'Custom HTML' }));
+    // Its property panel edits raw HTML and has no collectable-field "Label".
+    const htmlInput = await screen.findByLabelText('Custom HTML');
+    expect(screen.queryByLabelText('Field label')).not.toBeInTheDocument();
+    fireEvent.change(htmlInput, { target: { value: '<h2>Read our terms</h2>' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => {
+      const put = mockedApi.mock.calls.find((c) => c[0] === 'PUT' && c[1] === '/api/forms/form_1');
+      const parsed = formInputSchema.safeParse(put?.[2]);
+      expect(parsed.success).toBe(true);
+      const block = parsed.success && parsed.data.schema.find((f) => f.type === 'html');
+      expect(block && 'html' in block && block.html).toBe('<h2>Read our terms</h2>');
     });
   });
 

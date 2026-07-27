@@ -132,6 +132,11 @@ const imageField = {
   url: 'https://cdn.example/banner.png',
   alt: 'Our storefront',
 };
+const htmlField = {
+  key: 'embed',
+  type: 'html',
+  html: '<p>Welcome to <strong>our form</strong>.</p>',
+};
 
 const allFields = [
   textField,
@@ -152,6 +157,7 @@ const allFields = [
   dividerField,
   paragraphField,
   imageField,
+  htmlField,
 ];
 
 describe('formFieldSchema (discriminated union over the supported field types)', () => {
@@ -353,7 +359,7 @@ describe('formFieldSchema (discriminated union over the supported field types)',
   });
 });
 
-describe('content-block field types (§1.3 — heading / divider / paragraph / image)', () => {
+describe('content-block field types (§1.3 — heading / divider / paragraph / image / html)', () => {
   it('accepts each content block with only key + width (no label/required)', () => {
     for (const block of [headingField, dividerField, paragraphField, imageField]) {
       expect(formFieldSchema.safeParse(block).success).toBe(true);
@@ -413,8 +419,30 @@ describe('content-block field types (§1.3 — heading / divider / paragraph / i
     expect(dup.success).toBe(false);
   });
 
+  it('custom HTML block: parses raw html, bounds length at 10000, defaults to empty', () => {
+    // Raw markup passes through with no sanitization or other constraint.
+    expect(formFieldSchema.safeParse(htmlField).success).toBe(true);
+    // Only a length bound: exactly 10000 is fine, 10001 is rejected.
+    expect(formFieldSchema.safeParse({ ...htmlField, html: 'a'.repeat(10000) }).success).toBe(true);
+    expect(formFieldSchema.safeParse({ ...htmlField, html: 'a'.repeat(10001) }).success).toBe(
+      false,
+    );
+    // `html` defaults to '' when omitted.
+    const { html: _h, ...noHtml } = htmlField;
+    const parsed = formFieldSchema.parse(noHtml);
+    if (parsed.type === 'html') {
+      expect(parsed.html).toBe('');
+    }
+  });
+
   it('isCollectableFieldType marks content blocks as non-collectable', () => {
-    expect(FORM_NON_COLLECTABLE_FIELD_TYPES).toEqual(['heading', 'divider', 'paragraph', 'image']);
+    expect(FORM_NON_COLLECTABLE_FIELD_TYPES).toEqual([
+      'heading',
+      'divider',
+      'paragraph',
+      'image',
+      'html',
+    ]);
     for (const t of FORM_NON_COLLECTABLE_FIELD_TYPES) {
       expect(isCollectableFieldType(t)).toBe(false);
     }

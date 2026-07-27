@@ -8,6 +8,7 @@ import { EmailValidationSettings } from './email/settings';
 import { FileValidationSettings } from './file/settings';
 import { HeadingSettings } from './heading/settings';
 import { HiddenSettings } from './hidden/settings';
+import { HtmlBlockSettings } from './html/settings';
 import { ImageBlockSettings } from './image/settings';
 import { MultiSelectSettings } from './multi_select/settings';
 import { NumberValidationSettings } from './number/settings';
@@ -47,4 +48,5 @@ export const fieldSettingsRegistry: Record<FormFieldType, FieldSettingsComponent
   divider: DividerSettings as FieldSettingsComponent,
   paragraph: ParagraphSettings as FieldSettingsComponent,
   image: ImageBlockSettings as FieldSettingsComponent,
+  html: HtmlBlockSettings as FieldSettingsComponent,
 };

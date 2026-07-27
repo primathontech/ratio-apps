@@ -477,6 +477,13 @@ export const baseStyles = css`
     border-radius: var(--wz-radius);
     overflow: hidden;
   }
+  /* Custom HTML content block (§1.3): raw merchant markup rendered as-is. Only
+     a minimal containment guard so long unbroken strings can't force the card
+     to overflow horizontally; the merchant owns everything else. */
+  .rf-html {
+    overflow-wrap: break-word;
+    max-width: 100%;
+  }
   .wz-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
