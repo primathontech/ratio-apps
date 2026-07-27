@@ -309,6 +309,19 @@ export function optionValues(options: readonly FormOption[]): string[] {
 /** Upper bound on choices per select field — shared by the schema and the admin editor so they can't drift. */
 export const MAX_OPTIONS = 200;
 
+/**
+ * Shared "Other free-text" opt-in for the select family (dropdown / radio /
+ * multi_select). Both keys are OPTIONAL so forms saved before this enrichment
+ * stay valid; absent ⇒ no "Other" choice (today's behavior). `otherLabel`
+ * defaults to `FORM_SELECT_OTHER_DEFAULT_LABEL` at render time when unset.
+ * When `allowOther` is on, the backend + SDK validators accept a bounded,
+ * non-empty value outside the option set (the typed "Other" text).
+ */
+export const selectOtherShape = {
+  allowOther: z.boolean().optional(),
+  otherLabel: z.string().min(1, { message: 'other label cannot be empty' }).max(60).optional(),
+};
+
 /** dropdown / multi_select / radio choices — ≥1, ≤MAX_OPTIONS, unique values. */
 export const optionsSchema = z
   .array(optionSchema)

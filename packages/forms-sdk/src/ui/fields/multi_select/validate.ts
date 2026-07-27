@@ -1,3 +1,4 @@
+import { isValidOtherValue } from '@ratio-app/shared/schemas/fields/_shared/select-constants';
 import { type ControlFieldOf, type FieldValidateCtx, isEmpty } from '../types';
 
 export function validateMultiSelect(
@@ -8,7 +9,14 @@ export function validateMultiSelect(
   if (isEmpty(value)) return field.required ? 'This field is required.' : null;
   const list = Array.isArray(value) ? value : [];
   const allowed = new Set(field.options.map((o) => o.value));
-  if (!list.every((v) => allowed.has(String(v)))) {
+  const nonMembers = list.filter((v) => !allowed.has(String(v)));
+  if (field.allowOther) {
+    // "Other" parity with the server: at most one bounded, non-empty value
+    // outside the option set (the typed "Other" text).
+    if (nonMembers.length > 1 || nonMembers.some((v) => !isValidOtherValue(v))) {
+      return 'Please choose only from the available options.';
+    }
+  } else if (nonMembers.length > 0) {
     return 'Please choose only from the available options.';
   }
   // Selection-count bounds — UX mirror of the server-authoritative check.

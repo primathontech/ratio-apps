@@ -1,7 +1,7 @@
-import { Button, Divider, Input, Space } from '@primathonos/orion';
+import { Button, Divider, Input, Space, Switch, Typography } from '@primathonos/orion';
 import { type FormOption, MAX_OPTIONS } from '@shared/schemas/fields/_shared/base';
 import type { FormField } from '@shared/schemas/form-schema';
-import type { Dispatch } from 'react';
+import { type Dispatch, useState } from 'react';
 import type { BuilderAction } from '@/lib/builder-state';
 
 /**
@@ -46,8 +46,59 @@ export function OptionsEditor({
   field: Extract<FormField, { type: 'dropdown' | 'multi_select' | 'radio' }>;
   dispatch: Dispatch<BuilderAction>;
 }) {
+  const isMulti = field.type === 'multi_select';
+  const [pasteText, setPasteText] = useState('');
+
+  // Drop any defaultValue that no longer points at an existing option, so a
+  // removed/renamed option can't leave a dangling default the schema rejects
+  // at publish. Returns the patch fragment (or {} when nothing changed).
+  const prunedDefault = (options: FormOption[]): Partial<FormField> => {
+    const values = new Set(options.map((o) => o.value));
+    if (field.type === 'multi_select') {
+      const current = field.defaultValue ?? [];
+      const next = current.filter((v) => values.has(v));
+      if (next.length === current.length) return {};
+      return { defaultValue: next.length > 0 ? next : undefined };
+    }
+    if (field.defaultValue !== undefined && !values.has(field.defaultValue)) {
+      return { defaultValue: undefined };
+    }
+    return {};
+  };
+
   const setOptions = (options: FormOption[]) =>
-    dispatch({ type: 'updateField', key: field.key, patch: { options } });
+    dispatch({
+      type: 'updateField',
+      key: field.key,
+      patch: { options, ...prunedDefault(options) },
+    });
+
+  // Default-option marker: single-choice (dropdown/radio) stores one value;
+  // multi_select stores a subset array.
+  const isDefault = (value: string): boolean =>
+    field.type === 'multi_select'
+      ? (field.defaultValue ?? []).includes(value)
+      : field.defaultValue === value;
+  const toggleDefault = (value: string) => {
+    if (field.type === 'multi_select') {
+      const current = field.defaultValue ?? [];
+      const next = current.includes(value)
+        ? current.filter((v) => v !== value)
+        : [...current, value];
+      dispatch({
+        type: 'updateField',
+        key: field.key,
+        patch: { defaultValue: next.length > 0 ? next : undefined },
+      });
+    } else {
+      dispatch({
+        type: 'updateField',
+        key: field.key,
+        patch: { defaultValue: field.defaultValue === value ? undefined : value },
+      });
+    }
+  };
+
   const move = (index: number, delta: number) => {
     const to = index + delta;
     if (to < 0 || to >= field.options.length) return;
@@ -119,6 +170,16 @@ export function OptionsEditor({
                 />
                 <Button
                   size="small"
+                  {...(isDefault(option.value) ? { type: 'primary' as const } : {})}
+                  aria-label={`${isDefault(option.value) ? 'Unset' : 'Set'} option ${index + 1} as default`}
+                  aria-pressed={isDefault(option.value)}
+                  title={isDefault(option.value) ? 'Default selection' : 'Set as default'}
+                  onClick={() => toggleDefault(option.value)}
+                >
+                  {isDefault(option.value) ? '★' : '☆'}
+                </Button>
+                <Button
+                  size="small"
                   aria-label={`Move option ${index + 1} up`}
                   onClick={() => move(index, -1)}
                 >
@@ -163,6 +224,78 @@ export function OptionsEditor({
           Add option
         </Button>
       </Space>
+
+      <Divider style={{ margin: '8px 0 4px' }}>Bulk add</Divider>
+      <Input.TextArea
+        aria-label="Paste options"
+        rows={3}
+        placeholder="Paste one option per line (or comma-separated)"
+        value={pasteText}
+        onChange={(e) => setPasteText(e.target.value)}
+      />
+      <Button
+        size="small"
+        style={{ marginTop: 4 }}
+        disabled={atMax || pasteText.trim() === ''}
+        title={atMax ? `Maximum ${MAX_OPTIONS} options` : undefined}
+        onClick={() => {
+          const labels = pasteText
+            .split(/[\n,]/)
+            .map((s) => s.trim())
+            .filter((s) => s !== '');
+          if (labels.length === 0) return;
+          const taken = new Set(field.options.map((o) => o.value));
+          const additions: FormOption[] = [];
+          for (const label of labels) {
+            if (field.options.length + additions.length >= MAX_OPTIONS) break;
+            const value = derivedValue(label, taken);
+            taken.add(value);
+            additions.push({ value, label });
+          }
+          if (additions.length > 0) setOptions([...field.options, ...additions]);
+          setPasteText('');
+        }}
+      >
+        Add from text
+      </Button>
+
+      <Divider style={{ margin: '8px 0 4px' }}>Other</Divider>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Switch
+          aria-label={'Allow "Other" free-text choice'}
+          checked={field.allowOther === true}
+          onChange={(checked) =>
+            dispatch({
+              type: 'updateField',
+              key: field.key,
+              patch: { allowOther: checked || undefined },
+            })
+          }
+        />
+        <Typography.Text>
+          Add an &ldquo;Other&rdquo; choice with a free-text {isMulti ? 'entry' : 'input'}
+        </Typography.Text>
+      </div>
+      {field.allowOther === true && (
+        <div style={{ marginTop: 8 }}>
+          <Typography.Text strong style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>
+            &ldquo;Other&rdquo; label
+          </Typography.Text>
+          <Input
+            aria-label="Other label"
+            maxLength={60}
+            placeholder="Other"
+            value={field.otherLabel ?? ''}
+            onChange={(e) =>
+              dispatch({
+                type: 'updateField',
+                key: field.key,
+                patch: { otherLabel: e.target.value || undefined },
+              })
+            }
+          />
+        </div>
+      )}
     </>
   );
 }

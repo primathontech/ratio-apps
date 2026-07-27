@@ -42,6 +42,37 @@ export interface FieldRenderCtx {
    * focus-raw display swap (keyed by field.key). Owned by RatioForm so display
    * state can't leak across embeds and is cleared on disconnect. */
   numberFocus: Set<string>;
+  /** Per-form-instance ephemeral UI state for the select family (dropdown
+   * combobox open/filter state; dropdown/radio/multi_select "Other" free-text
+   * mode). Owned by RatioForm (cleared on disconnect) so it never leaks across
+   * embeds; keyed by field.key. */
+  selectUi: Map<string, SelectUiState>;
+}
+
+/**
+ * Ephemeral, client-only UI state for a single select-family field. None of it
+ * is submitted — it only drives what the widget shows (the SUBMITTED value is
+ * always the option value or the typed "Other" text, held in `values`).
+ */
+export interface SelectUiState {
+  /** dropdown combobox: option list is open. */
+  open?: boolean;
+  /** dropdown combobox: current filter query text. */
+  query?: string;
+  /** dropdown combobox: highlighted item index in the filtered list. */
+  activeIndex?: number;
+  /** "Other" free-text mode is active (a value may not be typed yet). */
+  otherActive?: boolean;
+}
+
+/** Get (creating if absent) the ephemeral select UI state for `key`. */
+export function selectUiState(ctx: FieldRenderCtx, key: string): SelectUiState {
+  let state = ctx.selectUi.get(key);
+  if (!state) {
+    state = {};
+    ctx.selectUi.set(key, state);
+  }
+  return state;
 }
 
 /** State a client validate fn reads. */
