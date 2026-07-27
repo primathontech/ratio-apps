@@ -1568,6 +1568,7 @@ describe('ratio-form content blocks (§1.3)', () => {
           alt: 'Banner',
           width: 'full',
         },
+        { key: 'embed', type: 'html', html: '<b>hi</b><img src=x>', width: 'full' },
         { key: 'name', type: 'text', label: 'Name', required: true, width: 'full' },
       ] as PublicFormSchema['schema'],
       submitLabel: 'Go',
@@ -1589,6 +1590,16 @@ describe('ratio-form content blocks (§1.3)', () => {
     expect(img?.getAttribute('alt')).toBe('Banner');
     // Blocks carry no label element.
     expect(root.querySelector('[data-field="sec"] .rf-label')).toBeNull();
+  });
+
+  it('renders a custom HTML block as raw markup (unsafeHTML, no sanitization)', async () => {
+    const { el } = await mount({ schema: { status: 200, body: { data: blocksSchema() } } });
+    const root = shadow(el);
+    const block = root.querySelector('[data-field="embed"] .rf-html');
+    expect(block).toBeTruthy();
+    // The merchant markup is rendered into the shadow verbatim: <b> and <img>.
+    expect(block?.querySelector('b')?.textContent).toBe('hi');
+    expect(block?.querySelector('img')).toBeTruthy();
   });
 
   it('never validates or submits a value for content blocks', async () => {

@@ -30,6 +30,7 @@ export const FORM_FIELD_TYPES = [
   'divider',
   'paragraph',
   'image',
+  'html',
 ] as const;
 
 export type FormFieldType = (typeof FORM_FIELD_TYPES)[number];
@@ -108,6 +109,7 @@ export const FORM_NON_COLLECTABLE_FIELD_TYPES = [
   'divider',
   'paragraph',
   'image',
+  'html',
 ] as const;
 
 export type FormNonCollectableFieldType = (typeof FORM_NON_COLLECTABLE_FIELD_TYPES)[number];

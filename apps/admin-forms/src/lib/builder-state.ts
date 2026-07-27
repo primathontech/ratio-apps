@@ -127,6 +127,7 @@ export const FIELD_TYPE_LABELS: Record<FormFieldType, string> = {
   divider: 'Divider',
   paragraph: 'Text block',
   image: 'Image',
+  html: 'Custom HTML',
 };
 
 /**
@@ -168,6 +169,10 @@ export function makeField(fieldType: FormFieldType, existing: readonly FormField
       return { key, type: 'paragraph', text: 'Add a short description here.', width: 'full' };
     case 'image':
       return { key, type: 'image', url: 'https://cdn.example.com/image.png', width: 'full' };
+    case 'html':
+      // Display-only raw-HTML block; seeds a small placeholder the merchant
+      // replaces in the property panel. Rendered as-is (no sanitization).
+      return { key, type: 'html', html: '<p>Your custom HTML</p>', width: 'full' };
   }
   // showCounter carries a schema default (false), so it is a required output
   // key on every collectable field type — seed it here (§2.3).

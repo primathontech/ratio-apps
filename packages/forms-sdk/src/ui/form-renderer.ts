@@ -20,6 +20,7 @@ import {
   unsafeCSS,
 } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
+import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { getAnonId } from '../anon-id';
 import { FormsClient, FormsClientError, type PublicFormSchema } from '../client';
 // Per-field module registry (Phase 0 refactor): renderControl + validateField
@@ -59,7 +60,8 @@ function isContentBlock(field: FormField): field is ContentBlockField {
     field.type === 'heading' ||
     field.type === 'divider' ||
     field.type === 'paragraph' ||
-    field.type === 'image'
+    field.type === 'image' ||
+    field.type === 'html'
   );
 }
 
@@ -1986,6 +1988,13 @@ export class RatioForm extends LitElement {
           alt=${field.alt ?? ''}
           loading="lazy"
         />`;
+        break;
+      case 'html':
+        // Raw, merchant-authored HTML rendered as-is via `unsafeHTML` — NO
+        // sanitization (a deliberate product decision by the owner). This
+        // renders markup / embeds / iframes; a top-level inline <script> set
+        // via innerHTML does NOT auto-execute, so pasted markup renders inert.
+        inner = html`<div class="rf-html">${unsafeHTML(field.html)}</div>`;
         break;
     }
     return html`<div class="rf-field rf-block" data-field=${field.key} data-width=${field.width ?? 'full'}>

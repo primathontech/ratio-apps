@@ -221,18 +221,28 @@ describe('builderReducer', () => {
     expect('redirectUrl' in blank).toBe(false);
   });
 
-  it('builds schema-valid content blocks (heading/divider/paragraph/image) with no label/required', () => {
+  it('builds schema-valid content blocks (heading/divider/paragraph/image/html) with no label/required', () => {
     let state = loaded();
     state = builderReducer(state, { type: 'addField', fieldType: 'heading' });
     state = builderReducer(state, { type: 'addField', fieldType: 'divider' });
     state = builderReducer(state, { type: 'addField', fieldType: 'paragraph' });
     state = builderReducer(state, { type: 'addField', fieldType: 'image' });
-    expect(state.fields.map((f) => f.type)).toEqual(['heading', 'divider', 'paragraph', 'image']);
+    state = builderReducer(state, { type: 'addField', fieldType: 'html' });
+    expect(state.fields.map((f) => f.type)).toEqual([
+      'heading',
+      'divider',
+      'paragraph',
+      'image',
+      'html',
+    ]);
     // Content blocks carry key + width but never label/required.
     for (const field of state.fields) {
       expect('label' in field).toBe(false);
       expect('required' in field).toBe(false);
     }
+    // The custom HTML block seeds placeholder markup the merchant replaces.
+    const htmlBlock = state.fields.find((f) => f.type === 'html');
+    expect(htmlBlock).toMatchObject({ type: 'html', html: '<p>Your custom HTML</p>' });
     // The seeded image url is a valid https asset, so the whole set parses.
     expect(formFieldsSchema.safeParse(state.fields).success).toBe(true);
     const payload = toFormInput(state);

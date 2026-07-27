@@ -60,6 +60,7 @@ export function sampleFieldValue(field: FormField): unknown {
     case 'divider':
     case 'paragraph':
     case 'image':
+    case 'html':
       return undefined;
     default:
       return assertNever(field);

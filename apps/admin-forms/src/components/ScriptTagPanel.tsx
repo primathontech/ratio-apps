@@ -81,7 +81,8 @@ export function ScriptTagPanel({ merchantId, forms }: Props) {
         {!trimmed && (
           <Typography.Paragraph type="warning" style={{ marginBottom: 0 }}>
             Replace <Typography.Text code>{ORIGIN_PLACEHOLDER}</Typography.Text> with your public
-            forms host (set <Typography.Text code>VITE_API_BASE_URL</Typography.Text> at build time).
+            forms host (set <Typography.Text code>VITE_API_BASE_URL</Typography.Text> at build
+            time).
           </Typography.Paragraph>
         )}
 

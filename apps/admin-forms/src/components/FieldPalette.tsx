@@ -6,6 +6,7 @@ import {
   Card,
   CheckCircleOutlined,
   CheckSquareOutlined,
+  CodeOutlined,
   DownSquareOutlined,
   EyeInvisibleOutlined,
   FieldNumberOutlined,
@@ -52,6 +53,7 @@ const FIELD_TYPE_ICONS: Record<FormFieldType, ReactNode> = {
   divider: <LineOutlined />,
   paragraph: <FileTextOutlined />,
   image: <PictureOutlined />,
+  html: <CodeOutlined />,
 };
 
 /**
@@ -81,7 +83,7 @@ const PALETTE_GROUPS: { title: string; types: FormFieldType[] }[] = [
   },
   {
     title: 'Layout blocks',
-    types: ['heading', 'divider', 'paragraph', 'image'],
+    types: ['heading', 'divider', 'paragraph', 'image', 'html'],
   },
 ];
 

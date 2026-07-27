@@ -13,7 +13,7 @@ import type { nothing, TemplateResult } from 'lit';
 /** Content blocks (§1.3): display-only, submit no value, carry no label. */
 export type ContentBlockField = Extract<
   FormField,
-  { type: 'heading' | 'divider' | 'paragraph' | 'image' }
+  { type: 'heading' | 'divider' | 'paragraph' | 'image' | 'html' }
 >;
 
 /** Every non-content-block (interactive control) field — what renderControl handles. */
