@@ -1,22 +1,7 @@
-/**
- * Zod-free date-field helper shared by the date field schema, so the regex-only
- * ISO shape is backed by a REAL calendar check that agrees with the submit-time
- * validators (server `submissions/fields/date/validate.ts` + SDK
- * `fields/date/validate.ts`). Deliberately Zod-free (mirrors the number/url
- * `*constants` modules + the `<type>/<...>constants` vite-alias pattern): safe
- * to import at runtime without pulling Zod into the widget bundle.
- */
-
-/** Strict ISO calendar-date shape: 4-digit year, 2-digit month, 2-digit day. */
+/** Zod-free date helper: backs the regex-only ISO shape with a real calendar check that agrees with both submit-time validators; Zod-free so it stays out of the widget bundle. */
 export const ISO_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-/**
- * True only for a real ISO calendar date (`YYYY-MM-DD`). Rejects impossible days
- * like `2026-02-30` and non-ISO shapes like `July 2026` / `12/31/2026` by
- * round-tripping the components through `Date.UTC` and confirming they survive
- * (no silent rollover into the next month). Mirrors the round-trip both
- * submit-time validators use, so the schema and the validators agree.
- */
+/** Round-trips the components through Date.UTC to reject impossible days like 2026-02-30 (no silent month rollover), matching both submit-time validators. */
 export function isRealCalendarDate(value: string): boolean {
   const m = ISO_DATE_RE.exec(value);
   if (!m) return false;

@@ -8,17 +8,13 @@ import type { MerchantsService } from '../../../core/merchants/merchants.service
 import type { FormsDatabase } from '../db/types';
 import { FORMS_MERCHANTS } from '../tokens';
 
-/** The built widget bundle emitted by `packages/forms-sdk` (vite.config.ts). */
 const WIDGET_BUNDLE = 'forms-widget.js';
 
 /** Serves the per-merchant storefront SDK (`/forms/sdk/:merchantId.js`): config prelude + memoized bundle; an unbuilt bundle still answers 200 with a warn stub so it never breaks storefronts with a 404 script error. */
 @Injectable()
 export class FormsSdkService {
   private readonly logger = new Logger(FormsSdkService.name);
-  /** Cache of the built widget bundle — populated ONLY on a successful read
-   * (undefined = not cached). A miss is never memoized, so a backend-only deploy
-   * that lands before the bundle self-heals on the next request instead of
-   * serving the warn stub until process restart. */
+  /** Built bundle cache — populated ONLY on a successful read, so a backend-only deploy self-heals on the next request instead of serving the warn stub until restart. */
   private bundleCache: string | undefined;
 
   constructor(
@@ -51,13 +47,7 @@ export class FormsSdkService {
     return `window.__FORMS_SDK_CONFIG__ = ${safeInlineJson(payload)};`;
   }
 
-  /**
-   * Resolve the built bundle via {@link resolveSdkDistPath}, memoizing ONLY on
-   * success (mirrors the wizzy/loyalty storefront controllers). A missing bundle
-   * file returns null (warn stub served) WITHOUT caching, so the next request
-   * re-checks and self-heals once the bundle is present — a backend-only deploy
-   * no longer serves the stub until process restart.
-   */
+  /** Resolve the built bundle, memoizing ONLY on success — a missing file returns null (warn stub) without caching, so the next request self-heals once it is present. */
   private readBundle(): string | null {
     if (this.bundleCache !== undefined) return this.bundleCache;
     const distDir = resolveSdkDistPath('forms', __dirname);
