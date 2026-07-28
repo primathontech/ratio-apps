@@ -128,7 +128,6 @@ export {
       },
     ),
   ],
-  // Nothing crosses modules by design — per-module DB isolation.
   exports: [],
 })
 export class FormsModule {}

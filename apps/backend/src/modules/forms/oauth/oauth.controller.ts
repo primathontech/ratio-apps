@@ -110,16 +110,11 @@ export class FormsOAuthController {
    */
   @Delete('install/session')
   clearInstallSession(@Res() reply: FastifyReply): void {
+    // Secure/SameSite must match the attributes `callback()` set, or the
+    // browser won't match this clear against the original cookie (see there).
     reply.setCookie(INSTALL_COOKIE, '', {
       httpOnly: true,
-      // In development (HTTP localhost) the browser drops Secure cookies, so
-      // the install-session round trip would break. In every other env we
-      // require HTTPS and keep Secure on.
       secure: process.env.NODE_ENV !== 'development',
-      // SameSite=None is required for cross-site cookie delivery — admin SPAs
-      // on `*.cloudfront.net` fetch backend on `*.primathontech.co.in`. `Lax`
-      // would drop the cookie on those cross-site requests. `None` mandates
-      // Secure (already true in non-dev above).
       sameSite: 'none',
       path: '/',
       maxAge: 0,

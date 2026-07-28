@@ -1,10 +1,9 @@
 import type { FormField, FormNonCollectableFieldType } from '@ratio-app/shared/schemas/form-schema';
 
 /**
- * Per-field server-validation contracts (Phase 0 refactor). Each field module
- * in `./<type>/validate.ts` owns the server-side rules that used to live in the
- * `validateValue` switch of `schema-validator.service.ts`; the registry
- * dispatches to them. Behavior is unchanged — this is a pure extraction.
+ * Per-field server-validation contracts. Each field module in
+ * `./<type>/validate.ts` owns the server-side rules; the registry dispatches to
+ * them.
  */
 
 /** A field that carries user input (content blocks are display-only, §1.3). */

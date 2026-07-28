@@ -1,5 +1,5 @@
 /**
- * Server-validation registry (Phase 0 refactor). Maps each value-bearing field
+ * Server-validation registry. Maps each value-bearing field
  * type to the per-field validator that owns its rules; `schema-validator.service`
  * dispatches through this map instead of a monolithic switch. `file` is
  * validated separately (it carries an S3 key + scope, not an inline value).

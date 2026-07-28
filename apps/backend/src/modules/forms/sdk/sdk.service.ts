@@ -50,8 +50,6 @@ export class FormsSdkService {
         error_code: 'MERCHANT_INACTIVE',
       });
     }
-    // Only reached on success — the error path above throws, so the cache
-    // header is never attached to 404 responses.
     reply.header('Cache-Control', 'public, max-age=300');
     const bundle = this.readBundle();
     if (bundle === null) {
