@@ -676,7 +676,7 @@ function FormSettings({
             onChange={(e) => patch({ webhookUrl: e.target.value })}
           />
           <div style={{ marginTop: 8 }}>
-            <Space size="small">
+            <Space size="small" wrap>
               <Button
                 size="small"
                 disabled={!state.meta.webhookUrl.trim()}
