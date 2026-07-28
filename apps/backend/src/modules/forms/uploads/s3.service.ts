@@ -13,26 +13,14 @@ export const FORMS_SIGNED_GET_EXPIRY_SECONDS = 7 * 24 * 60 * 60;
 export const FORMS_EXPORT_GET_EXPIRY_SECONDS = 60 * 60;
 
 /**
- * S3 presigning for form file uploads (TRD §2/§6).
- *
- * A thin forms POLICY wrapper over the shared {@link S3Service} (core/storage) —
- * mirroring how forms email delivery wraps `core/email`. The transport (SDK
- * clients, presigning, multipart streaming, HEAD) lives in core; everything
- * forms-specific stays here:
- *   - the `enabled` bucket gate (blank `FORMS_S3_BUCKET` → uploads disabled,
- *     endpoint answers 503),
- *   - the per-call bucket (`FORMS_S3_BUCKET` — passed on every core call),
- *   - the strict object-key layout `<merchantId>/<formId>/<draftId>/<fieldKey>`
- *     (submit-time validation rejects any key outside the form's prefix),
- *   - the forced `attachment` disposition on signed GETs (P2-3 XSS guard),
- *   - the three expiry contracts above.
- *
- * The forms region override (`FORMS_S3_REGION`, NOT bare `AWS_REGION`) is baked
- * into the injected {@link S3Service}'s client by the forms module provider —
- * see `forms.module.ts`.
- *
- * Env (module-validated, read at call time — never in env.schema.ts):
- * `FORMS_S3_BUCKET` (blank → uploads disabled, endpoint answers 503).
+ * Forms file-upload S3 (TRD §2/§6): a thin policy wrapper over the shared
+ * {@link S3Service} (core/storage), mirroring how `FormsEmailService` wraps
+ * `core/email`. Transport lives in core; forms policy stays here — the
+ * `enabled` bucket gate (blank `FORMS_S3_BUCKET` → uploads disabled → 503), the
+ * `<merchantId>/<formId>/<draftId>/<fieldKey>` key layout, the forced
+ * `attachment` disposition on signed GETs (P2-3 XSS guard), and the expiry
+ * contracts above. `FORMS_S3_REGION` is baked into the injected client by the
+ * forms module provider (see `forms.module.ts`).
  */
 @Injectable()
 export class FormsS3Service {
@@ -65,11 +53,7 @@ export class FormsS3Service {
     return { uploadUrl, objectKey };
   }
 
-  /**
-   * Signed GET — used by the admin detail view and webhook payloads (7-day
-   * default) and by the finished CSV export download (1-hour, passed
-   * explicitly by ExportJobService).
-   */
+  /** Signed GET (7-day default; 1-hour for CSV export, passed by ExportJobService). */
   async signedGetUrl(
     objectKey: string,
     expiresInSeconds: number = FORMS_SIGNED_GET_EXPIRY_SECONDS,
@@ -79,11 +63,7 @@ export class FormsS3Service {
     return this.s3.presignGetUrl(this.bucket(), objectKey, expiresInSeconds, 'attachment');
   }
 
-  /**
-   * Whether an object actually exists at `objectKey` (P2-2 submit-time
-   * re-check). One `HeadObject` per call; throws only on a real S3 error, not
-   * on a plain miss (which returns false).
-   */
+  /** Object exists? (P2-2 submit-time re-check.) A miss returns false; a real S3 error throws. */
   async exists(objectKey: string): Promise<boolean> {
     return this.s3.headExists(this.bucket(), objectKey);
   }
