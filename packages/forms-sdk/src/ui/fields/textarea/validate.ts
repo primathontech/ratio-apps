@@ -1,6 +1,5 @@
+import { FORM_TEXTAREA_DEFAULT_MAX_LENGTH } from '@ratio-app/shared/schemas/fields/textarea/constants';
 import { type ControlFieldOf, type FieldValidateCtx, isEmpty } from '../types';
-
-const TEXTAREA_DEFAULT_MAX = 5000;
 
 export function validateTextarea(
   field: ControlFieldOf<'textarea'>,
@@ -10,7 +9,7 @@ export function validateTextarea(
   if (isEmpty(value)) return field.required ? 'This field is required.' : null;
   const v = String(value);
   const rules = field.validation;
-  const maxLength = rules?.maxLength ?? TEXTAREA_DEFAULT_MAX;
+  const maxLength = rules?.maxLength ?? FORM_TEXTAREA_DEFAULT_MAX_LENGTH;
   if (rules?.minLength !== undefined && v.length < rules.minLength) {
     return `Please enter at least ${rules.minLength} characters.`;
   }

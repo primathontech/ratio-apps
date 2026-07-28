@@ -96,10 +96,6 @@ export interface FieldControlModule<K extends ControlField['type']> {
   validate: FieldValidateFn<K>;
 }
 
-/** Empty-value gate shared by the value-bearing control validators. */
-export function isEmpty(value: unknown): boolean {
-  if (value === undefined || value === null) return true;
-  if (typeof value === 'string' && value.trim() === '') return true;
-  if (Array.isArray(value) && value.length === 0) return true;
-  return false;
-}
+/** Empty-value gate shared by the value-bearing control validators. Re-exported
+ * from the Zod-free shared module so the SDK and the backend agree on "empty". */
+export { isEmpty } from '@ratio-app/shared/schemas/fields/_shared/empty-constants';

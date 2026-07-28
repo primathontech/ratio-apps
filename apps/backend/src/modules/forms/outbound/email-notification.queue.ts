@@ -1,4 +1,4 @@
-import { queueNameFromEnv } from './webhook-delivery.queue';
+import { queueNameFromEnv } from '../../../core/queue/queue-name';
 
 /**
  * SQS plumbing for the forms email-notification pipeline — same

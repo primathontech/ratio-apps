@@ -1,8 +1,5 @@
+import { normalizeBareDomainUrl } from '@ratio-app/shared/schemas/fields/url/constants';
 import type { FieldOfType, ServerValidateResult } from '../types';
-
-// A leading scheme (`http:`, `ftp:`, `javascript:`, …). Absent ⇒ a bare domain
-// which we normalize by prepending `https://` before validating.
-const HAS_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
 
 export function validateUrl(field: FieldOfType<'url'>, value: unknown): ServerValidateResult {
   // Format checked at submit-time (mirrors email); http/https only.
@@ -14,7 +11,7 @@ export function validateUrl(field: FieldOfType<'url'>, value: unknown): ServerVa
   }
   // Normalize a bare domain (e.g. "example.com" → "https://example.com") so the
   // scheme may be omitted; the normalized (trimmed) value is what we store.
-  const normalized = HAS_SCHEME_RE.test(raw) ? raw : `https://${raw}`;
+  const normalized = normalizeBareDomainUrl(raw);
   let parsed: URL;
   try {
     parsed = new URL(normalized);

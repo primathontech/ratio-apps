@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { isEmpty } from '@ratio-app/shared/schemas/fields/_shared/empty-constants';
 import { type FormField, isCollectableFieldType } from '@ratio-app/shared/schemas/form-schema';
 import { validateFiles } from './fields/file/validate';
 import { serverFieldValidators } from './fields/registry';
@@ -82,7 +83,7 @@ export class SchemaValidatorService {
       }
 
       const value = fields[field.key];
-      if (this.isEmpty(value)) {
+      if (isEmpty(value)) {
         if (field.required) errors[field.key] = custom ?? 'This field is required.';
         continue;
       }
@@ -98,13 +99,6 @@ export class SchemaValidatorService {
       return { ok: false, errors };
     }
     return { ok: true, data, files: outFiles };
-  }
-
-  private isEmpty(value: unknown): boolean {
-    if (value === undefined || value === null) return true;
-    if (typeof value === 'string' && value.trim() === '') return true;
-    if (Array.isArray(value) && value.length === 0) return true;
-    return false;
   }
 
   private validateValue(
