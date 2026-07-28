@@ -14,6 +14,7 @@ export const FORMS_SWEEP_MERCHANT_BATCH_CAP = 100;
 const SWEEP_SCAN_LIMIT = 1_000;
 
 /** Claim lease: pushes an enqueued row's `next_retry_at` out so a double-fired cron can't re-claim it; re-surfaces after the lease if the worker died (at-least-once). */
+// INVARIANT: lease MS >= worker SQS visibility (+ processing headroom); else the sweeper could re-claim a row still in-flight in a worker → double POST. Enforced in the constructor against FORMS_{WEBHOOK,EMAIL}_VISIBILITY.
 export const FORMS_SWEEP_CLAIM_LEASE_MS = 2 * 60_000;
 
 /** Minute cron (TRD §1): DB is the scheduler — claims due pending rows and enqueues to SQS; skips kill-switched merchants (AC11), caps per-merchant fan-out, idempotent under double-fire. */
@@ -25,7 +26,20 @@ export class DeliverySweeperService {
   constructor(
     @Inject(FORMS_DB_TOKEN) private readonly handle: KyselyClient<FormsDatabase>,
     private readonly queue: QueueService,
-  ) {}
+  ) {
+    // Fail loud at boot if a worker's visibility was bumped past the claim lease
+    // (see FORMS_SWEEP_CLAIM_LEASE_MS invariant) — silent double-POST otherwise.
+    const maxVisibilityMs =
+      Math.max(
+        Number(process.env.FORMS_WEBHOOK_VISIBILITY ?? 120),
+        Number(process.env.FORMS_EMAIL_VISIBILITY ?? 120),
+      ) * 1_000;
+    if (FORMS_SWEEP_CLAIM_LEASE_MS < maxVisibilityMs) {
+      throw new Error(
+        `FORMS_SWEEP_CLAIM_LEASE_MS (${FORMS_SWEEP_CLAIM_LEASE_MS}ms) must be >= worker visibility (${maxVisibilityMs}ms) to avoid re-enqueueing in-flight deliveries`,
+      );
+    }
+  }
 
   @Cron(CronExpression.EVERY_MINUTE)
   async sweep(): Promise<void> {
