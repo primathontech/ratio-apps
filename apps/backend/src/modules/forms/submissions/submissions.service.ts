@@ -28,6 +28,7 @@ import { FORMS_DB_TOKEN } from '../kysely.module';
 import { FormsRecaptchaService } from '../spam/recaptcha.service';
 import { SubmitRateLimitService } from '../spam/submit-rate-limit.service';
 import { FormsS3Service } from '../uploads/s3.service';
+import { validateFileExists } from './fields/file/validate';
 import { IdempotencyService } from './idempotency.service';
 import { SchemaValidatorService } from './schema-validator.service';
 
@@ -182,7 +183,7 @@ export class SubmissionsService {
       throw new UnprocessableEntityException({
         message: 'submission validation failed',
         error_code: 'SUBMISSION_INVALID',
-        details: { fields: { [missing.fieldKey]: 'uploaded file not found' } },
+        details: { fields: { [missing.fieldKey]: missing.error } },
         safeForClient: true,
       });
     }
@@ -442,17 +443,20 @@ export class SubmissionsService {
     return form;
   }
 
-  /** First accepted file (in submit order) whose object is absent, or null if all exist. HEADs run in bounded-concurrency batches (≤ FILE_EXISTS_CONCURRENCY) and stop at the first batch with a miss; the returned `{fieldKey}` drives the 422. */
+  /** First accepted file (in submit order) whose object is absent, or null if all exist. Shares the single existence check with the field validator via `validateFileExists` (one error string). HEADs run in bounded-concurrency batches (≤ FILE_EXISTS_CONCURRENCY) and stop at the first batch with a miss; the returned `{fieldKey, error}` drives the 422. */
   private async firstMissingFile(
     checks: Array<{ fieldKey: string; objectKey: string }>,
-  ): Promise<{ fieldKey: string; objectKey: string } | null> {
+  ): Promise<{ fieldKey: string; error: string } | null> {
     for (let i = 0; i < checks.length; i += FILE_EXISTS_CONCURRENCY) {
       const batch = checks.slice(i, i + FILE_EXISTS_CONCURRENCY);
       const results = await Promise.all(
-        batch.map(async (check) => ({ check, exists: await this.s3.exists(check.objectKey) })),
+        batch.map(async (check) => ({
+          check,
+          error: await validateFileExists(check.objectKey, this.s3),
+        })),
       );
-      const miss = results.find((r) => !r.exists);
-      if (miss) return miss.check;
+      const miss = results.find((r) => r.error !== null);
+      if (miss?.error) return { fieldKey: miss.check.fieldKey, error: miss.error };
     }
     return null;
   }
