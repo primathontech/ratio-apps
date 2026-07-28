@@ -106,8 +106,10 @@ export interface ActiveFormContext {
 @Injectable()
 export class SubmissionsService {
   private readonly logger = new Logger(SubmissionsService.name);
-  /** In-memory metric of silently-rejected spam per form (PRD F7). */
+  /** In-memory metric of silently-rejected spam per form (PRD F7); bounded (see REJECTED_COUNTERS_MAX) so a stream of distinct formIds can't leak memory. */
   private readonly rejectedCounters = new Map<string, number>();
+  /** Max distinct forms the silent-reject metric tracks; oldest is evicted first (FIFO on Map insertion order). Full metrics are deferred — this only caps the leak. */
+  private static readonly REJECTED_COUNTERS_MAX = 10_000;
 
   constructor(
     @Inject(FORMS_DB_TOKEN) private readonly handle: KyselyClient<FormsDatabase>,
@@ -467,7 +469,16 @@ export class SubmissionsService {
 
   /** PRD F7: suspected bots get a 200 with a fake submission id — nothing stored or delivered, only a counter + id-free log line. */
   private silentReject(formId: string): PublicSubmissionResult {
-    this.rejectedCounters.set(formId, (this.rejectedCounters.get(formId) ?? 0) + 1);
+    const next = (this.rejectedCounters.get(formId) ?? 0) + 1;
+    if (
+      !this.rejectedCounters.has(formId) &&
+      this.rejectedCounters.size >= SubmissionsService.REJECTED_COUNTERS_MAX
+    ) {
+      // Evict the oldest tracked form (Map keeps insertion order) before adding a new one.
+      const oldest = this.rejectedCounters.keys().next().value;
+      if (oldest !== undefined) this.rejectedCounters.delete(oldest);
+    }
+    this.rejectedCounters.set(formId, next);
     this.logger.log({
       msg: 'submission silently rejected (spam)',
       formId,
