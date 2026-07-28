@@ -23,6 +23,7 @@ const validEnv = {
   ...app('MOENGAGE', '5174'),
   ...app('WIZZY', '5174'),
   ...app('RP', '5174'),
+  ...app('LOYALTY', '5174'),
   ...app('FORMS', '5174'),
 };
 

@@ -194,7 +194,7 @@ describe('FormsBounceService — merchant resolution (PRD AC9)', () => {
 
 describe('FormsBounceController', () => {
   it('prefers the captured raw body and delegates to the service', async () => {
-    const bounce = { handle: vi.fn(async () => ({ ok: true as const })) };
+    const bounce = { ingest: vi.fn(async () => ({ ok: true as const })) };
     const controller = new FormsBounceController(bounce as unknown as FormsBounceService);
     const raw = Buffer.from('{"Type":"Notification"}');
 
@@ -203,7 +203,7 @@ describe('FormsBounceController', () => {
   });
 
   it('falls back to the parsed body when no raw body was captured', async () => {
-    const bounce = { handle: vi.fn(async () => ({ ok: true as const })) };
+    const bounce = { ingest: vi.fn(async () => ({ ok: true as const })) };
     const controller = new FormsBounceController(bounce as unknown as FormsBounceService);
     await controller.receive({ body: { Type: 'Notification' } } as never);
     expect(bounce.ingest).toHaveBeenCalledWith({ Type: 'Notification' });
