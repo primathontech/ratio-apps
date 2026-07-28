@@ -23,7 +23,7 @@ Newest first. See PRD/TRD/TDD in this directory; STATE.json for phase/gates.
   catalog-source-paging tests.
 - **Key design decisions:** first-party app (no vendor API) — forms domain
   replaces the `sdk.service` vendor slot; DB-as-scheduler for webhook retries
-  (SQS delay caps at 15m < 5m/20m/1h ladder; sweeper cron enqueues due rows,
+  (SQS delay caps at 15m < 5m/20m ladder; sweeper cron enqueues due rows,
   failed rows are the DLQ with admin re-trigger); one shared Zod
   `form-schema` consumed by admin builder + backend validator + SDK renderer;
   public intake guard order: edge rate bucket → Redis 5/10min per (form,IP) →

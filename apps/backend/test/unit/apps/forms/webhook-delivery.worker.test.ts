@@ -67,7 +67,7 @@ describe('WebhookDeliveryService — the retry state machine (AC10)', () => {
     expect(row?.nextRetryAt).toBeNull();
   });
 
-  it('non-2xx: attempt 1 → pending +5m, attempt 2 → pending +20m, attempt 3 → failed (ladder 5m/20m/1h)', async () => {
+  it('non-2xx: attempt 1 → pending +5m, attempt 2 → pending +20m, attempt 3 → failed (ladder 5m/20m)', async () => {
     const base = new Date('2026-02-01T12:00:00Z').getTime();
 
     const first = setup(seedWithSubmission(deliveryRow({ attempts: 0 })), [500]);
