@@ -1190,78 +1190,86 @@ function PresetRow({
   onReset: () => void;
 }) {
   return (
-    <div style={{ marginBottom: 16 }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 8,
-          marginBottom: 8,
-        }}
-      >
-        <Typography.Text strong style={{ fontSize: 13 }}>
-          Presets
-        </Typography.Text>
-        <Button
-          type="text"
-          size="small"
-          icon={<UndoOutlined />}
-          aria-label="Reset design to default"
-          onClick={onReset}
-        >
-          Reset to default
-        </Button>
-      </div>
-      {/* Batch 6 — presets are grouped under their category heading, in the
-          declared category order; empty categories are skipped. */}
-      {PRESET_CATEGORIES.map((category) => {
-        const inCategory = FORM_APPEARANCE_PRESETS.filter((p) => p.category === category);
-        if (inCategory.length === 0) return null;
-        return (
-          <div key={category} style={{ marginBottom: 10 }}>
-            <Typography.Text
-              type="secondary"
-              style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4 }}
-            >
-              {category}
+    <Collapse
+      style={{ marginBottom: 16 }}
+      items={[
+        {
+          key: 'presets',
+          label: (
+            <Typography.Text strong style={{ fontSize: 13 }}>
+              Presets
             </Typography.Text>
-            <div
-              style={{
-                display: 'grid',
-                // Even columns that fill the panel width (flex-wrap left-packed them).
-                gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))',
-                gap: 8,
-                marginTop: 4,
+          ),
+          extra: (
+            <Button
+              type="text"
+              size="small"
+              icon={<UndoOutlined />}
+              aria-label="Reset design to default"
+              onClick={(e) => {
+                // Don't toggle the panel when resetting.
+                e.stopPropagation();
+                onReset();
               }}
             >
-              {inCategory.map((preset) => (
-                <button
-                  key={preset.id}
-                  type="button"
-                  aria-label={`Apply ${preset.name} preset`}
-                  onClick={() => onApply(preset)}
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: 6,
-                    border: '1px solid #e5e5e5',
-                    borderRadius: 8,
-                    background: '#fff',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <PresetThumbnail id={preset.id} appearance={preset.appearance} />
-                  <span style={{ fontSize: 12 }}>{preset.name}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        );
-      })}
-    </div>
+              Reset to default
+            </Button>
+          ),
+          children: (
+            <>
+              {/* Batch 6: presets are grouped under their category heading, in the
+                  declared category order; empty categories are skipped. */}
+              {PRESET_CATEGORIES.map((category) => {
+                const inCategory = FORM_APPEARANCE_PRESETS.filter((p) => p.category === category);
+                if (inCategory.length === 0) return null;
+                return (
+                  <div key={category} style={{ marginBottom: 10 }}>
+                    <Typography.Text
+                      type="secondary"
+                      style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4 }}
+                    >
+                      {category}
+                    </Typography.Text>
+                    <div
+                      style={{
+                        display: 'grid',
+                        // Even columns that fill the panel width (flex-wrap left-packed them).
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))',
+                        gap: 8,
+                        marginTop: 4,
+                      }}
+                    >
+                      {inCategory.map((preset) => (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          aria-label={`Apply ${preset.name} preset`}
+                          onClick={() => onApply(preset)}
+                          style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            gap: 6,
+                            padding: 6,
+                            border: '1px solid #e5e5e5',
+                            borderRadius: 8,
+                            background: '#fff',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <PresetThumbnail id={preset.id} appearance={preset.appearance} />
+                          <span style={{ fontSize: 12 }}>{preset.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </>
+          ),
+        },
+      ]}
+    />
   );
 }
 
