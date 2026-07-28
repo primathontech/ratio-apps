@@ -86,8 +86,7 @@ export function HiddenSettings({
           onChange={(e) => patch({ fallback: e.target.value || undefined })}
         />
         <Typography.Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
-          Seeded when the source yields nothing, prevents a required hidden field from blocking
-          submission.
+          Used when the source is empty, so a required field isn't blocked.
         </Typography.Text>
       </SettingRow>
     </>

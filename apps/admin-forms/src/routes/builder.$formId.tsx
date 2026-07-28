@@ -700,7 +700,7 @@ function FormSettings({
               type="secondary"
               style={{ fontSize: 12, display: 'block', marginTop: 4 }}
             >
-              Tests the saved webhook URL. Save first if you just changed it.
+              Tests the saved URL. Save first if you changed it.
             </Typography.Text>
           </div>
           <Modal

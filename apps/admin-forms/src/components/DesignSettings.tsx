@@ -1162,8 +1162,8 @@ export function DesignSettings({ appearance, dispatch }: Props) {
                   <Typography.Text>Show redirect countdown</Typography.Text>
                 </div>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  Per-state copy. Blank fields fall back to the built-in text (success also chains
-                  to the form's success message).
+                  Per-state copy. Blank fields use the built-in text (success also chains to the
+                  form's success message).
                 </Typography.Text>
                 {FORM_ENDING_STATES.map((state) => (
                   <EndingStateEditor
