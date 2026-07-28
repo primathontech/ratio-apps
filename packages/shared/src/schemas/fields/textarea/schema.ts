@@ -1,9 +1,15 @@
 import { z } from 'zod';
 import { baseFieldShape, MIN_MAX_MESSAGE, minMaxConsistent } from '../_shared/base';
-import { TEXTAREA_COUNTER_UNITS, TEXTAREA_ROW_MAX, TEXTAREA_ROW_MIN } from './constants';
+import {
+  FORM_TEXTAREA_DEFAULT_MAX_LENGTH,
+  TEXTAREA_COUNTER_UNITS,
+  TEXTAREA_ROW_MAX,
+  TEXTAREA_ROW_MIN,
+} from './constants';
 
-/** Textarea length: 5,000 default, merchant-raisable to 10,000 (PRD F13). */
-export const FORM_TEXTAREA_DEFAULT_MAX_LENGTH = 5000;
+/** Textarea length: 5,000 default (re-exported from the Zod-free constants),
+ * merchant-raisable to 10,000 (PRD F13). */
+export { FORM_TEXTAREA_DEFAULT_MAX_LENGTH };
 export const FORM_TEXTAREA_HARD_MAX_LENGTH = 10000;
 
 /** textarea: length bounds; max defaults to 5,000 and is capped at 10,000. */

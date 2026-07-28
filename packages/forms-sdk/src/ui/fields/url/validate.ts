@@ -1,8 +1,5 @@
+import { normalizeBareDomainUrl } from '@ratio-app/shared/schemas/fields/url/constants';
 import { type ControlFieldOf, type FieldValidateCtx, isEmpty } from '../types';
-
-// A leading scheme (`http:`, `ftp:`, `javascript:`, …). Absent ⇒ a bare domain
-// the server will normalize by prepending `https://` before validating.
-const HAS_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
 
 export function validateUrl(field: ControlFieldOf<'url'>, ctx: FieldValidateCtx): string | null {
   const value = ctx.values[field.key];
@@ -15,7 +12,7 @@ export function validateUrl(field: ControlFieldOf<'url'>, ctx: FieldValidateCtx)
   // Normalize a bare domain the same way the server does (e.g. "example.com" →
   // "https://example.com"), then validate with the WHATWG URL parser so the
   // client and server accept exactly the same set (no regex/parser drift).
-  const normalized = HAS_SCHEME_RE.test(raw) ? raw : `https://${raw}`;
+  const normalized = normalizeBareDomainUrl(raw);
   let parsed: URL;
   try {
     parsed = new URL(normalized);

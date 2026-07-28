@@ -7,6 +7,11 @@
  * them for its Zod refinements so the bounds live in exactly one place.
  */
 
+/** Textarea length default (PRD F13): 5,000 chars when the field configures no
+ * `maxLength`. Lives here (Zod-free) so the storefront SDK validator and the
+ * Zod `schema.ts` share exactly one value. */
+export const FORM_TEXTAREA_DEFAULT_MAX_LENGTH = 5000;
+
 /** Row-count bounds for the auto-grow / min-max-rows display controls. */
 export const TEXTAREA_ROW_MIN = 1;
 export const TEXTAREA_ROW_MAX = 40;
