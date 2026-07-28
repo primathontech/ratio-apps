@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { type FormField, isCollectableFieldType } from '@ratio-app/shared/schemas/form-schema';
+import { csvEscape } from '../../../core/common/csv';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
 import type { FormsDatabase } from '../db/types';
 import { FORMS_DB_TOKEN } from '../kysely.module';
@@ -55,7 +56,7 @@ export class CsvExportService {
     // webhook/validator contract instead of emitting phantom empty columns.
     const keys = schema.filter((f) => isCollectableFieldType(f.type)).map((f) => f.key);
 
-    await sink.write(`${[...keys, 'submitted_at'].map(CsvExportService.escape).join(',')}\n`);
+    await sink.write(`${[...keys, 'submitted_at'].map(csvEscape).join(',')}\n`);
 
     let cursor: ExportCursor | null = null;
     let rowCount = 0;
@@ -88,10 +89,8 @@ export class CsvExportService {
         // with '; ' so the CSV emits every key in one cell.
         const files =
           CsvExportService.parse<Record<string, string | string[]>>(row.filesJson) ?? {};
-        const cells = keys.map((key) =>
-          CsvExportService.escape(CsvExportService.cell(data[key] ?? files[key])),
-        );
-        cells.push(CsvExportService.escape(new Date(row.createdAt).toISOString()));
+        const cells = keys.map((key) => csvEscape(CsvExportService.cell(data[key] ?? files[key])));
+        cells.push(csvEscape(new Date(row.createdAt).toISOString()));
         await sink.write(`${cells.join(',')}\n`);
         rowCount += 1;
       }
@@ -113,13 +112,5 @@ export class CsvExportService {
     if (Array.isArray(value)) return value.map(String).join('; ');
     if (typeof value === 'object') return JSON.stringify(value);
     return String(value);
-  }
-
-  /** RFC 4180: quote when the value carries a comma, quote, or newline. */
-  private static escape(value: string): string {
-    if (/[",\n\r]/.test(value)) {
-      return `"${value.replace(/"/g, '""')}"`;
-    }
-    return value;
   }
 }

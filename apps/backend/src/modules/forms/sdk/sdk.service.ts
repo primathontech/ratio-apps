@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
+import { resolveSdkDistPath } from '../../../core/common/resolve-sdk-dist-path';
 import { safeInlineJson } from '../../../core/common/safe-inline-json';
 import type { MerchantsService } from '../../../core/merchants/merchants.service';
 import type { FormsDatabase } from '../db/types';
@@ -72,28 +73,23 @@ export class FormsSdkService {
   }
 
   /**
-   * Resolve + memoize the built bundle. `cwd` is the repo root under PM2 and
-   * Docker but `apps/backend` under `pnpm dev`, so both candidates are
-   * probed; `FORMS_SDK_DIST` overrides for non-standard layouts. Missing
-   * file → null (warn stub is served).
+   * Resolve + memoize the built bundle. The dist directory is located by the
+   * shared {@link resolveSdkDistPath} helper (cwd candidates + `FORMS_SDK_DIST`
+   * override + upward walk from `__dirname`); a missing bundle file → null
+   * (warn stub is served).
    */
   private readBundle(): string | null {
     if (this.bundleCache !== undefined) return this.bundleCache;
-    const candidates = process.env.FORMS_SDK_DIST
-      ? [process.env.FORMS_SDK_DIST]
-      : [
-          resolve(process.cwd(), 'packages/forms-sdk/dist'),
-          resolve(process.cwd(), '../../packages/forms-sdk/dist'),
-        ];
-    const distDir = candidates.find((dir) => existsSync(resolve(dir, WIDGET_BUNDLE)));
-    if (!distDir) {
+    const distDir = resolveSdkDistPath('forms', __dirname);
+    const bundlePath = resolve(distDir, WIDGET_BUNDLE);
+    if (!existsSync(bundlePath)) {
       this.logger.warn(
-        `forms-sdk bundle not found in ${candidates.join(' or ')} — serving prelude + warn stub`,
+        `forms-sdk bundle not found in ${distDir} — serving prelude + warn stub`,
       );
       this.bundleCache = null;
       return this.bundleCache;
     }
-    this.bundleCache = readFileSync(resolve(distDir, WIDGET_BUNDLE), 'utf8');
+    this.bundleCache = readFileSync(bundlePath, 'utf8');
     return this.bundleCache;
   }
 }
