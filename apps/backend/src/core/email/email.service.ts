@@ -1,5 +1,5 @@
 import { type Body, SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 
 /** A transactional email. Provide `text` and/or `html` — SES sends whichever
  * are present (both ⇒ multipart). `from` defaults to `EMAIL_FROM`. */
@@ -30,7 +30,7 @@ export class EmailService {
   private readonly client: SESv2Client | null;
   private readonly from: string | undefined;
 
-  constructor(client?: SESv2Client) {
+  constructor(@Optional() client?: SESv2Client) {
     this.from = process.env.EMAIL_FROM?.trim() || undefined;
     this.client =
       client ??
