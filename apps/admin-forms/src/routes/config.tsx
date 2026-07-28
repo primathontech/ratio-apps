@@ -236,8 +236,8 @@ export function ConfigPage() {
                   type="secondary"
                   style={{ fontSize: 12, display: 'block', marginTop: 8 }}
                 >
-                  Disabling makes every form show "temporarily unavailable" on your storefront and
-                  pauses webhook deliveries until re-enabled.
+                  Shows "temporarily unavailable" on all forms and pauses webhook deliveries until
+                  re-enabled.
                 </Typography.Text>
                 <Modal
                   open={confirmDisable}
@@ -251,8 +251,8 @@ export function ConfigPage() {
                   onCancel={() => setConfirmDisable(false)}
                 >
                   <Typography.Paragraph>
-                    Every form on your storefront will show "temporarily unavailable" and
-                    submissions in flight are rejected. Remember to Save after confirming.
+                    All forms will show "temporarily unavailable" and in-flight submissions are
+                    rejected. Save to apply.
                   </Typography.Paragraph>
                 </Modal>
               </>
