@@ -53,15 +53,16 @@ describe('formSubmittedPayloadSchema', () => {
 });
 
 describe('retry/queue constants', () => {
-  it('webhook retries at 5m / 20m / 1h', () => {
-    expect(FORMS_WEBHOOK_RETRY_DELAYS_MS).toEqual([300_000, 1_200_000, 3_600_000]);
+  it('webhook retries at 5m / 20m', () => {
+    expect(FORMS_WEBHOOK_RETRY_DELAYS_MS).toEqual([300_000, 1_200_000]);
   });
 
   it('email retries once after 10 minutes', () => {
     expect(FORMS_EMAIL_RETRY_DELAY_MS).toBe(600_000);
   });
 
-  it('webhook deliveries cap at 3 attempts', () => {
+  it('webhook deliveries cap at 3 attempts (initial + one retry per ladder step)', () => {
     expect(FORMS_WEBHOOK_MAX_ATTEMPTS).toBe(3);
+    expect(FORMS_WEBHOOK_MAX_ATTEMPTS).toBe(FORMS_WEBHOOK_RETRY_DELAYS_MS.length + 1);
   });
 });

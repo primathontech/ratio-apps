@@ -31,14 +31,20 @@ export const formSubmittedPayloadSchema = z.object({
 export type FormSubmittedPayload = z.infer<typeof formSubmittedPayloadSchema>;
 
 /**
- * Non-2xx delivery retry schedule: 5m, 20m, 1h after the Nth failure
- * (index = attempts already made - 1). SQS DelaySeconds caps at 15 min, so
- * the DB row's `next_retry_at` + the sweeper cron are the scheduler (TRD §1).
+ * Non-2xx delivery retry schedule: 5m then 20m (indexed by attempts already
+ * made). SQS DelaySeconds caps at 15 min, so the DB row's `next_retry_at` + the
+ * sweeper cron are the scheduler (TRD §1). One retry per entry, so
+ * MAX_ATTEMPTS below is derived as `length + 1` (initial attempt + N retries) —
+ * they can never drift, which is what let the old 1h step become unreachable.
  */
-export const FORMS_WEBHOOK_RETRY_DELAYS_MS = [5 * 60_000, 20 * 60_000, 60 * 60_000] as const;
+export const FORMS_WEBHOOK_RETRY_DELAYS_MS = [5 * 60_000, 20 * 60_000] as const;
 
-/** After this many failed attempts a delivery is `failed` (manual re-trigger only). */
-export const FORMS_WEBHOOK_MAX_ATTEMPTS = 3;
+/**
+ * After this many failed attempts a delivery is `failed` (manual re-trigger
+ * only). Derived from the ladder (initial attempt + one retry per delay) so a
+ * delay can never be advertised without being reachable.
+ */
+export const FORMS_WEBHOOK_MAX_ATTEMPTS = FORMS_WEBHOOK_RETRY_DELAYS_MS.length + 1;
 
 /** Email notifications retry exactly once, 10 minutes after the first failure. */
 export const FORMS_EMAIL_RETRY_DELAY_MS = 10 * 60_000;

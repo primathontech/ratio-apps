@@ -36,7 +36,7 @@ export type DeliveryFetchLike = (
 /** DI token for the fetch override (unset in prod → global fetch). */
 export const FORMS_DELIVERY_FETCH = Symbol.for('ratio-app:forms:delivery-fetch');
 
-/** Webhook delivery EXECUTOR (TRD §1): one attempt per swept row — 2xx→delivered, else retry (5m/20m/…) until max→failed; PII (submission fields) never reaches a log line. */
+/** Webhook delivery EXECUTOR (TRD §1): one attempt per swept row — 2xx→delivered, else retry (5m/20m) until max→failed; PII (submission fields) never reaches a log line. */
 @Injectable()
 export class WebhookDeliveryService {
   private readonly logger = new Logger(WebhookDeliveryService.name);

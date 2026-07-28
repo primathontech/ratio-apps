@@ -48,7 +48,7 @@ running in-process in dev and in `main.worker.ts` (svc-worker) in prod, consumin
 SQS via `core/queue/queue.service.ts`.
 
 **Retry scheduling (design decision):** SQS `DelaySeconds` caps at 15 min, but
-retries are 5m/20m/1h. Therefore the **DB is the scheduler**: delivery rows carry
+retries are 5m/20m. Therefore the **DB is the scheduler**: delivery rows carry
 `next_retry_at`; a `@nestjs/schedule` cron (every minute, precedent: google's
 `reconcile.service.ts`) enqueues due `pending` rows to SQS; the worker attempts
 and updates the row. "Failed after 3 attempts" = `status:'failed'` row (the
