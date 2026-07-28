@@ -40,15 +40,7 @@ export interface FormListResult {
   hasMore: boolean;
 }
 
-/**
- * Form CRUD (TRD §2): create / list / detail / update / soft-delete /
- * activate / deactivate / duplicate. EVERY query is merchant-scoped — a
- * cross-merchant id is indistinguishable from a missing one (404), which is
- * the multi-tenancy guard.
- *
- * `schema_json` is stringified explicitly on write (mysql2 does not
- * auto-serialize into JSON columns) and parsed on read.
- */
+/** Form CRUD (TRD §2); every query is merchant-scoped so a cross-merchant id 404s (multi-tenancy guard). */
 @Injectable()
 export class FormsService {
   constructor(@Inject(FORMS_DB_TOKEN) private readonly handle: KyselyClient<FormsDatabase>) {}
@@ -77,8 +69,7 @@ export class FormsService {
         status: 'inactive',
       })
       .execute();
-    // Compose in memory (no RETURNING in MySQL); timestamps are "now" within
-    // clock skew of the DB defaults — callers needing exact values re-GET.
+    // Compose in memory (no RETURNING in MySQL); timestamps approximate DB defaults.
     const now = new Date();
     return {
       id,

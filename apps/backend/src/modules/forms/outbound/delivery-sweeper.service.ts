@@ -13,36 +13,10 @@ export const FORMS_SWEEP_MERCHANT_BATCH_CAP = 100;
 /** How many due rows one sweep considers overall (bounds the scan). */
 const SWEEP_SCAN_LIMIT = 1_000;
 
-/**
- * Claim lease: a claimed row's `next_retry_at` is pushed this far into the
- * future the moment it is enqueued, so a double-fired cron (overlapping pod,
- * re-run) cannot claim — and re-enqueue — the same row again while the
- * worker processes it. The worker overwrites it with the real schedule (or
- * clears it) when the attempt settles; if the worker dies mid-flight the
- * row surfaces as due again after the lease and is re-swept (at-least-once).
- */
+/** Claim lease: pushes an enqueued row's `next_retry_at` out so a double-fired cron can't re-claim it; re-surfaces after the lease if the worker died (at-least-once). */
 export const FORMS_SWEEP_CLAIM_LEASE_MS = 2 * 60_000;
 
-/**
- * The minute cron that drives both delivery state machines (TRD §1): the DB
- * is the SCHEDULER. Due `pending` rows (`next_retry_at <= now`) are CLAIMED
- * via a conditional UPDATE and enqueued to SQS — `{ deliveryId }` to the
- * webhook queue, `{ emailLogId }` to the email queue; the self-gated workers
- * drain the queues and write outcomes back to the rows.
- *
- * - Self-gating (google reconcile-cron precedent): webhooks sweep only when
- *   `FORMS_WEBHOOK_WORKER_ENABLED === 'true'`; emails only when
- *   `FORMS_EMAIL_WORKER_ENABLED === 'true'` — the sweeper runs in the same
- *   process as its workers, so the flags gate the whole pipeline.
- * - Kill switch: merchants with `forms_enabled = false` are skipped — their
- *   rows stay `pending` and drain on re-enable (AC11).
- * - Fan-out cap: ≤ {@link FORMS_SWEEP_MERCHANT_BATCH_CAP} rows per merchant
- *   per sweep (PRD watch-out: ≤100/min per merchant).
- * - Idempotent under double-fire: the conditional-UPDATE claim (checked by
- *   rows-affected) plus the {@link FORMS_SWEEP_CLAIM_LEASE_MS} visibility
- *   guard mean a row is enqueued at most once per due window — plus an
- *   in-process overlap flag like google's reconcile cron.
- */
+/** Minute cron (TRD §1): DB is the scheduler — claims due pending rows and enqueues to SQS; skips kill-switched merchants (AC11), caps per-merchant fan-out, idempotent under double-fire. */
 @Injectable()
 export class DeliverySweeperService {
   private readonly logger = new Logger(DeliverySweeperService.name);
@@ -82,8 +56,6 @@ export class DeliverySweeperService {
       this.running = false;
     }
   }
-
-  // ─── internals ────────────────────────────────────────────────────────────
 
   /** Kill-switched merchants — their rows wait (and drain on re-enable). */
   private async pausedMerchants(): Promise<Set<string>> {
@@ -133,10 +105,7 @@ export class DeliverySweeperService {
     return claimed.length;
   }
 
-  /**
-   * Filter (kill switch, per-merchant cap) then claim each row. Only rows
-   * whose conditional claim actually landed are enqueued.
-   */
+  /** Filter (kill switch, per-merchant cap) then claim each row; only rows whose conditional claim landed are enqueued. */
   private async claimEligible(
     table: 'form_webhook_deliveries' | 'form_email_log',
     due: Array<{ id: number; merchantId: string }>,
@@ -156,11 +125,7 @@ export class DeliverySweeperService {
     return claimed;
   }
 
-  /**
-   * Conditional-UPDATE claim: pushes `next_retry_at` out by the lease window
-   * IFF the row is still due and pending. rows-affected 0 ⇒ another sweeper
-   * (or a re-fired cron) already claimed it — skip (idempotency, TDD §3.7).
-   */
+  /** Conditional-UPDATE claim: pushes `next_retry_at` out IFF still due+pending; rows-affected 0 ⇒ already claimed, skip (idempotency, TDD §3.7). */
   private async claim(
     table: 'form_webhook_deliveries' | 'form_email_log',
     id: number,

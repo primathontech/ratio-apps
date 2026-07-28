@@ -1,11 +1,6 @@
 import { queueNameFromEnv } from '../../../core/queue/queue-name';
 
-/**
- * SQS plumbing for the forms email-notification pipeline — same
- * DB-is-the-scheduler shape as `webhook-delivery.queue.ts`: the sweeper
- * claims due `form_email_log` rows and enqueues `{ emailLogId }`; the worker
- * sends via SES and writes the outcome back to the row.
- */
+/** SQS plumbing for the email-notification pipeline — same DB-is-the-scheduler shape as `webhook-delivery.queue.ts`. */
 
 /** Default queue name when `FORMS_EMAIL_QUEUE_URL` is unset (local dev / ElasticMQ). */
 export const FORMS_EMAIL_QUEUE_DEFAULT = 'forms-email-notification';

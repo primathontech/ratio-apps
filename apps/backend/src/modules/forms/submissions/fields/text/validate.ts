@@ -6,21 +6,14 @@ import {
 import type { FieldOfType, ServerValidateResult } from '../types';
 import { matchesPattern } from './regex-engine';
 
-/**
- * Hard ceiling on the input fed to a merchant-authored regex on the public
- * submit path (P1-1 ReDoS defense in depth). The pattern itself is matched with
- * RE2 (linear-time, backtracking-immune — see ./regex-engine), which is the
- * definitive fix; this cap is a cheap secondary bound. Reuses the shared text
- * length ceiling so the two can't drift.
- */
+/** Hard input cap for merchant-regex matching on the public path (P1-1 defense in depth; RE2 in ./regex-engine is the real fix). Reuses the shared text ceiling so they can't drift. */
 const REGEX_INPUT_MAX_LENGTH = FORM_TEXT_HARD_MAX_LENGTH;
 
 export function validateText(field: FieldOfType<'text'>, value: unknown): ServerValidateResult {
   if (typeof value !== 'string') return { error: 'Please enter a valid value.' };
   const v = field.validation;
 
-  // Server-authoritative normalization: apply BEFORE any length/pattern check
-  // and return the canonical value, regardless of what the client sent.
+  // Server-authoritative: normalize BEFORE length/pattern checks and return the canonical value.
   const canonical = applyTextTransform(value, v?.transform);
   const invalid = v?.patternMessage ?? 'Please enter a valid value.';
 
@@ -35,8 +28,7 @@ export function validateText(field: FieldOfType<'text'>, value: unknown): Server
     }
   }
 
-  // Format preset: a server-authored, vetted pattern → native RegExp('u') is
-  // safe (fixed, backtracking-free) even on the public path.
+  // Format preset is server-authored and fixed → native RegExp is safe on the public path.
   const preset = textFormatPattern(v?.format);
   if (preset !== undefined) {
     if (canonical.length > FORM_TEXT_HARD_MAX_LENGTH || !new RegExp(preset, 'u').test(canonical)) {
@@ -49,9 +41,7 @@ export function validateText(field: FieldOfType<'text'>, value: unknown): Server
     }
   }
 
-  // Always-on ceiling (defense in depth) even when nothing was configured —
-  // reached only when neither an explicit maxLength nor a pattern already bounded
-  // the length above.
+  // Always-on ceiling (defense in depth) when neither maxLength nor a pattern bounded length above.
   if (canonical.length > FORM_TEXT_HARD_MAX_LENGTH) {
     return { error: `Please enter no more than ${FORM_TEXT_HARD_MAX_LENGTH} characters.` };
   }

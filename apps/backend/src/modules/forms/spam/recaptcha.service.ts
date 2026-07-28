@@ -2,7 +2,6 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import type { CryptoService } from '../../../core/crypto/crypto.service';
 import { FORMS_CRYPTO } from '../tokens';
 
-/** Google's server-side verification endpoint. */
 const SITEVERIFY_URL = 'https://www.google.com/recaptcha/api/siteverify';
 
 /** How long we wait on Google before falling back to honeypot-only (F8). */
@@ -10,10 +9,7 @@ const SITEVERIFY_TIMEOUT_MS = 5_000;
 
 const DEFAULT_THRESHOLD = 0.3;
 
-/**
- * Minimal fetch shape the verifier needs — constructor-injectable so tests
- * script responses/outages without touching the network.
- */
+/** Minimal fetch shape — constructor-injectable so tests script responses/outages without the network. */
 export type RecaptchaFetchLike = (
   url: string,
   init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal },
@@ -27,7 +23,6 @@ export interface RecaptchaResult {
   score?: number;
 }
 
-/** The slice of the merchant's config the verifier consumes. */
 export interface RecaptchaConfigInput {
   /** AES-256-GCM ciphertext of the merchant's secret (null → shared key mode). */
   recaptchaSecretEnc: string | null;
@@ -35,18 +30,7 @@ export interface RecaptchaConfigInput {
   recaptchaThreshold: number | string | null | undefined;
 }
 
-/**
- * Server-side reCAPTCHA v3 verification (PublicFormGuard chain step 4).
- *
- * Secret resolution: the merchant's decrypted secret when set, else the
- * shared `FORMS_RECAPTCHA_SHARED_SECRET` env key. Score below the merchant's
- * threshold (default 0.30) → `reject` (the caller answers with a SILENT fake
- * success per PRD F7). Google unreachable / no secret configured →
- * `unavailable` (the caller falls back to honeypot-only per PRD F8).
- *
- * REDACTION: neither the secret nor any submission field ever reaches a log
- * line — log payloads carry only verdict metadata.
- */
+/** Server-side reCAPTCHA v3 verify (PublicFormGuard step 4): merchant secret else shared env key; score < threshold (default 0.30) → reject (caller fakes success, F7); Google unreachable / no secret → unavailable (honeypot fallback, F8). Never logs the secret or any submission field. */
 @Injectable()
 export class FormsRecaptchaService {
   private readonly logger = new Logger(FormsRecaptchaService.name);
@@ -60,8 +44,7 @@ export class FormsRecaptchaService {
   }
 
   async verify(token: string | undefined, config: RecaptchaConfigInput): Promise<RecaptchaResult> {
-    // Check the secret before the token: no secret configured means reCAPTCHA
-    // can't run at all → unavailable → honeypot fallback (F8), not a reject.
+    // Check secret before token: no secret → unavailable (honeypot fallback, F8), not reject.
     const secret = this.resolveSecret(config);
     if (!secret) {
       this.logger.warn({ msg: 'recaptcha selected but no secret configured — honeypot fallback' });
@@ -90,8 +73,7 @@ export class FormsRecaptchaService {
       }
       const body = (await res.json()) as { success?: boolean; score?: number };
       if (body.success !== true) {
-        // Token invalid / expired / wrong site — a failed verification, not
-        // an outage: treat as bot.
+        // Failed verification (invalid/expired/wrong site), not an outage → treat as bot.
         return { verdict: 'reject' };
       }
       const score = typeof body.score === 'number' ? body.score : 0;
@@ -100,9 +82,7 @@ export class FormsRecaptchaService {
       }
       return { verdict: 'pass', score };
     } catch {
-      // Network error / timeout — Google unreachable. Caller falls back to
-      // honeypot-only (PRD F8). Never log the error object here: fetch errors
-      // can echo the request body (which carries the secret).
+      // Google unreachable → honeypot fallback (F8). Never log the error: fetch errors can echo the body (secret).
       this.logger.warn({ msg: 'recaptcha siteverify unreachable — falling back to honeypot-only' });
       return { verdict: 'unavailable' };
     } finally {

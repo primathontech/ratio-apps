@@ -10,9 +10,7 @@ export function validateDropdown(
     return { error: 'Please choose one of the available options.' };
   }
   if (optionValues(field.options).includes(value)) return { value };
-  // Server-authoritative "Other" (§4.5 P0): when allowOther, accept a bounded,
-  // non-empty value outside the option set — the typed free text. Mirrors the
-  // SDK validator exactly so client and server verdicts can't drift.
+  // Server-authoritative "Other" (§4.5 P0): when allowOther, accept a bounded non-empty value outside the option set. Mirrors the SDK.
   if (field.allowOther && isValidOtherValue(value)) return { value };
   return { error: 'Please choose one of the available options.' };
 }

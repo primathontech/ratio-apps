@@ -1,9 +1,4 @@
-/**
- * Server-validation registry. Maps each value-bearing field
- * type to the per-field validator that owns its rules; `schema-validator.service`
- * dispatches through this map instead of a monolithic switch. `file` is
- * validated separately (it carries an S3 key + scope, not an inline value).
- */
+/** Server-validation registry: maps each value-bearing field type to its validator (schema-validator.service dispatches through this map). `file` is validated separately (S3 key + scope, not an inline value). */
 import { validateCheckbox } from './checkbox/validate';
 import { validateDate } from './date/validate';
 import { validateDropdown } from './dropdown/validate';

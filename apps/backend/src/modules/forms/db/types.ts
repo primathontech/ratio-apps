@@ -5,18 +5,7 @@ import type { BaseMerchantsTable } from '../../../core/merchants/merchant.types'
 import type { BaseOauthTokensTable } from '../../../core/oauth/oauth-tokens.types';
 import type { BaseWebhookLogTable } from '../../../core/webhooks/webhook-log.types';
 
-/**
- * Kysely table types for the forms_app database — kept in lockstep with
- * `migrations/0001_initial.ts` (the migration smoke test asserts the table
- * list; the typechecker enforces the column shapes at every call site).
- *
- * Conventions:
- * - JSON columns are written with explicit `JSON.stringify` (mysql2 does not
- *   auto-serialize) and may come back as parsed objects OR strings — readers
- *   go through a parse helper.
- * - DECIMAL columns come back from mysql2 as strings — coerce with Number().
- * - BOOLEAN is TINYINT(1) — mysql2 returns 0/1, coerce with Boolean().
- */
+/** Kysely table types for forms_app, in lockstep with `migrations/0001_initial.ts`; mysql2 quirks: JSON needs explicit stringify and may read back as string, DECIMAL reads as string (Number()), BOOLEAN is TINYINT 0/1 (Boolean()). */
 
 interface FormsConfigsTable {
   merchantId: string;
@@ -69,21 +58,13 @@ interface FormSubmissionsTable {
   merchantId: string;
   /** Field key → submitted value map; stringified on write. */
   dataJson: ColumnType<Record<string, unknown> | string, string, string>;
-  /**
-   * Field key → S3 object key, or an object-key ARRAY for a multi-file field
-   * (`file.maxFiles > 1`); stringified on write. Single-file fields keep the
-   * scalar-string shape (back-compat). Null when the submission had no files.
-   */
+  /** Field key → S3 object key (or key ARRAY when `file.maxFiles > 1`); stringified on write; null when no files. */
   filesJson: ColumnType<
     Record<string, string | string[]> | string | null,
     string | null | undefined,
     string | null
   >;
-  /**
-   * Hidden-field provenance (field key → { source, value }); stringified on
-   * write. Nullable — defined in `0001_initial.ts`, so submissions with no
-   * hidden fields carry null.
-   */
+  /** Hidden-field provenance (field key → { source, value }); stringified on write; null when no hidden fields. */
   contextJson: ColumnType<
     SubmissionContext | string | null,
     string | null | undefined,

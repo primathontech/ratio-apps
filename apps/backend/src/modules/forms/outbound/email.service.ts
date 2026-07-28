@@ -9,23 +9,7 @@ import { FORMS_DB_TOKEN } from '../kysely.module';
 /** One retry, then failed (AC9): pending → sent | pending(+10m) → failed. */
 export const FORMS_EMAIL_MAX_ATTEMPTS = 2;
 
-/**
- * The email notification EXECUTOR — one attempt per call, invoked by the
- * email worker for each queued `form_email_log` row.
- *
- * State machine: success → `sent`; first failure → `pending` with
- * next_retry_at = now + FORMS_EMAIL_RETRY_DELAY_MS (10 min); second failure
- * → `failed`. A provider bounce event lands through {@link markBounced}
- * (status `bounced` + the merchant-visible `email_bounced` config flag) —
- * the inbound bounce-webhook wiring is a later phase.
- *
- * Sends through the shared {@link EmailService} (core/email) — real SES when
- * `EMAIL_FROM` is configured, a logged no-op otherwise. This is the forms
- * delivery POLICY (retry state machine); the transport lives in core.
- *
- * PII: submission values may appear in the EMAIL BODY (that is the feature)
- * but never in log lines.
- */
+/** Email notification EXECUTOR (retry POLICY over core EmailService): sent | pending +10m | failed; PII may appear in the email body but never in log lines. */
 @Injectable()
 export class FormsEmailService {
   private readonly logger = new Logger(FormsEmailService.name);
@@ -41,8 +25,7 @@ export class FormsEmailService {
       const message = await this.composeMessage(row);
       await this.email.send(message);
     } catch {
-      // Compose or provider failure — never log the error object (it can echo
-      // the message body / a malformed row, which carry submission values).
+      // Never log the error — it can echo the message body / row (submission PII).
       await this.persistFailure(row);
       return;
     }
@@ -59,11 +42,7 @@ export class FormsEmailService {
     this.logger.log({ msg: 'notification email sent', emailLogId: row.id });
   }
 
-  /**
-   * Bounce handling (AC9): flip this recipient's undelivered log rows to
-   * `bounced` and raise the merchant-visible `email_bounced` config flag.
-   * Called by the (future) inbound bounce webhook.
-   */
+  /** Bounce handling (AC9): flip this recipient's undelivered log rows to `bounced` and raise the merchant-visible `email_bounced` config flag. */
   async markBounced(merchantId: string, recipient: string): Promise<void> {
     await this.handle.db
       .updateTable('form_email_log')
@@ -79,8 +58,6 @@ export class FormsEmailService {
       .execute();
     this.logger.warn({ msg: 'notification recipient bounced', merchantId });
   }
-
-  // ─── internals ────────────────────────────────────────────────────────────
 
   private async persistFailure(row: FormEmailLogRow): Promise<void> {
     const attempts = row.attempts + 1;
@@ -116,8 +93,7 @@ export class FormsEmailService {
     });
   }
 
-  /** Subject/body from the submission — plain text, values included. `from`
-   * is left to the core EmailService (EMAIL_FROM). */
+  /** Subject/body from the submission — plain text, values included; `from` is left to core EmailService (EMAIL_FROM). */
   private async composeMessage(row: FormEmailLogRow): Promise<EmailMessage> {
     const submission = await this.handle.db
       .selectFrom('form_submissions')

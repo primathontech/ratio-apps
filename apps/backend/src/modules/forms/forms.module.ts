@@ -40,13 +40,9 @@ import { UploadsController } from './uploads/uploads.controller';
 import { FormsAppUninstalledHandler } from './webhooks/app-uninstalled.handler';
 import { FormsWebhooksController } from './webhooks/webhooks.controller';
 
-// Re-export guards so external consumers (e.g. e2e setup) can import from
-// the barrel; controllers internal to this module pull from ./guards.
+// Re-export guards from the barrel for external consumers (e.g. e2e setup).
 export { FormsMerchantTokenGuard, FormsWebhookSignatureGuard } from './guards';
-// Re-export the tokens from the module barrel so existing
-// `import { FORMS_MERCHANTS } from './forms.module'` call sites keep
-// working. The symbols themselves live in `./tokens.ts` to break the
-// circular import between this file and its sibling services/guards.
+// Re-export tokens from the barrel; symbols live in ./tokens.ts to break the circular import.
 export {
   FORMS_CRYPTO,
   FORMS_MERCHANTS,
@@ -55,18 +51,9 @@ export {
   FORMS_WEBHOOKS,
 } from './tokens';
 
-/**
- * Forms feature module.
- *
- * Nothing crosses modules by design — per-module DB isolation. The Crypto /
- * Ratio / Merchants / OAuth / Webhooks providers are built by the shared
- * `createAppProviders` factory; everything else (config + sdk services,
- * controllers, bootstrap, handler, guards) is wired here directly because
- * those pieces are app-specific.
- */
+/** Forms feature module; per-module DB isolation, shared providers via createAppProviders. */
 @Module({
-  // ScheduleModule.forRoot() powers the minute delivery-sweeper cron
-  // (google reconcile precedent — forRoot() is idempotent across modules).
+  // ScheduleModule.forRoot() powers the minute delivery-sweeper cron (idempotent across modules).
   imports: [FormsKyselyModule, ScheduleModule.forRoot()],
   controllers: [
     FormsConfigController,
@@ -87,19 +74,14 @@ export {
     FormsEmbedService,
     FormsBootstrap,
     FormsAppUninstalledHandler,
-    // Public intake chain (TRD §2): rate limit → form state → spam →
-    // schema validation → idempotency → persist + delivery rows.
+    // Public intake chain (TRD §2): rate limit → form state → spam → validation → idempotency → persist.
     SubmitRateLimitService,
     FormsRecaptchaService,
     SchemaValidatorService,
     IdempotencyService,
     SubmissionsService,
     CsvExportService,
-    // Shared core storage transport (presign / stream / HEAD). Provided with a
-    // client pinned to the FORMS region override (`FORMS_S3_REGION`, default
-    // ap-south-1) so forms S3 is NOT pinned to bare `AWS_REGION` (which local
-    // boxes point at the SQS emulator) — the S3 analogue of core email's
-    // `EMAIL_REGION` seam. `FormsS3Service` is the forms policy layer over it.
+    // Core S3 transport pinned to FORMS_S3_REGION (default ap-south-1) so forms S3 isn't bound to bare AWS_REGION (local SQS emulator).
     {
       provide: S3Service,
       useFactory: () =>
@@ -108,12 +90,10 @@ export {
         ),
     },
     FormsS3Service,
-    // Async CSV export: POST enqueues a job → self-gated worker streams the
-    // CSV into S3 via lib-storage → GET polls for the signed download URL.
+    // Async CSV export: POST enqueues → worker streams CSV to S3 → GET polls for the signed URL.
     ExportJobService,
     FormsExportWorker,
-    // Delivery engine: minute sweeper (DB is the scheduler) → SQS →
-    // self-gated workers → executors.
+    // Delivery engine: minute sweeper (DB is the scheduler) → SQS → self-gated workers → executors.
     QueueService,
     EmailService,
     WebhookDeliveryService,
@@ -121,9 +101,7 @@ export {
     WebhookDeliveryWorker,
     FormsEmailWorker,
     DeliverySweeperService,
-    // Guards are concrete @Injectable classes that defer to the per-module
-    // factories internally (see ./guards.ts). They are class-shaped so
-    // controllers can reference them in @UseGuards(GuardClass).
+    // Class-shaped guards so controllers can reference them in @UseGuards (see ./guards.ts).
     FormsWebhookSignatureGuard,
     FormsMerchantTokenGuard,
     ...createAppProviders<FormsDatabase>(

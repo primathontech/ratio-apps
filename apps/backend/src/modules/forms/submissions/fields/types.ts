@@ -1,16 +1,11 @@
 import type { FormField, FormNonCollectableFieldType } from '@ratio-app/shared/schemas/form-schema';
 
-/**
- * Per-field server-validation contracts. Each field module in
- * `./<type>/validate.ts` owns the server-side rules; the registry dispatches to
- * them.
- */
+/** Per-field server-validation contracts; each `./<type>/validate.ts` owns its rules and the registry dispatches to them. */
 
 /** A field that carries user input (content blocks are display-only, §1.3). */
 export type CollectableFormField = Exclude<FormField, { type: FormNonCollectableFieldType }>;
 
-/** The value-bearing fields — every collectable field except `file` (which
- * arrives as a pre-uploaded S3 key and is validated separately). */
+/** Value-bearing fields — every collectable field except `file` (a pre-uploaded S3 key, validated separately). */
 export type ValueFormField = Exclude<CollectableFormField, { type: 'file' }>;
 
 /** The narrowed member for a single value-bearing field type. */

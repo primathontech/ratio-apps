@@ -35,22 +35,7 @@ export type DeliveryFetchLike = (
 /** DI token for the fetch override (unset in prod → global fetch). */
 export const FORMS_DELIVERY_FETCH = Symbol.for('ratio-app:forms:delivery-fetch');
 
-/**
- * The webhook delivery EXECUTOR — one attempt per call, invoked by the
- * SQS worker for each swept row (the DB is the scheduler, TRD §1: the
- * minute sweeper claims due rows and enqueues `{ deliveryId }`; the worker
- * loads the row and calls {@link execute}).
- *
- * State machine per attempt:
- *   2xx                → `delivered` (+ last_status_code)
- *   non-2xx / network  → attempts+1; before attempt FORMS_WEBHOOK_MAX_ATTEMPTS
- *                        → `pending` with next_retry_at = now + 5m/20m/…;
- *                        at max → `failed` (+ last_status_code) — the "dead
- *                        letter" the admin can manually re-trigger.
- *
- * PII: the payload (submission fields) NEVER reaches a log line — logs carry
- * ids, attempt counts, and status codes only.
- */
+/** Webhook delivery EXECUTOR (TRD §1): one attempt per swept row — 2xx→delivered, else retry (5m/20m/…) until max→failed; PII (submission fields) never reaches a log line. */
 @Injectable()
 export class WebhookDeliveryService {
   private readonly logger = new Logger(WebhookDeliveryService.name);
@@ -68,7 +53,7 @@ export class WebhookDeliveryService {
   async execute(row: FormWebhookDeliveryRow): Promise<void> {
     const payload = await this.buildPayload(row);
     if (!payload) {
-      // Submission or form vanished (should not happen) — dead-letter it.
+      // Submission or form vanished — dead-letter it.
       await this.persistFailure(row, null);
       return;
     }
@@ -76,8 +61,7 @@ export class WebhookDeliveryService {
     try {
       statusCode = (await this.post(row.url, payload, DELIVERY_TIMEOUT_MS)).status;
     } catch {
-      // Network error / timeout. Never log the caught error object — fetch
-      // errors can echo the request body (submission PII).
+      // Never log the caught error — fetch errors can echo the request body (submission PII).
       statusCode = null;
     }
     if (statusCode !== null && statusCode >= 200 && statusCode < 300) {
@@ -98,11 +82,7 @@ export class WebhookDeliveryService {
     await this.persistFailure(row, statusCode);
   }
 
-  /**
-   * Admin "Send test payload" (AC10): a schema-valid dummy payload POSTed to
-   * the form's webhook URL with a 5s timeout. Returns the response status
-   * code (null when unreachable). The body is never logged.
-   */
+  /** Admin "Send test payload" (AC10): schema-valid dummy POSTed to the webhook URL (5s timeout); returns status code (null when unreachable); body never logged. */
   async sendTest(merchantId: string, formId: string): Promise<{ statusCode: number | null }> {
     const form = await this.handle.db
       .selectFrom('forms')
@@ -130,8 +110,6 @@ export class WebhookDeliveryService {
     }
   }
 
-  // ─── internals ────────────────────────────────────────────────────────────
-
   private async persistFailure(
     row: FormWebhookDeliveryRow,
     statusCode: number | null,
@@ -157,8 +135,7 @@ export class WebhookDeliveryService {
       });
       return;
     }
-    // Index = attempts already made BEFORE this failure (row.attempts):
-    // 1st failure → +5m, 2nd → +20m (TDD AC10).
+    // Index by attempts already made (row.attempts): 1st failure → +5m, 2nd → +20m (TDD AC10).
     const delayMs =
       FORMS_WEBHOOK_RETRY_DELAYS_MS[row.attempts] ??
       FORMS_WEBHOOK_RETRY_DELAYS_MS[FORMS_WEBHOOK_RETRY_DELAYS_MS.length - 1] ??
@@ -206,8 +183,7 @@ export class WebhookDeliveryService {
     );
     const fields: Record<string, unknown> = { ...(data ?? {}) };
     for (const [fieldKey, value] of Object.entries(files ?? {})) {
-      // A multi-file field emits an ARRAY of signed URLs; a single-file field a
-      // lone URL (shape matches the stored files_json value).
+      // Multi-file field → array of signed URLs; single-file → lone URL (matches stored files_json).
       fields[fieldKey] = Array.isArray(value)
         ? await Promise.all(value.map((key) => this.s3.signedGetUrl(key)))
         : await this.s3.signedGetUrl(value);
@@ -229,8 +205,7 @@ export class WebhookDeliveryService {
       typeof form.schemaJson === 'string'
         ? (JSON.parse(form.schemaJson) as FormField[])
         : form.schemaJson;
-    // The shared builder is the single source of truth for the payload shape —
-    // the admin "copy as cURL" preview generates from the same function.
+    // Shared builder is the single source of truth for payload shape (admin "copy as cURL" uses it too).
     return buildSamplePayload(schema, {
       merchantId: form.merchantId,
       formId: form.id,

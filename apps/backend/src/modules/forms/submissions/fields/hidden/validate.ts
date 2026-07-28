@@ -1,19 +1,7 @@
 import { HIDDEN_MAX_VALUE_LENGTH } from '@ratio-app/shared/schemas/fields/hidden/constants';
 import type { FieldOfType, ServerValidateResult } from '../types';
 
-/**
- * Server-authoritative resolution of a captured hidden value (§4).
- *
- * The client resolves hidden values from page context and POSTs them, but the
- * server never trusts that for sources it can derive itself:
- *  - `constant`: emit the configured `constantValue` (or `fallback`), ignoring
- *    whatever the client sent — a crafted POST can't override a fixed constant.
- *  - `timestamp`: stamp the server's own ISO time, so the recorded time is
- *    authoritative rather than client-controlled.
- * For client-captured sources (url_param/cookie/referrer/landing_url) the value
- * genuinely originates in the browser: accept the string, apply the `fallback`
- * when it's empty, and enforce the length ceiling regardless of the client.
- */
+/** Server-authoritative hidden values (§4): `constant`/`timestamp` are derived here and never trusted from the client (a crafted POST can't override them); client-captured sources (url_param/cookie/referrer/landing_url) accept the string, apply `fallback` when empty, and clamp to the length ceiling. */
 export function validateHidden(field: FieldOfType<'hidden'>, value: unknown): ServerValidateResult {
   const clamp = (v: string): string =>
     v.length > HIDDEN_MAX_VALUE_LENGTH ? v.slice(0, HIDDEN_MAX_VALUE_LENGTH) : v;

@@ -24,12 +24,7 @@ type ListQuery = z.infer<typeof listQuerySchema>;
 
 const listQueryPipe = new ZodValidationPipe(listQuerySchema as unknown as ZodType<ListQuery>);
 
-/**
- * Merchant-guarded submission reads + delivery management (TRD §2):
- * paginated list, detail with signed file URLs, streaming CSV export
- * (deleted forms included — submissions outlive the form), the delivery
- * log, manual re-trigger, and the webhook "send test payload" probe.
- */
+/** Merchant-guarded submission reads + delivery management (TRD §2): list, detail, CSV export, delivery log, re-trigger, and webhook test probe. */
 @Controller('forms/api')
 @UseGuards(FormsMerchantTokenGuard)
 export class SubmissionsController {
@@ -57,12 +52,7 @@ export class SubmissionsController {
     return this.submissions.detail(merchant.id, submissionId);
   }
 
-  /**
-   * Streaming CSV export. `reply.hijack()` streams rows as they page out of
-   * the DB and bypasses the JSON-enveloping ResponseInterceptor — but it also
-   * bypasses @fastify/cors, so we reapply CORS here (shared allowlist,
-   * core/common/cors) for the cross-origin admin fetch.
-   */
+  /** Streaming CSV export; `reply.hijack()` also bypasses @fastify/cors, so CORS is reapplied here for the cross-origin admin fetch. */
   @Get('forms/:id/submissions/export')
   async export(
     @CurrentMerchant() merchant: Merchant,
@@ -70,8 +60,7 @@ export class SubmissionsController {
     @Req() req: FastifyRequest,
     @Res() reply: FastifyReply,
   ): Promise<void> {
-    // Validate existence + ownership BEFORE hijacking so a 404 still renders
-    // as the standard error envelope.
+    // Validate ownership BEFORE hijacking so a 404 still renders as the standard error envelope.
     await this.submissions.requireOwnForm(merchant.id, formId);
 
     const headers: Record<string, string> = {
@@ -98,12 +87,7 @@ export class SubmissionsController {
     }
   }
 
-  /**
-   * Kick off an ASYNC full-history CSV export (background worker → S3 → signed
-   * download URL). Returns immediately with the job id to poll. When async
-   * export is not configured (no bucket/queue) this answers 503
-   * `exports_unavailable` and the admin falls back to the sync export above.
-   */
+  /** Kick off an async full-history CSV export, returning the job id to poll; 503 `exports_unavailable` when unconfigured so the admin falls back to the sync export above. */
   @Post('forms/:id/exports')
   async createExport(
     @CurrentMerchant() merchant: Merchant,

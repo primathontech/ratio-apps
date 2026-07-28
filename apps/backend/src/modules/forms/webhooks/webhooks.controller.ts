@@ -7,14 +7,7 @@ import type { FormsDatabase } from '../db/types';
 import { FormsWebhookSignatureGuard } from '../guards';
 import { FORMS_WEBHOOKS } from '../tokens';
 
-/**
- * Inbound Ratio webhooks for Forms. Single endpoint per app — dispatch is
- * by `envelope.event` inside the per-module WebhooksService. Must return 200
- * within 5 s per Ratio's spec — handlers do only cheap synchronous DB work.
- *
- * The signature guard is a `@Injectable()` class that closes over
- * `RATIO_FORMS_CLIENT_SECRET` via DI on first invocation. No global state.
- */
+/** Inbound Ratio webhooks; single endpoint dispatched by `envelope.event`, must return 200 within 5s per Ratio's spec so handlers do only cheap sync DB work. */
 @Controller('forms/api/v1/oauth')
 @UseGuards(FormsWebhookSignatureGuard)
 export class FormsWebhooksController {

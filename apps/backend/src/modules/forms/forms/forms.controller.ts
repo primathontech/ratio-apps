@@ -27,11 +27,7 @@ type ListQuery = z.infer<typeof listQuerySchema>;
 
 const formInputPipe = new ZodValidationPipe(formInputSchema as unknown as ZodType<FormInput>);
 
-/**
- * Merchant-guarded form CRUD (TRD §2). Bodies validate against the SHARED
- * `formInputSchema` — the same contract the admin builder and the storefront
- * SDK use, so a payload that renders is a payload that saves.
- */
+/** Merchant-guarded form CRUD (TRD §2); bodies validate against the shared formInputSchema. */
 @Controller('forms/api')
 @UseGuards(FormsMerchantTokenGuard)
 export class FormsController {

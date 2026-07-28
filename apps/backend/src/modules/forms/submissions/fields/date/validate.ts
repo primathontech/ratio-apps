@@ -3,12 +3,7 @@ import type { FieldOfType, ServerValidateResult } from '../types';
 /** Strict calendar-date shape: 4-digit year, 2-digit month, 2-digit day. */
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-/**
- * date: require a strict ISO `YYYY-MM-DD` and a real calendar date, then store
- * the canonical ISO string (P2-5). `Date.parse` is far too lax — it accepts
- * "2026", "July 2026", and "12/31/2026", and rolls "2026-02-30" over to March,
- * all of which then round-trip verbatim into data_json / CSV / webhook.
- */
+/** Require strict ISO `YYYY-MM-DD` + a real calendar date, then store canonical ISO (P2-5); Date.parse is too lax (accepts "July 2026", rolls "2026-02-30" into March). */
 export function validateDate(field: FieldOfType<'date'>, value: unknown): ServerValidateResult {
   if (typeof value !== 'string') return { error: 'Please enter a date in YYYY-MM-DD format.' };
   const m = ISO_DATE.exec(value.trim());
@@ -16,16 +11,13 @@ export function validateDate(field: FieldOfType<'date'>, value: unknown): Server
   const year = Number(m[1]);
   const month = Number(m[2]);
   const day = Number(m[3]);
-  // Reject impossible dates (month 00/13, day 00, 2026-02-30) by round-tripping
-  // through a UTC date and checking the components survive unchanged.
+  // Reject impossible dates by round-tripping through a UTC date and checking the components survive.
   const dt = new Date(Date.UTC(year, month - 1, day));
   if (dt.getUTCFullYear() !== year || dt.getUTCMonth() !== month - 1 || dt.getUTCDate() !== day) {
     return { error: 'Please enter a valid date.' };
   }
   const canonical = `${m[1]}-${m[2]}-${m[3]}`;
-  // Optional [min,max] bounds must be re-checked server-side (the client is not
-  // authoritative). Lexical compare is exact for the canonical ISO shape, and the
-  // messages match the SDK validator. `defaultTo` is client-only — never used here.
+  // Re-check [min,max] server-side (client not authoritative); lexical compare is exact for canonical ISO.
   const v = field.validation;
   if (v?.min !== undefined && canonical < v.min) {
     return { error: `Please enter a date on or after ${v.min}.` };

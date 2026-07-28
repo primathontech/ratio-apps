@@ -84,16 +84,9 @@ export interface SubmissionListResult {
 }
 
 export interface SubmissionDetail extends SubmissionListItem {
-  /**
-   * field key → 7-day signed GET URL(s) for the uploaded file(s): a single URL
-   * for a single-file field, an array of URLs for a multi-file field (shape
-   * mirrors `files`).
-   */
+  /** field key → 7-day signed GET URL(s), shape mirrors `files`. */
   fileUrls: Record<string, string | string[]>;
-  /**
-   * Hidden-field provenance (source + raw value) captured at submit time
-   * (§4, `context_json`); empty when the form had no hidden fields.
-   */
+  /** Hidden-field provenance captured at submit time (§4, `context_json`); empty when no hidden fields. */
   context: SubmissionContext;
 }
 
@@ -104,22 +97,11 @@ export interface ActiveFormContext {
   schema: FormField[];
 }
 
-/**
- * Submission intake + admin reads (TRD §2).
- *
- * `submitPublic` runs the PublicFormGuard chain IN ORDER — (1) app-level
- * rate limit → 429, (2) form state / kill switch → 403, (3) spam check
- * (silent success on reject, PRD F7), (4) server-side schema validation →
- * 422, (5) idempotency, (6) insert + enqueue delivery/email rows. Each layer
- * short-circuits before the next is consulted (AC6).
- *
- * PII: submission field values never reach a log line — log payloads carry
- * ids and counters only.
- */
+/** Submission intake + admin reads (TRD §2); `submitPublic` runs the guard chain in order and each layer short-circuits (AC6). PII: field values never reach a log line. */
 @Injectable()
 export class SubmissionsService {
   private readonly logger = new Logger(SubmissionsService.name);
-  /** Lightweight in-memory metric of silently-rejected spam per form (PRD F7). */
+  /** In-memory metric of silently-rejected spam per form (PRD F7). */
   private readonly rejectedCounters = new Map<string, number>();
 
   constructor(
@@ -130,8 +112,6 @@ export class SubmissionsService {
     private readonly idempotency: IdempotencyService,
     private readonly s3: FormsS3Service,
   ) {}
-
-  // ─── public intake ────────────────────────────────────────────────────────
 
   async submitPublic(
     formId: string,
@@ -186,12 +166,8 @@ export class SubmissionsService {
       });
     }
 
-    // (4b) confirm each accepted file object actually exists — every key
-    // segment (merchantId/formId/fieldKey) is public, so a well-formed but
-    // fabricated key would otherwise store a phantom reference. One HEAD per
-    // file (P2-2).
+    // (4b) HEAD each accepted file: key segments are public, so a fabricated key would store a phantom reference (P2-2).
     for (const [fieldKey, value] of Object.entries(validated.files)) {
-      // A multi-file field carries an array of keys; check each one exists.
       for (const objectKey of Array.isArray(value) ? value : [value]) {
         if (!(await this.s3.exists(objectKey))) {
           throw new UnprocessableEntityException({
@@ -207,17 +183,9 @@ export class SubmissionsService {
     // (5) idempotency key: sha256(formId : session-or-ip : 5s bucket).
     const idempotencyKey = this.idempotency.computeKey(formId, meta.sessionKey ?? meta.ip);
 
-    // (6) insert + enqueue the delivery/email rows (the sweeper drains them)
-    // in ONE transaction: a partial failure (submission stored but a delivery
-    // row throws) would otherwise leave a stored-but-undeliverable submission
-    // whose retry lands in the 5s idempotency bucket and 409s forever. Wrapping
-    // both writes makes the unit atomic — either the submission and its
-    // deliveries all commit, or nothing does and the client's retry re-inserts
-    // cleanly (P3-1).
+    // (6) insert + enqueue in ONE transaction so a stored-but-undeliverable submission can't 409 its own retry forever (P3-1).
     const submissionId = SubmissionsService.mintSubmissionId();
     const hasFiles = Object.keys(validated.files).length > 0;
-    // Hidden-field provenance (§4): where each hidden value resolved from. Null
-    // when the form has no hidden fields, so existing rows/forms are unaffected.
     const context = SubmissionsService.buildContext(ctx.schema, validated.data);
     const hasContext = Object.keys(context).length > 0;
     try {
@@ -239,13 +207,7 @@ export class SubmissionsService {
       });
     } catch (err) {
       if (this.idempotency.isDuplicateKeyError(err)) {
-        // Same (form, session-or-ip, 5s bucket) — the second submission is
-        // REJECTED (PRD F10 / TDD AC6): the UNIQUE column is the dedup
-        // mechanism, and the client sees an explicit 409 so double-clicks
-        // don't silently mint what looks like a second submission. Because the
-        // original insert + enqueue were atomic, that first submission is fully
-        // delivered — so we return its id (not a bare conflict) to let a client
-        // that lost the first response reconcile instead of losing it (P3-2).
+        // Duplicate (form, session-or-ip, 5s bucket) → 409, returning the original id so a client that lost the first response can reconcile (PRD F10 / P3-2).
         const originalId = await this.findSubmissionIdByKey(ctx.form.merchantId, idempotencyKey);
         throw new HttpException(
           {
@@ -290,8 +252,7 @@ export class SubmissionsService {
         error_code: 'form_inactive',
       });
     }
-    // Sanitize + field-scope any merchant custom CSS on the read path (server
-    // authoritative): the widget only ever receives shadow-safe, scoped CSS.
+    // Sanitize + field-scope merchant custom CSS on the read path so the widget only ever receives shadow-safe, scoped CSS.
     const schema = SubmissionsService.parseSchema(form.schemaJson).map((field) => {
       const raw = (field as { customCss?: string }).customCss;
       if (!raw) return field;
@@ -324,11 +285,7 @@ export class SubmissionsService {
     };
   }
 
-  /**
-   * Shared form-state gate for the public submit + upload endpoints:
-   * missing/deleted or kill-switched → 403 `form_unavailable`; not active →
-   * 403 `form_inactive`.
-   */
+  /** Shared form-state gate for public submit + upload: missing/deleted/kill-switched → 403 `form_unavailable`, not active → 403 `form_inactive`. */
   async loadActiveForm(formId: string): Promise<ActiveFormContext> {
     const form = await this.handle.db
       .selectFrom('forms')
@@ -362,8 +319,6 @@ export class SubmissionsService {
   rejectedCount(formId: string): number {
     return this.rejectedCounters.get(formId) ?? 0;
   }
-
-  // ─── admin reads ──────────────────────────────────────────────────────────
 
   async list(
     merchantId: string,
@@ -407,8 +362,6 @@ export class SubmissionsService {
     const item = this.toListItem(row);
     const fileUrls: Record<string, string | string[]> = {};
     for (const [fieldKey, value] of Object.entries(item.files)) {
-      // Mirror the stored shape: a multi-file field yields an array of URLs, a
-      // single-file field a lone URL.
       fileUrls[fieldKey] = Array.isArray(value)
         ? await Promise.all(value.map((key) => this.s3.signedGetUrl(key)))
         : await this.s3.signedGetUrl(value);
@@ -458,7 +411,7 @@ export class SubmissionsService {
       .where('status', '=', 'failed')
       .executeTakeFirst();
     if (Number(result?.numUpdatedRows ?? 0) === 0) {
-      // Cross-merchant, missing, or not in `failed` — indistinguishable 404.
+      // Cross-merchant, missing, or not `failed` — indistinguishable 404.
       throw new NotFoundException({
         message: 'failed delivery not found',
         error_code: 'DELIVERY_NOT_FOUND',
@@ -467,10 +420,7 @@ export class SubmissionsService {
     return { status: 'pending' };
   }
 
-  /**
-   * Merchant-scoped form lookup that INCLUDES soft-deleted forms —
-   * submissions (and their CSV export) outlive the form (AC4/AC8).
-   */
+  /** Merchant-scoped form lookup that INCLUDES soft-deleted forms — submissions outlive the form (AC4/AC8). */
   async requireOwnForm(merchantId: string, formId: string): Promise<FormRow> {
     const form = await this.handle.db
       .selectFrom('forms')
@@ -485,17 +435,11 @@ export class SubmissionsService {
     return form;
   }
 
-  // ─── internals ────────────────────────────────────────────────────────────
-
   private honeypotTripped(input: PublicSubmissionInput): boolean {
     return typeof input._hp === 'string' && input._hp.trim() !== '';
   }
 
-  /**
-   * PRD F7: suspected bots get a 200 with a fake submission id — nothing is
-   * stored, nothing is delivered; only a counter (and an id-free log line)
-   * records that it happened.
-   */
+  /** PRD F7: suspected bots get a 200 with a fake submission id — nothing stored or delivered, only a counter + id-free log line. */
   private silentReject(formId: string): PublicSubmissionResult {
     this.rejectedCounters.set(formId, (this.rejectedCounters.get(formId) ?? 0) + 1);
     this.logger.log({
@@ -506,11 +450,7 @@ export class SubmissionsService {
     return { submissionId: SubmissionsService.mintSubmissionId() };
   }
 
-  /**
-   * Email-log + webhook-delivery rows; the minute sweeper drains them. Runs
-   * on the caller's executor (the submit transaction) so the rows commit
-   * atomically with the submission (P3-1).
-   */
+  /** Email-log + webhook-delivery rows (minute sweeper drains them); runs on the caller's transaction so rows commit atomically with the submission (P3-1). */
   private async enqueueDeliveries(
     db: Kysely<FormsDatabase>,
     ctx: ActiveFormContext,
@@ -597,14 +537,7 @@ export class SubmissionsService {
     return typeof value === 'string' ? (JSON.parse(value) as FormAppearance) : value;
   }
 
-  /**
-   * Hidden-field provenance (§4, `context_json`): for every hidden field that
-   * resolved a value (present in the validated `data`), record which source it
-   * came from and the raw value stored. Server-derived sources (constant/
-   * timestamp) are authoritative in `data` already, so this reflects exactly
-   * what was persisted. A field that left `source` unset defaults to
-   * `url_param` (the legacy capture behavior), mirroring the resolver.
-   */
+  /** Hidden-field provenance (§4, `context_json`): source + raw value for each resolved hidden field; unset `source` defaults to `url_param`, mirroring the resolver. */
   private static buildContext(
     schema: FormField[],
     data: Record<string, unknown>,

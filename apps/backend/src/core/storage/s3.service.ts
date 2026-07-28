@@ -9,26 +9,7 @@ import { Upload } from '@aws-sdk/lib-storage';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 
-/**
- * Thin, vendor-agnostic S3 wrapper — object storage for generated artifacts
- * (e.g. export CSVs) and direct browser uploads (presigned PUT). Mirrors
- * `core/queue/queue.service.ts`'s env model: the same code talks to real
- * Amazon S3 (prod, pod IAM role) or a local S3-compatible store (MinIO) — only
- * env differs:
- *
- *   LOCAL  S3_ENDPOINT=http://localhost:9000  AWS_REGION=local
- *          AWS_ACCESS_KEY_ID=x  AWS_SECRET_ACCESS_KEY=x
- *   PROD   (no S3_ENDPOINT) → SDK hits real S3 with the pod's IAM role.
- *
- * Buckets are owned by IaC; this service never creates them. Callers pass the
- * bucket per call (per-module env like `LOYALTY_EXPORT_S3_BUCKET` /
- * `FORMS_S3_BUCKET`).
- *
- * The client is fixed at construction. Callers that need a non-`AWS_REGION`
- * region (e.g. forms pins `FORMS_S3_REGION` while `AWS_REGION` points at a
- * local SQS emulator) inject a pre-built {@link S3Client} — the same optional-
- * client seam `EmailService` uses for `EMAIL_REGION`.
- */
+/** Vendor-agnostic S3 wrapper; same code hits real S3 or local MinIO by env only. Buckets are IaC-owned (never created here); an optional injected S3Client is the seam for a non-`AWS_REGION` region. */
 @Injectable()
 export class S3Service {
   private readonly logger = new Logger(S3Service.name);
@@ -74,13 +55,7 @@ export class S3Service {
     this.logger.log({ msg: 's3 object stored', bucket, key });
   }
 
-  /**
-   * Presigned GET URL. Expiry is the caller's contract (download vs email).
-   * `responseContentDisposition`, when given, forces the served response's
-   * `Content-Disposition` (e.g. `attachment` — the forms P2-3 XSS guard so an
-   * untrusted upload downloads rather than renders). Omitted → not signed, so
-   * the object serves with its stored disposition (loyalty's behaviour).
-   */
+  /** Presigned GET URL; `responseContentDisposition` forces the served `Content-Disposition` (e.g. `attachment` — the forms P2-3 XSS guard so untrusted uploads download, not render). */
   presignGetUrl(
     bucket: string,
     key: string,
@@ -100,14 +75,7 @@ export class S3Service {
     );
   }
 
-  /**
-   * Presigned PUT URL for a direct browser upload. SIGNS `Content-Type` and
-   * `Content-Length`: S3 rejects an upload whose actual headers differ from the
-   * signed values, which is how a size/type constraint is enforced at the
-   * storage layer (the presigned-PUT equivalent of a POST policy's
-   * `content-length-range` condition — PUT presigns cannot carry POST policy
-   * conditions).
-   */
+  /** Presigned PUT for a direct browser upload; SIGNS `Content-Type`/`Content-Length` so S3 rejects mismatched headers, enforcing size/type at the storage layer. */
   presignPutUrl(
     bucket: string,
     key: string,
@@ -123,17 +91,12 @@ export class S3Service {
       }),
       {
         expiresIn: opts.expiresIn,
-        // Sign the type/size headers so S3 enforces them on upload.
         signableHeaders: new Set(['host', 'content-type', 'content-length']),
       },
     );
   }
 
-  /**
-   * Whether an object exists: a single `HeadObject`. 2xx → true, 404/NotFound
-   * → false. Any other failure (creds/network) is rethrown rather than silently
-   * treated as absent, so a transient S3 outage is not mistaken for a miss.
-   */
+  /** Object existence via HeadObject: 404 → false, but other errors rethrow so a transient outage isn't mistaken for a miss. */
   async headExists(bucket: string, key: string): Promise<boolean> {
     try {
       await this.client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
@@ -145,11 +108,7 @@ export class S3Service {
     }
   }
 
-  /**
-   * Stream a `Readable` straight into S3 via `@aws-sdk/lib-storage`'s multipart
-   * `Upload` — memory stays bounded no matter how large the body is (unlike the
-   * buffering {@link putObject}). Used by the forms CSV export worker.
-   */
+  /** Stream into S3 via multipart Upload so memory stays bounded regardless of body size (unlike the buffering putObject). */
   async uploadStream(
     bucket: string,
     key: string,
