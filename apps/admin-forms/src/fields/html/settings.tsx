@@ -30,7 +30,7 @@ export function HtmlBlockSettings({
           onChange={(e) => patch({ html: e.target.value })}
         />
         <Typography.Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
-          {used}/{MAX_HTML_LENGTH} — renders as-is in your form.
+          {used}/{MAX_HTML_LENGTH}. Renders as-is in your form.
         </Typography.Text>
       </SettingRow>
     </>

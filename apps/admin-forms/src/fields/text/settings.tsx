@@ -152,7 +152,7 @@ export function TextValidationSettings({
           options={FORM_TEXT_TRANSFORMS.map((t) => ({ value: t, label: TRANSFORM_LABELS[t] }))}
         />
         <Typography.Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
-          Applied on the server before validation — the stored value is always the cleaned one.
+          Applied on the server before validation. The stored value is always the cleaned one.
         </Typography.Text>
       </SettingRow>
 

@@ -1162,7 +1162,7 @@ export function DesignSettings({ appearance, dispatch }: Props) {
                   <Typography.Text>Show redirect countdown</Typography.Text>
                 </div>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  Per-state copy — blank fields fall back to the built-in text (success also chains
+                  Per-state copy. Blank fields fall back to the built-in text (success also chains
                   to the form's success message).
                 </Typography.Text>
                 {FORM_ENDING_STATES.map((state) => (
@@ -1564,7 +1564,7 @@ function resolvePairBg(
   if (background.type === 'image') {
     return {
       bg: colors[pair.bg],
-      note: 'Depends on your background image — a scrim of 0.35+ keeps text readable.',
+      note: 'Depends on your background image. A scrim of 0.35+ keeps text readable.',
     };
   }
   // gradient: measure the worse (lower-contrast) of the two scrim-composited stops.

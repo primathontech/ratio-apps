@@ -178,7 +178,7 @@ export function NumberValidationSettings({
             type="secondary"
             style={{ display: 'block', marginTop: 8, fontSize: 12 }}
           >
-            Preview: {previewNumber(format)} — the stored value stays a plain number.
+            Preview: {previewNumber(format)}. The stored value stays a plain number.
           </Typography.Text>
         </>
       )}

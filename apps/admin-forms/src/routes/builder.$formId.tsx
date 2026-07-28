@@ -606,7 +606,7 @@ function FormSettings({
   const copy = (text: string, what: string) => {
     void navigator.clipboard.writeText(text).then(
       () => void message.success(`${what} copied`),
-      () => void message.error('Copy failed — select and copy manually'),
+      () => void message.error('Copy failed, select and copy manually'),
     );
   };
   return (
