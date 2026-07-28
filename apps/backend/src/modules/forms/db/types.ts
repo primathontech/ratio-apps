@@ -81,8 +81,8 @@ interface FormSubmissionsTable {
   >;
   /**
    * Hidden-field provenance (field key → { source, value }); stringified on
-   * write. Nullable — added in `0005_submission_context.ts`, so pre-0005 rows
-   * (and submissions with no hidden fields) carry null.
+   * write. Nullable — defined in `0001_initial.ts`, so submissions with no
+   * hidden fields carry null.
    */
   contextJson: ColumnType<
     SubmissionContext | string | null,
@@ -133,7 +133,7 @@ interface FormEmailLogTable {
 
 export type FormExportJobStatus = 'pending' | 'processing' | 'ready' | 'failed';
 
-/** Async CSV export jobs — kept in lockstep with `0002_export_jobs.ts`. */
+/** Async CSV export jobs — kept in lockstep with `0001_initial.ts`. */
 interface FormExportJobsTable {
   /** `exp_<random base64url>` — minted by ExportJobService. */
   id: string;
