@@ -15,8 +15,11 @@ const WIDGET_BUNDLE = 'forms-widget.js';
 @Injectable()
 export class FormsSdkService {
   private readonly logger = new Logger(FormsSdkService.name);
-  /** First-read cache of the widget bundle (null = looked, not built). */
-  private bundleCache: string | null | undefined;
+  /** Cache of the built widget bundle — populated ONLY on a successful read
+   * (undefined = not cached). A miss is never memoized, so a backend-only deploy
+   * that lands before the bundle self-heals on the next request instead of
+   * serving the warn stub until process restart. */
+  private bundleCache: string | undefined;
 
   constructor(
     @Inject(FORMS_MERCHANTS) private readonly merchants: MerchantsService<FormsDatabase>,
@@ -48,7 +51,13 @@ export class FormsSdkService {
     return `window.__FORMS_SDK_CONFIG__ = ${safeInlineJson(payload)};`;
   }
 
-  /** Resolve + memoize the built bundle via {@link resolveSdkDistPath}; a missing bundle file → null (warn stub served). */
+  /**
+   * Resolve the built bundle via {@link resolveSdkDistPath}, memoizing ONLY on
+   * success (mirrors the wizzy/loyalty storefront controllers). A missing bundle
+   * file returns null (warn stub served) WITHOUT caching, so the next request
+   * re-checks and self-heals once the bundle is present — a backend-only deploy
+   * no longer serves the stub until process restart.
+   */
   private readBundle(): string | null {
     if (this.bundleCache !== undefined) return this.bundleCache;
     const distDir = resolveSdkDistPath('forms', __dirname);
@@ -57,8 +66,7 @@ export class FormsSdkService {
       this.logger.warn(
         `forms-sdk bundle not found in ${distDir} — serving prelude + warn stub`,
       );
-      this.bundleCache = null;
-      return this.bundleCache;
+      return null;
     }
     this.bundleCache = readFileSync(bundlePath, 'utf8');
     return this.bundleCache;
