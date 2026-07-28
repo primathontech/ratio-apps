@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { FormAppearance, FormField, FormInput } from '@ratio-app/shared/schemas/form-schema';
 import { sql } from 'kysely';
+import { parseJsonColumn, parseJsonColumnOrNull } from '../../../core/db/json';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
 import type { FormRow, FormSpamProtection, FormStatus, FormsDatabase } from '../db/types';
 import { FORMS_DB_TOKEN } from '../kysely.module';
@@ -261,12 +262,12 @@ export class FormsService {
   }
 
   private toEntity(row: FormRow): FormEntity {
-    const appearance = FormsService.parseAppearance(row.appearanceJson);
+    const appearance = parseJsonColumnOrNull<FormAppearance>(row.appearanceJson);
     return {
       id: row.id,
       name: row.name,
       description: row.description,
-      schema: FormsService.parseSchema(row.schemaJson),
+      schema: parseJsonColumn<FormField[]>(row.schemaJson),
       ...(appearance ? { appearance } : {}),
       submitLabel: row.submitLabel,
       successMessage: row.successMessage,
@@ -278,19 +279,6 @@ export class FormsService {
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };
-  }
-
-  /** mysql2 usually parses JSON columns; older paths may hand back strings. */
-  private static parseSchema(value: FormField[] | string): FormField[] {
-    return typeof value === 'string' ? (JSON.parse(value) as FormField[]) : value;
-  }
-
-  /** Nullable twin of parseSchema — `undefined` for un-themed forms. */
-  private static parseAppearance(
-    value: FormAppearance | string | null,
-  ): FormAppearance | undefined {
-    if (value == null) return undefined;
-    return typeof value === 'string' ? (JSON.parse(value) as FormAppearance) : value;
   }
 
   /** `form_<random>` via node:crypto (never Math.random). */

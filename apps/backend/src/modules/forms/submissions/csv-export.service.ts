@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { type FormField, isCollectableFieldType } from '@ratio-app/shared/schemas/form-schema';
 import { csvEscape } from '../../../core/common/csv';
+import { parseJsonColumn, parseJsonColumnOrNull } from '../../../core/db/json';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
 import type { FormsDatabase } from '../db/types';
 import { FORMS_DB_TOKEN } from '../kysely.module';
@@ -31,10 +32,7 @@ export class CsvExportService {
   async export(merchantId: string, formId: string, sink: CsvSink): Promise<number> {
     // Includes soft-deleted forms (requireOwnForm has no deleted_at filter).
     const form = await this.submissions.requireOwnForm(merchantId, formId);
-    const schema: FormField[] =
-      typeof form.schemaJson === 'string'
-        ? (JSON.parse(form.schemaJson) as FormField[])
-        : form.schemaJson;
+    const schema = parseJsonColumn<FormField[]>(form.schemaJson);
     // Content blocks carry a key but no data_json entry — filter them so the CSV has no phantom empty columns.
     const keys = schema.filter((f) => isCollectableFieldType(f.type)).map((f) => f.key);
 
@@ -64,10 +62,10 @@ export class CsvExportService {
         .limit(EXPORT_BATCH_SIZE)
         .execute();
       for (const row of rows) {
-        const data = CsvExportService.parse<Record<string, unknown>>(row.dataJson) ?? {};
+        const data = parseJsonColumn<Record<string, unknown>>(row.dataJson);
         // A multi-file field's value is a key array; `cell` joins with '; ' into one cell.
         const files =
-          CsvExportService.parse<Record<string, string | string[]>>(row.filesJson) ?? {};
+          parseJsonColumnOrNull<Record<string, string | string[]>>(row.filesJson) ?? {};
         const cells = keys.map((key) => csvEscape(CsvExportService.cell(data[key] ?? files[key])));
         cells.push(csvEscape(new Date(row.createdAt).toISOString()));
         await sink.write(`${cells.join(',')}\n`);
@@ -78,11 +76,6 @@ export class CsvExportService {
       cursor = { createdAt: new Date(last.createdAt), id: last.id };
     }
     return rowCount;
-  }
-
-  private static parse<T>(value: T | string | null): T | null {
-    if (value === null) return null;
-    return typeof value === 'string' ? (JSON.parse(value) as T) : value;
   }
 
   /** Flatten a submitted value to one CSV cell. */

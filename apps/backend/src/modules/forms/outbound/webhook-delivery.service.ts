@@ -17,6 +17,7 @@ import {
 import type { FormField } from '@ratio-app/shared/schemas/form-schema';
 import { buildSamplePayload } from '@ratio-app/shared/schemas/webhook-sample';
 import { sql } from 'kysely';
+import { parseJsonColumn, parseJsonColumnOrNull } from '../../../core/db/json';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
 import type { FormRow, FormsDatabase, FormWebhookDeliveryRow } from '../db/types';
 import { FORMS_DB_TOKEN } from '../kysely.module';
@@ -177,11 +178,9 @@ export class WebhookDeliveryService {
       .executeTakeFirst();
     if (!form) return null;
 
-    const data = WebhookDeliveryService.parseJson<Record<string, unknown>>(submission.dataJson);
-    const files = WebhookDeliveryService.parseJson<Record<string, string | string[]>>(
-      submission.filesJson,
-    );
-    const fields: Record<string, unknown> = { ...(data ?? {}) };
+    const data = parseJsonColumn<Record<string, unknown>>(submission.dataJson);
+    const files = parseJsonColumnOrNull<Record<string, string | string[]>>(submission.filesJson);
+    const fields: Record<string, unknown> = { ...data };
     for (const [fieldKey, value] of Object.entries(files ?? {})) {
       // Multi-file field → array of signed URLs; single-file → lone URL (matches stored files_json).
       fields[fieldKey] = Array.isArray(value)
@@ -201,10 +200,7 @@ export class WebhookDeliveryService {
   }
 
   private static buildTestPayload(form: FormRow): FormSubmittedPayload {
-    const schema: FormField[] =
-      typeof form.schemaJson === 'string'
-        ? (JSON.parse(form.schemaJson) as FormField[])
-        : form.schemaJson;
+    const schema = parseJsonColumn<FormField[]>(form.schemaJson);
     // Shared builder is the single source of truth for payload shape (admin "copy as cURL" uses it too).
     return buildSamplePayload(schema, {
       merchantId: form.merchantId,
@@ -232,10 +228,5 @@ export class WebhookDeliveryService {
     } finally {
       clearTimeout(timer);
     }
-  }
-
-  private static parseJson<T>(value: T | string | null): T | null {
-    if (value === null) return null;
-    return typeof value === 'string' ? (JSON.parse(value) as T) : value;
   }
 }
