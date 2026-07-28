@@ -7,6 +7,7 @@ import {
   type OnModuleInit,
 } from '@nestjs/common';
 import { LOYALTY_EXPORT_MAX_ROWS } from '@ratio-app/shared/schemas/loyalty-export';
+import { csvEscape } from '../../../core/common/csv';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
 import { EmailService } from '../../../core/email/email.service';
 import { QueueService } from '../../../core/queue/queue.service';
@@ -209,11 +210,6 @@ function toCsvLine(c: LoyaltyCustomerRow): string {
   ]
     .map((v) => csvEscape(String(v)))
     .join(',');
-}
-
-function csvEscape(value: string): string {
-  if (/[",\n\r]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
-  return value;
 }
 
 function sleep(ms: number): Promise<void> {

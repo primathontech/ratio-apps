@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Body, Controller, Get, NotFoundException, Param, Post, Res } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
+import { resolveSdkDistPath } from '../../../core/common/resolve-sdk-dist-path';
 import { WizzyApiClient } from '../catalog/wizzy-api.client';
 import { StorefrontConfigService } from './storefront-config.service';
 
@@ -134,13 +135,13 @@ export class StorefrontController {
   }
 
   /**
-   * Resolve the built SDK dist directory. Mirrors the runtime path-resolution
-   * pattern in `configure-app.ts`: `cwd` is the repo root in dev, PM2, and
-   * Docker, and the SDK build lives at `<root>/packages/wizzy-sdk/dist`.
-   * `WIZZY_SDK_DIST` overrides for non-standard layouts.
+   * Resolve the built SDK dist directory via the shared {@link resolveSdkDistPath}
+   * helper: `cwd` is the repo root in dev, PM2, and Docker, the SDK build lives
+   * at `<root>/packages/wizzy-sdk/dist`, and `WIZZY_SDK_DIST` overrides for
+   * non-standard layouts.
    */
   private distDir(): string {
-    return process.env.WIZZY_SDK_DIST ?? resolve(process.cwd(), 'packages/wizzy-sdk/dist');
+    return resolveSdkDistPath('wizzy', __dirname);
   }
 
   /** Read (and memoize) a built bundle; 404 if it hasn't been built. */

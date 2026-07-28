@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ulid } from 'ulid';
+import { csvEscape } from '../../../core/common/csv';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
 import { QueueService } from '../../../core/queue/queue.service';
 import { normalizePhone } from '../common/normalize-phone';
@@ -317,9 +318,4 @@ export class BulkService {
       createdAt: op.createdAt,
     };
   }
-}
-
-function csvEscape(value: string): string {
-  if (/[",\n\r]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
-  return value;
 }
