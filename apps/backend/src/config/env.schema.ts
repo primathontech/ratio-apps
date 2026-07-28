@@ -142,6 +142,23 @@ const baseEnv = z.object({
   EMAIL_FROM: emptyAsUndefined(z.string().email()),
   // Local S3-compatible endpoint override (MinIO), mirroring SQS_ENDPOINT.
   S3_ENDPOINT: emptyAsUndefined(z.string().url()),
+
+  // forms app: declared for boot validation; workers/queue resolvers still read
+  // process.env.FORMS_* at call time (validate() strips only unknown keys).
+  FORMS_S3_BUCKET: emptyAsUndefined(z.string().min(1)),
+  FORMS_S3_REGION: emptyAsUndefined(z.string().min(1)).default('ap-south-1'),
+  FORMS_SDK_DIST: emptyAsUndefined(z.string().min(1)),
+  FORMS_RECAPTCHA_SHARED_SITE_KEY: emptyAsUndefined(z.string().min(1)),
+  FORMS_RECAPTCHA_SHARED_SECRET: emptyAsUndefined(z.string().min(1)),
+  FORMS_WEBHOOK_QUEUE_URL: emptyAsUndefined(z.string().min(1)),
+  FORMS_EMAIL_QUEUE_URL: emptyAsUndefined(z.string().min(1)),
+  FORMS_EXPORT_QUEUE_URL: emptyAsUndefined(z.string().min(1)),
+  FORMS_WEBHOOK_WORKER_ENABLED: z.enum(['true', 'false']).default('false'),
+  FORMS_EMAIL_WORKER_ENABLED: z.enum(['true', 'false']).default('false'),
+  FORMS_EXPORT_WORKER_ENABLED: z.enum(['true', 'false']).default('false'),
+  FORMS_WEBHOOK_VISIBILITY: z.coerce.number().int().min(30).default(120),
+  FORMS_EMAIL_VISIBILITY: z.coerce.number().int().min(30).default(120),
+  FORMS_EXPORT_VISIBILITY: z.coerce.number().int().min(30).default(300),
 });
 
 // builds the schema for a given module subset (baseEnv + each module's RATIO_<UPPER>_* block)
