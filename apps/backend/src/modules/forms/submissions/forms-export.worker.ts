@@ -16,23 +16,7 @@ import { CsvExportService } from './csv-export.service';
 import { type ExportJobMessage, formsExportQueueName } from './export-job.queue';
 import { exportObjectKey } from './export-job.service';
 
-/**
- * Drains the forms CSV-export SQS queue (webhook-delivery worker precedent):
- * self-gated by `FORMS_EXPORT_WORKER_ENABLED`, long-polls via the core
- * `QueueService`, and for each `{ jobId }` streams the full-history CSV from
- * {@link CsvExportService} straight into S3 (a `PassThrough` bridges the
- * synchronous sink writes to `@aws-sdk/lib-storage`'s multipart `Upload`, so
- * memory stays bounded).
- *
- * State machine on the row: `pending → processing → ready | failed`. A message
- * is acked once the attempt SETTLES (outcome lives in the row): a redelivered
- * or double-fired message whose row is no longer `pending` is a no-op. Only an
- * UNEXPECTED error (e.g. the DB is unreachable while marking the outcome)
- * leaves the message un-acked to redeliver.
- *
- * PII: submission values never appear in a log line — ids, counts, and status
- * only. The stored failure `error` is a short, PII-free message.
- */
+/** Drains the CSV-export SQS queue (self-gated by `FORMS_EXPORT_WORKER_ENABLED`), streaming each job's CSV into S3. Row state machine `pending → processing → ready|failed`; a message acks once its attempt SETTLES, so a redelivered non-`pending` row is a no-op and only unexpected errors redeliver. PII: logs ids/counts/status only. */
 @Injectable()
 export class FormsExportWorker implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(FormsExportWorker.name);
@@ -105,8 +89,7 @@ export class FormsExportWorker implements OnModuleInit, OnModuleDestroy {
       return;
     }
     if (job.status !== 'pending') {
-      // Already settled (redelivery / double-fire) — idempotent no-op.
-      return;
+      return; // already settled (redelivery / double-fire) — idempotent no-op
     }
 
     await this.mark(job.id, { status: 'processing' });

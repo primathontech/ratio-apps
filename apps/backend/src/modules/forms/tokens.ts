@@ -1,12 +1,4 @@
-/**
- * Forms module DI tokens.
- *
- * These symbols live in their own file (separate from `forms.module.ts`) to
- * break the circular import between the module file and its sibling
- * services/guards — many of those depend on the tokens via `@Inject(...)`, and
- * the module file in turn imports the services/guards. Pushing the tokens
- * here keeps that graph acyclic.
- */
+/** Forms DI tokens; in their own file to break the module↔services/guards circular import. */
 export const FORMS_CRYPTO = Symbol.for('ratio-app:forms:crypto');
 export const FORMS_RATIO = Symbol.for('ratio-app:forms:ratio');
 export const FORMS_MERCHANTS = Symbol.for('ratio-app:forms:merchants');

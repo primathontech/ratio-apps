@@ -8,14 +8,7 @@ import {
 } from '@ratio-app/shared/schemas/fields/email/constants';
 import type { FieldOfType, ServerValidateResult } from '../types';
 
-/**
- * Server-authoritative email validation. Normalizes to the canonical form
- * (trim + lowercase) and RETURNS it via `{ value }`, so the stored/exported
- * value is always canonical regardless of what the client sent. Every rule
- * (length, format, free-provider block, domain allow/block) is enforced here
- * even when the SDK mirror was bypassed. The shared constants are the single
- * source of truth for both sides.
- */
+/** Server-authoritative email validation: normalizes (trim + lowercase) and returns the canonical value; every rule (length, format, free-provider block, domain allow/block) is re-enforced here from the shared constants even when the SDK mirror was bypassed. */
 export function validateEmail(field: FieldOfType<'email'>, value: unknown): ServerValidateResult {
   if (typeof value !== 'string') return { error: 'Please enter a valid email address.' };
 

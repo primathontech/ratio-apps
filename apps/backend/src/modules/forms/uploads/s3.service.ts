@@ -12,16 +12,7 @@ export const FORMS_SIGNED_GET_EXPIRY_SECONDS = 7 * 24 * 60 * 60;
 /** Signed GET expiry for a finished CSV export download — 1 hour. */
 export const FORMS_EXPORT_GET_EXPIRY_SECONDS = 60 * 60;
 
-/**
- * Forms file-upload S3 (TRD §2/§6): a thin policy wrapper over the shared
- * {@link S3Service} (core/storage), mirroring how `FormsEmailService` wraps
- * `core/email`. Transport lives in core; forms policy stays here — the
- * `enabled` bucket gate (blank `FORMS_S3_BUCKET` → uploads disabled → 503), the
- * `<merchantId>/<formId>/<draftId>/<fieldKey>` key layout, the forced
- * `attachment` disposition on signed GETs (P2-3 XSS guard), and the expiry
- * contracts above. `FORMS_S3_REGION` is baked into the injected client by the
- * forms module provider (see `forms.module.ts`).
- */
+/** Forms file-upload S3 policy wrapper over core {@link S3Service} (TRD §2/§6): bucket gate → 503, `<merchantId>/<formId>/<draftId>/<fieldKey>` key layout, forced `attachment` disposition (P2-3 XSS guard). */
 @Injectable()
 export class FormsS3Service {
   constructor(private readonly s3: S3Service) {}
@@ -58,8 +49,7 @@ export class FormsS3Service {
     objectKey: string,
     expiresInSeconds: number = FORMS_SIGNED_GET_EXPIRY_SECONDS,
   ): Promise<string> {
-    // Uploaded content-type is client-declared and never byte-verified (P2-3),
-    // so force download rather than inline rendering on every serve.
+    // Content-type is client-declared, never byte-verified (P2-3) — force download, never inline render.
     return this.s3.presignGetUrl(this.bucket(), objectKey, expiresInSeconds, 'attachment');
   }
 

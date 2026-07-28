@@ -13,29 +13,12 @@ export type SchemaValidationResult =
       ok: true;
       /** Schema-known fields only, values normalized (phone → +91…). */
       data: Record<string, unknown>;
-      /**
-       * Schema-known file fields only: field key → S3 object key (single-file
-       * field) or object key array (multi-file field, `maxFiles > 1`).
-       */
+      /** Schema-known file fields only: field key → S3 object key, or key array when `maxFiles > 1`. */
       files: Record<string, string | string[]>;
     }
   | { ok: false; errors: Record<string, string> };
 
-/**
- * Server-side re-validation of a public submission against the form's
- * persisted `schema_json` (PublicFormGuard chain step 5). The shared
- * `form-schema` Zod contract validates the SCHEMA; this service validates a
- * SUBMISSION against that schema — required/regex/min-max/email/phone/
- * options-membership/date/textarea-cap/file-key rules per PRD F4–F6, F11,
- * F13.
- *
- * Per-field rules live in `./fields/<type>/validate.ts` and are dispatched via
- * the `serverFieldValidators` registry (Phase 0 module refactor).
- *
- * Unknown field keys are rejected (no mass-assignment): only keys the schema
- * declares may appear in `fields`/`files`, and only schema-known values are
- * returned for persistence.
- */
+/** Server-side re-validation of a submission against the form's persisted `schema_json` (PublicFormGuard step 5; PRD F4–F6, F11, F13); unknown field keys are rejected to prevent mass-assignment. */
 @Injectable()
 export class SchemaValidatorService {
   validate(
@@ -60,19 +43,13 @@ export class SchemaValidatorService {
     const outFiles: Record<string, string | string[]> = {};
 
     for (const field of schema) {
-      // Content blocks (§1.3) are display-only: no required-check, no value,
-      // no data_json entry. Any stray submitted value is silently dropped.
+      // Content blocks (§1.3) are display-only: no required-check, no value, no data_json entry.
       if (!isCollectableField(field)) continue;
 
-      // Merchant-authored custom message (§ production validation): when set it
-      // replaces the humanized default for ANY failure on this field. The SDK
-      // client validator applies the identical override, so client and server
-      // return the same string.
+      // When set, replaces the humanized default for any failure on this field (matches the SDK client validator).
       const custom = field.errorMessage;
 
       if (field.type === 'file') {
-        // Multi-file aware: accepts a single object key or an array (maxFiles),
-        // enforces the count, and structurally checks every key.
         const result = validateFiles(field, files?.[field.key], scope);
         if (result.error) {
           errors[field.key] = custom ?? result.error;
@@ -105,8 +82,7 @@ export class SchemaValidatorService {
     field: ValueFormField,
     value: unknown,
   ): { value?: unknown; error?: string } {
-    // The registry is exhaustive over the value-bearing field types; the cast
-    // widens the per-member validator to the union for the dynamic dispatch.
+    // Cast widens the per-member validator to the union for the dynamic dispatch.
     const validator = serverFieldValidators[field.type] as ServerFieldValidator<
       ValueFormField['type']
     >;

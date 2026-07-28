@@ -8,23 +8,7 @@ import { createWebhookSignatureGuard } from '../../core/webhooks/webhook-signatu
 import type { FormsDatabase } from './db/types';
 import { FORMS_MERCHANTS } from './tokens';
 
-/**
- * Per-module guard CLASSES.
- *
- * NestJS's `@UseGuards(...)` decorator only accepts a class reference (or an
- * instance) — it does NOT resolve DI symbols. So even though every guard is
- * conceptually produced by a factory (`createWebhookSignatureGuard` /
- * `createMerchantTokenGuard`), we wrap the factory output in an
- * `@Injectable()` class that builds the underlying guard once in the
- * constructor using NestJS-resolved dependencies.
- *
- * Constructing eagerly in the constructor (rather than lazily in
- * `onModuleInit` or on first request) means `this.inner` is non-null the
- * instant Nest instantiates the guard — no race between concurrent first
- * requests, and no risk of an opaque "Cannot read properties of undefined"
- * if `canActivate` is invoked before the lifecycle hook fires (e.g. via
- * direct instantiation in tests).
- */
+// @UseGuards accepts only classes, so wrap the factory output in an @Injectable, built eagerly so `this.inner` is non-null before any concurrent first request.
 
 @Injectable()
 export class FormsWebhookSignatureGuard implements CanActivate {

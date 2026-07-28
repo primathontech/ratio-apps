@@ -12,20 +12,7 @@ import { FORMS_DB_TOKEN } from '../kysely.module';
 import { formsWebhookQueueName, type WebhookDeliveryMessage } from './webhook-delivery.queue';
 import { WebhookDeliveryService } from './webhook-delivery.service';
 
-/**
- * Drains the forms webhook-delivery SQS queue (google-product-sync worker
- * precedent): self-gated by `FORMS_WEBHOOK_WORKER_ENABLED`, long-polls via
- * the core `QueueService`, loads each message's `form_webhook_deliveries`
- * row, and hands it to {@link WebhookDeliveryService.execute} — the executor
- * owns the retry state machine (2xx → delivered; failures → 5m/20m/1h ladder
- * → failed) and never throws.
- *
- * Messages are acked after the attempt settles (the OUTCOME lives in the DB
- * row, so a redelivered message is harmless: rows no longer `pending` are
- * skipped). A message whose row has vanished is acked and dropped.
- *
- * PII: submission payloads never appear in log lines — ids and counts only.
- */
+/** Drains the webhook-delivery SQS queue (self-gated by FORMS_WEBHOOK_WORKER_ENABLED) and hands each row to the executor; acked after the attempt settles (outcome lives in the DB row, so redelivery is harmless); PII never logged. */
 @Injectable()
 export class WebhookDeliveryWorker implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(WebhookDeliveryWorker.name);
@@ -51,8 +38,7 @@ export class WebhookDeliveryWorker implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleDestroy(): void {
-    // Stop the loop; the in-flight drainOnce() finishes (un-acked messages
-    // redeliver, no loss), then loop() exits.
+    // In-flight drainOnce() finishes (un-acked messages redeliver, no loss), then loop() exits.
     this.running = false;
   }
 
@@ -103,8 +89,7 @@ export class WebhookDeliveryWorker implements OnModuleInit, OnModuleDestroy {
       return;
     }
     if (row.status !== 'pending') {
-      // Already settled (double-fire / redelivery) — the claim lease plus
-      // this check make the pipeline idempotent (TDD §3.7).
+      // Already settled — claim lease plus this check make the pipeline idempotent (TDD §3.7).
       return;
     }
     await this.executor.execute(row);

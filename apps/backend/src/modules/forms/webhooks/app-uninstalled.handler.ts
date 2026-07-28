@@ -7,27 +7,10 @@ import type { WebhookHandler } from '../../../core/webhooks/webhooks.types';
 import type { FormsDatabase } from '../db/types';
 import { FORMS_MERCHANTS } from '../tokens';
 
-/**
- * Soft-delete the merchant on uninstall.
- *   - merchants.is_active = false, uninstalled_at = now()
- *   - forms_configs preserved (so reinstall restores prior settings)
- *   - oauth_tokens preserved until a follow-up cleanup job
- *
- * The admin UI checks `merchant.isActive` on bootstrap and routes inactive
- * merchants to `/disabled` instead of breaking the config flow.
- *
- * IMPORTANT: this handler runs INSIDE the webhook-dispatch transaction
- * (see `WebhooksService.dispatch`). All writes go through `trx`, not
- * `this.merchants` — otherwise the merchant update would live in a
- * different transaction from the `webhook_log` row, breaking the
- * all-or-nothing self-healing guarantee.
- */
+/** Soft-deletes the merchant on uninstall (config/tokens preserved); all writes MUST go through `trx`, not `this.merchants`, to stay in the webhook-dispatch transaction with the `webhook_log` row. */
 @Injectable()
 export class FormsAppUninstalledHandler implements WebhookHandler {
-  // Slash-form per the platform webhook registry (docs/agent/context/
-  // learnings.md — the `_template`'s dot-form `app.uninstalled` is just the
-  // boilerplate example). Verify against a live delivery before launch: a
-  // wrong topic silently no-ops via the dispatcher's topic-mismatch fast-path.
+  // Slash-form topic per the platform webhook registry; a wrong topic silently no-ops via the dispatcher's topic-mismatch fast-path.
   readonly topic = 'app/uninstalled';
   private readonly logger = new Logger(FormsAppUninstalledHandler.name);
 
@@ -45,13 +28,7 @@ export class FormsAppUninstalledHandler implements WebhookHandler {
       this.logger.warn({ msg: 'app.uninstalled for unknown merchant — no-op' });
       return;
     }
-    // S6: Serialize against an in-flight OAuth callback transaction touching
-    // the same merchant. The callback service takes a symmetric SELECT FOR
-    // UPDATE on `merchants.id` before its UPSERT, so whichever transaction
-    // wins the lock here forces the other to wait until commit. Without this,
-    // a callback could re-INSERT `isActive = true` AFTER our existence check
-    // but BEFORE our UPDATE — leaving Ratio (uninstalled) and the DB (active)
-    // out of sync.
+    // S6: SELECT FOR UPDATE serializes against an in-flight OAuth callback's symmetric lock, else a callback could re-INSERT isActive=true between our check and UPDATE.
     await sql`SELECT id FROM merchants WHERE id = ${merchantId} FOR UPDATE`.execute(trx);
     const merchant = (await trx
       .selectFrom('merchants')

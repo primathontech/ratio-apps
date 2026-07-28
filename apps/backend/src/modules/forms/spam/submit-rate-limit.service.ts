@@ -6,10 +6,7 @@ import Redis from 'ioredis';
 export const FORMS_SUBMIT_RATE_LIMIT = 5;
 export const FORMS_SUBMIT_RATE_WINDOW_MS = 10 * 60_000;
 
-/**
- * The sorted-set subset of the Redis API the sliding window needs — an
- * ioredis instance satisfies it structurally; tests inject a fake.
- */
+/** Sorted-set subset of the Redis API the sliding window needs; ioredis satisfies it structurally, tests inject a fake. */
 export interface RateLimitRedisLike {
   zremrangebyscore(key: string, min: number | string, max: number | string): Promise<unknown>;
   zcard(key: string): Promise<number>;
@@ -20,16 +17,7 @@ export interface RateLimitRedisLike {
 /** DI token for the Redis override (unset in prod → REDIS_URL / in-memory). */
 export const FORMS_RATE_LIMIT_REDIS = Symbol.for('ratio-app:forms:rate-limit-redis');
 
-/**
- * App-level business rate limit (PublicFormGuard chain step 2): 5 submissions
- * per 10 minutes per (formId, IP), sliding window over a Redis sorted set
- * (score = timestamp). Backed by ioredis when REDIS_URL is configured;
- * otherwise an in-memory window (logged once) — correct per-process, which is
- * the best available without Redis.
- *
- * Fails OPEN on Redis errors: a cache outage slows spam filtering, never
- * legitimate submissions (same stance as core RedisService).
- */
+/** App-level rate limit (PublicFormGuard step 2, PRD F14): sliding window over a Redis sorted set, else an in-memory per-process window without REDIS_URL. Fails OPEN on Redis errors — an outage slows spam filtering, never legitimate submissions. */
 @Injectable()
 export class SubmitRateLimitService implements OnModuleDestroy {
   private readonly logger = new Logger(SubmitRateLimitService.name);

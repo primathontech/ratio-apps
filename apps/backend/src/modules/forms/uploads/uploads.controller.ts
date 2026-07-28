@@ -32,17 +32,7 @@ type UploadBody = z.infer<typeof uploadBodySchema>;
 
 const uploadBodyPipe = new ZodValidationPipe(uploadBodySchema as unknown as ZodType<UploadBody>);
 
-/**
- * PUBLIC presigned-upload endpoint (TRD §2) — file fields upload BEFORE
- * submit; the returned `objectKey` is attached to the submission's `files`
- * map (and re-validated against the `<merchantId>/<formId>/` prefix there).
- *
- * Same protection front as the public submit: the edge 10/min bucket, the
- * app-level 5-per-10-min (form, IP) limiter, and the form-active/kill-switch
- * gate all run before any presigning. Constraints (F2/F3): content type ∈
- * field allowlist ∩ platform allowlist → else 422; size ≤ min(field cap,
- * 5 MB) → else 413. Uploads disabled (no bucket) → 503 `uploads_unavailable`.
- */
+/** PUBLIC presigned-upload endpoint (TRD §2): rate-limit + form-active/kill-switch gate before presigning; constraints (F2/F3) content-type ∈ field∩platform allowlist → 422, size ≤ min(cap, 5MB) → 413, no bucket → 503. */
 @Controller('forms/public/v1/forms')
 export class UploadsController {
   constructor(

@@ -6,11 +6,7 @@ import { FormsMerchantTokenGuard } from '../guards';
 @Controller('forms/api/merchants')
 @UseGuards(FormsMerchantTokenGuard)
 export class FormsMerchantsController {
-  /**
-   * Returns the current merchant identity (including `isActive`). The admin
-   * uses this both to bootstrap the session and to route inactive merchants
-   * to the `/disabled` view.
-   */
+  /** Current merchant identity (incl. `isActive`); admin uses it to bootstrap the session and route inactive merchants to /disabled. */
   @Get('me')
   me(@CurrentMerchant() merchant: Merchant): Merchant {
     return merchant;

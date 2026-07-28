@@ -1,8 +1,7 @@
 import { type Body, SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 
-/** A transactional email. Provide `text` and/or `html` — SES sends whichever
- * are present (both ⇒ multipart). `from` defaults to `EMAIL_FROM`. */
+/** A transactional email; provide `text` and/or `html` (both ⇒ multipart). `from` defaults to `EMAIL_FROM`. */
 export interface EmailMessage {
   to: string | string[];
   from?: string;
@@ -12,18 +11,7 @@ export interface EmailMessage {
   replyTo?: string;
 }
 
-/**
- * Minimal SES email sender for transactional notifications (export-ready links,
- * form-submission alerts, …). Vendor-agnostic core infra shared across modules,
- * following the QueueService pattern.
- *
- * Enabled only when `EMAIL_FROM` is set (a verified SES identity, owned by
- * DevOps per environment). Without it every send is a logged no-op — a dev
- * machine or a deployment without SES never breaks a caller. `EMAIL_REGION`
- * overrides the SES region so it is not pinned to `AWS_REGION` (which some boxes
- * set to the local SQS emulator). A rejected send THROWS — the caller decides
- * whether email is best-effort or must retry. The message body is never logged.
- */
+/** SES sender for transactional email; a disabled no-op unless `EMAIL_FROM` is set, `EMAIL_REGION` overrides the SES region, a rejected send THROWS (caller owns retry policy), and the body is never logged. */
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
@@ -48,11 +36,7 @@ export class EmailService {
     return this.client !== null;
   }
 
-  /**
-   * Send one email. Returns true when actually sent, false on the disabled
-   * no-op path. Upstream failures THROW — callers map that to their own policy
-   * (e.g. an un-acked queue message, or best-effort fire-and-forget).
-   */
+  /** Send one email; true when sent, false on the disabled no-op path. Failures THROW — caller maps to its own policy. */
   async send(message: EmailMessage): Promise<boolean> {
     const to = Array.isArray(message.to) ? message.to : [message.to];
     const from = message.from ?? this.from;

@@ -11,17 +11,7 @@ import { FORMS_MERCHANTS } from '../tokens';
 /** The built widget bundle emitted by `packages/forms-sdk` (vite.config.ts). */
 const WIDGET_BUNDLE = 'forms-widget.js';
 
-/**
- * Serves the per-merchant storefront SDK entry (`/forms/sdk/:merchantId.js`)
- * — config prelude (merchant id + API base) followed by the built Lit form
- * renderer from `packages/forms-sdk/dist` (wizzy storefront precedent:
- * read from disk once, memoized).
- *
- * When the bundle has not been built yet (fresh checkout, backend-only
- * deploys) the endpoint still answers 200 with the prelude plus a
- * `console.warn` stub — an unbuilt SDK must never break merchant
- * storefronts with a hard 404 script error.
- */
+/** Serves the per-merchant storefront SDK (`/forms/sdk/:merchantId.js`): config prelude + memoized bundle; an unbuilt bundle still answers 200 with a warn stub so it never breaks storefronts with a 404 script error. */
 @Injectable()
 export class FormsSdkService {
   private readonly logger = new Logger(FormsSdkService.name);
@@ -32,17 +22,7 @@ export class FormsSdkService {
     @Inject(FORMS_MERCHANTS) private readonly merchants: MerchantsService<FormsDatabase>,
   ) {}
 
-  /**
-   * Renders the per-merchant SDK JS:
-   *   1. Verify merchant exists and is active (uninstalled merchants serve 404)
-   *   2. Emit the config prelude (merchant id + API base for schema/submit calls)
-   *   3. Append the built forms-sdk widget bundle (or a warn stub when absent)
-   *
-   * The 5-minute `Cache-Control` header is set HERE (on the success path)
-   * rather than via a route-level `@Header()` decorator: applying the
-   * header at the route would cause Fastify to attach it to 404 error
-   * responses too, poisoning CDNs during installation races.
-   */
+  /** Renders per-merchant SDK JS (404 for inactive merchants); Cache-Control set on the success path only — a route `@Header()` would cache 404s and poison CDNs during install races. */
   async render(merchantId: string, reply: FastifyReply, origin: string): Promise<string> {
     const merchant = await this.merchants.findById(merchantId);
     if (!merchant?.isActive) {
@@ -62,22 +42,13 @@ export class FormsSdkService {
   private buildPrelude(merchantId: string, origin: string): string {
     const payload = {
       merchantId,
-      // Public API base the SDK talks to (schema GET + submission POST live
-      // under /forms/public/v1 — see TRD §2). MUST be absolute: the script
-      // executes on the MERCHANT'S origin (their storefront), so a relative
-      // path would resolve against their domain, not ours. Derived from the
-      // origin this script was fetched from.
+      // MUST be absolute (TRD §2): the script runs on the merchant's origin, so a relative path would resolve against their domain, not ours.
       apiBase: `${origin}/forms`,
     };
     return `window.__FORMS_SDK_CONFIG__ = ${safeInlineJson(payload)};`;
   }
 
-  /**
-   * Resolve + memoize the built bundle. The dist directory is located by the
-   * shared {@link resolveSdkDistPath} helper (cwd candidates + `FORMS_SDK_DIST`
-   * override + upward walk from `__dirname`); a missing bundle file → null
-   * (warn stub is served).
-   */
+  /** Resolve + memoize the built bundle via {@link resolveSdkDistPath}; a missing bundle file → null (warn stub served). */
   private readBundle(): string | null {
     if (this.bundleCache !== undefined) return this.bundleCache;
     const distDir = resolveSdkDistPath('forms', __dirname);

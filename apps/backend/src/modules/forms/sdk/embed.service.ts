@@ -19,28 +19,12 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
-/**
- * Serves the self-contained iframe embed page (`GET /forms/embed/:formId`).
- *
- * The PRD promises a drop-in iframe so a merchant can embed a form into ANY
- * existing page without adding a route to their own repo:
- *   <iframe src="<publicBackend>/forms/embed/<formId>"></iframe>
- *
- * The page mounts the same storefront SDK the `<script>` embed uses, but the
- * SDK src is RELATIVE (`/forms/sdk/<merchantId>.js`) because this page is
- * served from the SAME backend origin as the SDK (unlike the merchant
- * storefront, where the SDK needs an absolute base).
- */
+/** Serves the drop-in iframe embed page (`GET /forms/embed/:formId`); the SDK src is RELATIVE because this page shares the backend origin (unlike the merchant storefront). */
 @Injectable()
 export class FormsEmbedService {
   constructor(@Inject(FORMS_DB_TOKEN) private readonly handle: KyselyClient<FormsDatabase>) {}
 
-  /**
-   * Resolve the merchant + name from a form id. Soft-deleted forms are hidden.
-   * Status is deliberately NOT gated: the SDK renders the "form closed" state
-   * for inactive forms, so the embed page should still load. Returns null when
-   * the form id does not exist.
-   */
+  /** Resolve merchant + name from a form id (soft-deleted hidden, null when absent); status deliberately NOT gated so the SDK can render the "form closed" state. */
   async resolve(formId: string): Promise<EmbedForm | null> {
     const form = await this.handle.db
       .selectFrom('forms')

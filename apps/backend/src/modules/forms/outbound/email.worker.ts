@@ -12,18 +12,7 @@ import { FORMS_DB_TOKEN } from '../kysely.module';
 import { FormsEmailService } from './email.service';
 import { type EmailNotificationMessage, formsEmailQueueName } from './email-notification.queue';
 
-/**
- * Drains the forms email-notification SQS queue: self-gated by
- * `FORMS_EMAIL_WORKER_ENABLED`, long-polls via the core `QueueService`,
- * loads each message's `form_email_log` row, and hands it to
- * {@link FormsEmailService.execute} — the executor owns the retry state
- * machine (sent | pending +10m | failed) and never throws.
- *
- * Same idempotency shape as the webhook worker: outcomes live in the DB
- * row, redelivered messages for settled rows are skipped and acked.
- *
- * PII: recipient addresses and submission values never reach log lines.
- */
+/** Drains the email-notification SQS queue (self-gated by FORMS_EMAIL_WORKER_ENABLED) and hands each row to the executor; same idempotency shape as the webhook worker; PII never logged. */
 @Injectable()
 export class FormsEmailWorker implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(FormsEmailWorker.name);
