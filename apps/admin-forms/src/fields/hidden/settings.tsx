@@ -42,7 +42,7 @@ export function HiddenSettings({
           options={HIDDEN_SOURCES.map((s) => ({ value: s, label: SOURCE_LABELS[s] }))}
         />
         <Typography.Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
-          Where this field&rsquo;s value is captured from — never shown to the visitor.
+          Where this field&rsquo;s value is captured from. Never shown to the visitor.
         </Typography.Text>
       </SettingRow>
 
@@ -86,7 +86,7 @@ export function HiddenSettings({
           onChange={(e) => patch({ fallback: e.target.value || undefined })}
         />
         <Typography.Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
-          Seeded when the source yields nothing — prevents a required hidden field from blocking
+          Seeded when the source yields nothing, prevents a required hidden field from blocking
           submission.
         </Typography.Text>
       </SettingRow>
