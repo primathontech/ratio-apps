@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FormRow } from '../../../../src/modules/forms/db/types';
-import { WebhookDeliveryService } from '../../../../src/modules/forms/delivery/webhook-delivery.service';
+import { WebhookDeliveryService } from '../../../../src/modules/forms/outbound/webhook-delivery.service';
 import { kitchenSinkForm } from './fixtures/forms';
 
 // The admin "send test payload" must mirror a REAL submission's shape: select

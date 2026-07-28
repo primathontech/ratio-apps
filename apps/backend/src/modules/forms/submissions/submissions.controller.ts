@@ -5,7 +5,7 @@ import { type ZodType, z } from 'zod';
 import { isOriginAllowed } from '../../../core/common/cors';
 import { CurrentMerchant } from '../../../core/common/decorators/merchant.decorator';
 import { ZodValidationPipe } from '../../../core/common/pipes/zod-validation.pipe';
-import { WebhookDeliveryService } from '../delivery/webhook-delivery.service';
+import { WebhookDeliveryService } from '../outbound/webhook-delivery.service';
 import { FormsMerchantTokenGuard } from '../guards';
 import { CsvExportService } from './csv-export.service';
 import { ExportJobService, type ExportJobStatusView } from './export-job.service';

@@ -3,7 +3,7 @@ import {
   DeliverySweeperService,
   FORMS_SWEEP_CLAIM_LEASE_MS,
   FORMS_SWEEP_MERCHANT_BATCH_CAP,
-} from '../../../../src/modules/forms/delivery/delivery-sweeper.service';
+} from '../../../../src/modules/forms/outbound/delivery-sweeper.service';
 import { type FakeHandle, makeFakeHandle, type Row } from './fixtures/fake-db';
 import { FakeQueueService } from './fixtures/fakes';
 import { configRow, deliveryRow, emailLogRow, MERCHANT_ID } from './fixtures/forms';
