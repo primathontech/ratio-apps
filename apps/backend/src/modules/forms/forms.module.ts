@@ -1,8 +1,10 @@
+import { S3Client } from '@aws-sdk/client-s3';
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { EmailService } from '../../core/email/email.service';
 import { createAppProviders } from '../../core/factories/app-module.factory';
 import { QueueService } from '../../core/queue/queue.service';
+import { S3Service } from '../../core/storage/s3.service';
 import { FormsConfigController } from './config/config.controller';
 import { FormsConfigService } from './config/config.service';
 import type { FormsDatabase } from './db/types';
@@ -93,6 +95,18 @@ export {
     IdempotencyService,
     SubmissionsService,
     CsvExportService,
+    // Shared core storage transport (presign / stream / HEAD). Provided with a
+    // client pinned to the FORMS region override (`FORMS_S3_REGION`, default
+    // ap-south-1) so forms S3 is NOT pinned to bare `AWS_REGION` (which local
+    // boxes point at the SQS emulator) — the S3 analogue of core email's
+    // `EMAIL_REGION` seam. `FormsS3Service` is the forms policy layer over it.
+    {
+      provide: S3Service,
+      useFactory: () =>
+        new S3Service(
+          new S3Client({ region: process.env.FORMS_S3_REGION?.trim() || 'ap-south-1' }),
+        ),
+    },
     FormsS3Service,
     // Async CSV export: POST enqueues a job → self-gated worker streams the
     // CSV into S3 via lib-storage → GET polls for the signed download URL.

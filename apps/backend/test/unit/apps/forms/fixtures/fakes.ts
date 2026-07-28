@@ -1,13 +1,10 @@
 import type { Readable } from 'node:stream';
 import type { EmailMessage, EmailService } from '../../../../../src/core/email/email.service';
 import type { QueueService } from '../../../../../src/core/queue/queue.service';
+import type { S3Service } from '../../../../../src/core/storage/s3.service';
 import type { DeliveryFetchLike } from '../../../../../src/modules/forms/delivery/webhook-delivery.service';
 import type { RecaptchaFetchLike } from '../../../../../src/modules/forms/spam/recaptcha.service';
 import type { RateLimitRedisLike } from '../../../../../src/modules/forms/spam/submit-rate-limit.service';
-import type {
-  S3PresignerLike,
-  S3UploaderLike,
-} from '../../../../../src/modules/forms/uploads/s3.service';
 
 /** Records enqueues; scripts receive() batches for the workers (TDD §7). */
 export class FakeQueueService {
@@ -67,71 +64,79 @@ export function fakeDeliveryFetch(script: Array<number | 'network-error'>): {
   return { fetch, calls };
 }
 
-/** Records presign params; returns deterministic URLs (TDD §3.6). */
-export class FakeS3Presigner implements S3PresignerLike {
+/**
+ * Fake core {@link S3Service} — the transport seam `FormsS3Service` now
+ * delegates to (presign PUT/GET, HEAD, streaming upload). Records every call so
+ * tests can assert the forms policy (per-call bucket, draft-key layout,
+ * expiries, forced `attachment` disposition, streamed bytes) and returns
+ * deterministic URLs (TDD §3.6).
+ */
+export class FakeS3Service {
   puts: Array<{
     bucket: string;
-    region: string;
     key: string;
     contentType: string;
     contentLength: number;
-    expiresInSeconds: number;
+    expiresIn: number;
   }> = [];
   gets: Array<{
     bucket: string;
-    region: string;
     key: string;
-    expiresInSeconds: number;
+    expiresSeconds: number;
     responseContentDisposition?: string;
   }> = [];
+  /** Recorded streaming uploads with the drained body bytes per key. */
+  uploads: Array<{ bucket: string; key: string; contentType: string; body: string }> = [];
+  /** Recorded HEAD existence checks. */
+  heads: Array<{ bucket: string; key: string }> = [];
 
-  async presignPut(params: FakeS3Presigner['puts'][number]): Promise<string> {
-    this.puts.push(params);
-    return `https://fake-s3/${params.key}?sig=put`;
+  /** Verdict returned by {@link headExists} (boolean or per-call fn). */
+  headResult: boolean | (() => boolean) = true;
+  /** When true the next {@link uploadStream} rejects, exercising failure paths. */
+  failUpload = false;
+
+  async presignPutUrl(
+    bucket: string,
+    key: string,
+    opts: { contentType: string; contentLength: number; expiresIn: number },
+  ): Promise<string> {
+    this.puts.push({ bucket, key, ...opts });
+    return `https://fake-s3/${key}?sig=put`;
   }
 
-  async presignGet(params: FakeS3Presigner['gets'][number]): Promise<string> {
-    this.gets.push(params);
-    return `https://fake-s3/${params.key}?sig=get`;
+  async presignGetUrl(
+    bucket: string,
+    key: string,
+    expiresSeconds: number,
+    responseContentDisposition?: string,
+  ): Promise<string> {
+    this.gets.push({ bucket, key, expiresSeconds, responseContentDisposition });
+    return `https://fake-s3/${key}?sig=get`;
   }
-}
 
-/**
- * Records streaming CSV uploads: drains the `Readable` body and stashes the
- * concatenated bytes per object key (the export worker's S3-upload seam).
- * `fail` makes the next upload reject, exercising the failure path.
- */
-export class FakeS3Uploader implements S3UploaderLike {
-  uploads: Array<{
-    bucket: string;
-    region: string;
-    key: string;
-    contentType: string;
-    body: string;
-  }> = [];
-  fail = false;
+  async headExists(bucket: string, key: string): Promise<boolean> {
+    this.heads.push({ bucket, key });
+    return typeof this.headResult === 'function' ? this.headResult() : this.headResult;
+  }
 
-  async upload(params: {
-    bucket: string;
-    region: string;
-    key: string;
-    body: Readable;
-    contentType: string;
-  }): Promise<void> {
+  async uploadStream(
+    bucket: string,
+    key: string,
+    body: Readable,
+    contentType: string,
+  ): Promise<void> {
     const chunks: Buffer[] = [];
     await new Promise<void>((resolve, reject) => {
-      params.body.on('data', (c: Buffer | string) => chunks.push(Buffer.from(c)));
-      params.body.on('error', reject);
-      params.body.on('end', resolve);
+      body.on('data', (c: Buffer | string) => chunks.push(Buffer.from(c)));
+      body.on('error', reject);
+      body.on('end', resolve);
     });
-    if (this.fail) throw new Error('S3 upload failed');
-    this.uploads.push({
-      bucket: params.bucket,
-      region: params.region,
-      key: params.key,
-      contentType: params.contentType,
-      body: Buffer.concat(chunks).toString('utf8'),
-    });
+    if (this.failUpload) throw new Error('S3 upload failed');
+    this.uploads.push({ bucket, key, contentType, body: Buffer.concat(chunks).toString('utf8') });
+  }
+
+  asS3Service(): S3Service {
+    return this as unknown as S3Service;
   }
 }
 

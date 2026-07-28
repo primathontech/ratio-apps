@@ -8,7 +8,7 @@ import {
   FormsS3Service,
 } from '../../../../src/modules/forms/uploads/s3.service';
 import { UploadsController } from '../../../../src/modules/forms/uploads/uploads.controller';
-import { FakeS3Presigner } from './fixtures/fakes';
+import { FakeS3Service } from './fixtures/fakes';
 import { KITCHEN_SINK_FIELDS, kitchenSinkForm, MERCHANT_ID } from './fixtures/forms';
 
 const savedEnv = { bucket: process.env.FORMS_S3_BUCKET, region: process.env.FORMS_S3_REGION };
@@ -26,9 +26,9 @@ afterEach(() => {
 });
 
 describe('FormsS3Service (TDD §3.6)', () => {
-  it('presigned PUT carries bucket/region from env, the draft-scoped key, content type + length, 15-min expiry', async () => {
-    const presigner = new FakeS3Presigner();
-    const service = new FormsS3Service(presigner);
+  it('presigned PUT carries the bucket from env, the draft-scoped key, content type + length, 15-min expiry', async () => {
+    const s3 = new FakeS3Service();
+    const service = new FormsS3Service(s3.asS3Service());
     const { uploadUrl, objectKey } = await service.createUpload({
       merchantId: MERCHANT_ID,
       formId: 'form_sink',
@@ -39,34 +39,35 @@ describe('FormsS3Service (TDD §3.6)', () => {
 
     expect(objectKey).toMatch(/^m_1\/form_sink\/draft_[A-Za-z0-9_-]+\/resume$/);
     expect(uploadUrl).toContain(objectKey);
-    expect(presigner.puts).toHaveLength(1);
-    expect(presigner.puts[0]).toMatchObject({
+    expect(s3.puts).toHaveLength(1);
+    expect(s3.puts[0]).toMatchObject({
       bucket: 'ratio-forms-uploads',
-      region: 'ap-south-1',
+      key: objectKey,
       contentType: 'application/pdf',
       contentLength: 1024,
-      expiresInSeconds: FORMS_UPLOAD_PUT_EXPIRY_SECONDS,
+      expiresIn: FORMS_UPLOAD_PUT_EXPIRY_SECONDS,
     });
   });
 
-  it('signed GET expiry is 7 days', async () => {
-    const presigner = new FakeS3Presigner();
-    const service = new FormsS3Service(presigner);
+  it('signed GET carries the bucket and a 7-day expiry', async () => {
+    const s3 = new FakeS3Service();
+    const service = new FormsS3Service(s3.asS3Service());
     await service.signedGetUrl('m_1/form_sink/draft_x/resume');
-    expect(presigner.gets[0]?.expiresInSeconds).toBe(FORMS_SIGNED_GET_EXPIRY_SECONDS);
+    expect(s3.gets[0]?.bucket).toBe('ratio-forms-uploads');
+    expect(s3.gets[0]?.expiresSeconds).toBe(FORMS_SIGNED_GET_EXPIRY_SECONDS);
     expect(FORMS_SIGNED_GET_EXPIRY_SECONDS).toBe(7 * 24 * 60 * 60);
   });
 
   it('signed GET forces attachment content-disposition (P2-3 XSS-on-download guard)', async () => {
-    const presigner = new FakeS3Presigner();
-    const service = new FormsS3Service(presigner);
+    const s3 = new FakeS3Service();
+    const service = new FormsS3Service(s3.asS3Service());
     await service.signedGetUrl('m_1/form_sink/draft_x/resume');
-    expect(presigner.gets[0]?.responseContentDisposition).toBe('attachment');
+    expect(s3.gets[0]?.responseContentDisposition).toBe('attachment');
   });
 
   it('mints a fresh draft id per upload (no key reuse)', async () => {
-    const presigner = new FakeS3Presigner();
-    const service = new FormsS3Service(presigner);
+    const s3 = new FakeS3Service();
+    const service = new FormsS3Service(s3.asS3Service());
     const params = {
       merchantId: MERCHANT_ID,
       formId: 'form_sink',
@@ -81,14 +82,13 @@ describe('FormsS3Service (TDD §3.6)', () => {
 
   it('is disabled when FORMS_S3_BUCKET is unset', () => {
     delete process.env.FORMS_S3_BUCKET;
-    expect(new FormsS3Service(new FakeS3Presigner()).enabled).toBe(false);
+    expect(new FormsS3Service(new FakeS3Service().asS3Service()).enabled).toBe(false);
   });
 });
 
 describe('UploadsController — public presign endpoint (AC7/F2/F3)', () => {
   function setup(overrides: { s3?: FormsS3Service } = {}) {
-    const presigner = new FakeS3Presigner();
-    const s3 = overrides.s3 ?? new FormsS3Service(presigner);
+    const s3 = overrides.s3 ?? new FormsS3Service(new FakeS3Service().asS3Service());
     const rateLimit = { allow: vi.fn(async () => true) };
     const submissions = {
       loadActiveForm: vi.fn(async () => ({
@@ -103,7 +103,7 @@ describe('UploadsController — public presign endpoint (AC7/F2/F3)', () => {
       rateLimit as unknown as SubmitRateLimitService,
     );
     const req = { ip: '203.0.113.9' } as never;
-    return { controller, presigner, rateLimit, submissions, req };
+    return { controller, rateLimit, submissions, req };
   }
 
   const validBody = { fieldKey: 'resume', contentType: 'application/pdf', size: 1024 };
