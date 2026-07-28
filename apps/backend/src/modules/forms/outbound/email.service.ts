@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { FORMS_EMAIL_RETRY_DELAY_MS } from '@ratio-app/shared/constants/forms-events';
 import { sql } from 'kysely';
+import { parseJsonColumn } from '../../../core/db/json';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
 import { type EmailMessage, EmailService } from '../../../core/email/email.service';
 import type { FormEmailLogRow, FormsDatabase } from '../db/types';
@@ -111,7 +112,7 @@ export class FormsEmailService {
       : undefined;
     const formName = form?.name ?? 'your form';
     const data = submission
-      ? (FormsEmailService.parseJson<Record<string, unknown>>(submission.dataJson) ?? {})
+      ? parseJsonColumn<Record<string, unknown>>(submission.dataJson)
       : {};
     const lines = Object.entries(data).map(
       ([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : String(value)}`,
@@ -127,16 +128,5 @@ export class FormsEmailService {
         `Submission id: ${row.submissionId}`,
       ].join('\n'),
     };
-  }
-
-  private static parseJson<T>(value: T | string | null): T | null {
-    if (value === null) return null;
-    if (typeof value !== 'string') return value;
-    try {
-      return JSON.parse(value) as T;
-    } catch {
-      // Malformed row → treat as empty rather than throwing out of execute().
-      return null;
-    }
   }
 }

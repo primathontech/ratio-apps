@@ -15,6 +15,7 @@ import {
 } from '@ratio-app/shared/schemas/fields/hidden/constants';
 import type { FormAppearance, FormField } from '@ratio-app/shared/schemas/form-schema';
 import { type Kysely, sql } from 'kysely';
+import { parseJsonColumn, parseJsonColumnOrNull } from '../../../core/db/json';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
 import type {
   FormRow,
@@ -253,7 +254,7 @@ export class SubmissionsService {
       });
     }
     // Sanitize + field-scope merchant custom CSS on the read path so the widget only ever receives shadow-safe, scoped CSS.
-    const schema = SubmissionsService.parseSchema(form.schemaJson).map((field) => {
+    const schema = parseJsonColumn<FormField[]>(form.schemaJson).map((field) => {
       const raw = (field as { customCss?: string }).customCss;
       if (!raw) return field;
       const clean = sanitizeFieldCss(raw, `[data-field="${field.key}"]`).css;
@@ -270,7 +271,7 @@ export class SubmissionsService {
       form.spamProtection === 'recaptcha'
         ? (config.recaptchaSiteKey ?? process.env.FORMS_RECAPTCHA_SHARED_SITE_KEY?.trim() ?? null)
         : null;
-    const appearance = SubmissionsService.parseAppearance(form.appearanceJson);
+    const appearance = parseJsonColumnOrNull<FormAppearance>(form.appearanceJson);
     return {
       id: form.id,
       name: form.name,
@@ -312,7 +313,7 @@ export class SubmissionsService {
         error_code: 'form_inactive',
       });
     }
-    return { form, config, schema: SubmissionsService.parseSchema(form.schemaJson) };
+    return { form, config, schema: parseJsonColumn<FormField[]>(form.schemaJson) };
   }
 
   /** Observability hook for the silent-reject metric (PRD F7). */
@@ -367,7 +368,7 @@ export class SubmissionsService {
         : await this.s3.signedGetUrl(value);
     }
     const context =
-      SubmissionsService.parseJson<SubmissionContext>(row.contextJson) ?? ({} as SubmissionContext);
+      parseJsonColumnOrNull<SubmissionContext>(row.contextJson) ?? ({} as SubmissionContext);
     return { ...item, fileUrls, context };
   }
 
@@ -513,28 +514,11 @@ export class SubmissionsService {
     return {
       id: row.id,
       formId: row.formId,
-      data: SubmissionsService.parseJson<Record<string, unknown>>(row.dataJson) ?? {},
-      files: SubmissionsService.parseJson<Record<string, string | string[]>>(row.filesJson) ?? {},
+      data: parseJsonColumn<Record<string, unknown>>(row.dataJson),
+      files: parseJsonColumnOrNull<Record<string, string | string[]>>(row.filesJson) ?? {},
       recaptchaScore: row.recaptchaScore === null ? null : Number(row.recaptchaScore),
       createdAt: row.createdAt,
     };
-  }
-
-  private static parseJson<T>(value: T | string | null): T | null {
-    if (value === null) return null;
-    return typeof value === 'string' ? (JSON.parse(value) as T) : value;
-  }
-
-  private static parseSchema(value: FormField[] | string): FormField[] {
-    return typeof value === 'string' ? (JSON.parse(value) as FormField[]) : value;
-  }
-
-  /** Nullable — un-themed forms serve no `appearance` and render with SDK defaults. */
-  private static parseAppearance(
-    value: FormAppearance | string | null,
-  ): FormAppearance | undefined {
-    if (value == null) return undefined;
-    return typeof value === 'string' ? (JSON.parse(value) as FormAppearance) : value;
   }
 
   /** Hidden-field provenance (§4, `context_json`): source + raw value for each resolved hidden field; unset `source` defaults to `url_param`, mirroring the resolver. */
