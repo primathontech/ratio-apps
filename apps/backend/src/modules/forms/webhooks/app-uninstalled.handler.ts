@@ -1,23 +1,15 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { sql, type Transaction } from 'kysely';
 import type { DatabaseWithMerchants, MerchantRow } from '../../../core/merchants/merchant.types';
-import type { MerchantsService } from '../../../core/merchants/merchants.service';
 import type { DatabaseWithWebhookLog } from '../../../core/webhooks/webhook-log.types';
 import type { WebhookHandler } from '../../../core/webhooks/webhooks.types';
-import type { FormsDatabase } from '../db/types';
-import { FORMS_MERCHANTS } from '../tokens';
 
-/** Soft-deletes the merchant on uninstall (config/tokens preserved); all writes MUST go through `trx`, not `this.merchants`, to stay in the webhook-dispatch transaction with the `webhook_log` row. */
+/** Soft-deletes the merchant on uninstall (config/tokens preserved); all writes MUST go through `trx` to stay in the webhook-dispatch transaction with the `webhook_log` row. */
 @Injectable()
 export class FormsAppUninstalledHandler implements WebhookHandler {
   // Slash-form topic per the platform webhook registry; a wrong topic silently no-ops via the dispatcher's topic-mismatch fast-path.
   readonly topic = 'app/uninstalled';
   private readonly logger = new Logger(FormsAppUninstalledHandler.name);
-
-  constructor(
-    // biome-ignore lint/correctness/noUnusedPrivateClassMembers: template demonstrates the injected MerchantsService; this handler deliberately writes via `trx` (see note above)
-    @Inject(FORMS_MERCHANTS) private readonly merchants: MerchantsService<FormsDatabase>,
-  ) {}
 
   async handle(
     _data: Record<string, unknown>,
