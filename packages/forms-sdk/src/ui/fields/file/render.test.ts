@@ -28,6 +28,8 @@ function harness(f: ControlFieldOf<'file'>): { host: HTMLElement; ctx: FieldRend
     ph: (_f, fallback) => fallback,
     adorn: (_f, control) => control,
     requestUpdate: () => render(renderFile(f, ctx), host),
+    numberFocus: new Set<string>(),
+    selectUi: new Map(),
   };
   render(renderFile(f, ctx), host);
   return { host, ctx };
