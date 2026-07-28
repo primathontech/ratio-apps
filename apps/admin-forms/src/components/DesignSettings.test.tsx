@@ -87,6 +87,7 @@ describe('DesignSettings', () => {
 
   it('renders a mini form thumbnail per preset', () => {
     renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={vi.fn()} />);
+    fireEvent.click(screen.getByText('Presets'));
     for (const preset of FORM_APPEARANCE_PRESETS) {
       expect(screen.getByTestId(`preset-thumb-${preset.id}`)).toBeInTheDocument();
     }
@@ -97,6 +98,7 @@ describe('DesignSettings', () => {
     renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />);
     const teal = FORM_APPEARANCE_PRESETS.find((p) => p.id === 'teal');
     if (!teal) throw new Error('teal preset missing');
+    fireEvent.click(screen.getByText('Presets'));
     fireEvent.click(screen.getByLabelText('Apply Teal preset'));
     // Wholesale replace of the style sections (so an optional token the preset
     // omits is dropped, not merged); content assets survive from the current form.
@@ -343,6 +345,7 @@ describe('DesignSettings', () => {
   // ── Batch 6 (structured features) ──────────────────────────────
   it('groups presets under their category headings (Batch 6)', () => {
     renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={vi.fn()} />);
+    fireEvent.click(screen.getByText('Presets'));
     // Category headings ('Minimal'/'Warm' are also preset names, so assert
     // categories whose label doesn't collide with a preset name).
     expect(screen.getByText('Classic')).toBeInTheDocument();
