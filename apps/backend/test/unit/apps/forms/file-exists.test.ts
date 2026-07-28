@@ -1,9 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { validateFileExists } from '../../../../src/modules/forms/submissions/fields/file/validate';
-import {
-  FormsS3Service,
-  type S3ObjectCheckerLike,
-} from '../../../../src/modules/forms/uploads/s3.service';
+import { FormsS3Service } from '../../../../src/modules/forms/uploads/s3.service';
+import { FakeS3Service } from './fixtures/fakes';
 
 const savedEnv = { bucket: process.env.FORMS_S3_BUCKET, region: process.env.FORMS_S3_REGION };
 beforeEach(() => {
@@ -18,24 +16,22 @@ afterEach(() => {
 });
 
 describe('FormsS3Service.exists (P2-2)', () => {
-  function service(checker: S3ObjectCheckerLike) {
-    return new FormsS3Service(undefined, undefined, checker);
-  }
-
-  it('passes bucket/region/key through to a single HEAD and returns its verdict', async () => {
-    const exists = vi.fn(async () => true);
-    const s3 = service({ exists });
+  it('passes bucket/key through to a single core HEAD and returns its verdict', async () => {
+    const core = new FakeS3Service();
+    core.headResult = true;
+    const s3 = new FormsS3Service(core.asS3Service());
     await expect(s3.exists('m_1/form_x/draft_a/resume')).resolves.toBe(true);
-    expect(exists).toHaveBeenCalledTimes(1);
-    expect(exists).toHaveBeenCalledWith({
+    expect(core.heads).toHaveLength(1);
+    expect(core.heads[0]).toEqual({
       bucket: 'ratio-forms-uploads',
-      region: 'ap-south-1',
       key: 'm_1/form_x/draft_a/resume',
     });
   });
 
   it('returns false when the object is absent', async () => {
-    const s3 = service({ exists: vi.fn(async () => false) });
+    const core = new FakeS3Service();
+    core.headResult = false;
+    const s3 = new FormsS3Service(core.asS3Service());
     await expect(s3.exists('m_1/form_x/draft_a/resume')).resolves.toBe(false);
   });
 });
