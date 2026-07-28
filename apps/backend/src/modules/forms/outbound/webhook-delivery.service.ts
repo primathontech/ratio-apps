@@ -52,7 +52,17 @@ export class WebhookDeliveryService {
 
   /** One delivery attempt for a claimed row. Never throws (state → the row). */
   async execute(row: FormWebhookDeliveryRow): Promise<void> {
-    const payload = await this.buildPayload(row);
+    let payload: FormSubmittedPayload | null;
+    try {
+      // Build INSIDE the try: a malformed data_json row makes parseJsonColumn throw;
+      // if that bubbled out, the SQS message would never ack and redeliver forever
+      // (poison pill, N11). Catching it here dead-letters the row instead.
+      payload = await this.buildPayload(row);
+    } catch {
+      // Never log the caught error — it can echo submission PII.
+      await this.persistFailure(row, null);
+      return;
+    }
     if (!payload) {
       // Submission or form vanished — dead-letter it.
       await this.persistFailure(row, null);
