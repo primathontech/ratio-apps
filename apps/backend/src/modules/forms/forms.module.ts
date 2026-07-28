@@ -8,6 +8,8 @@ import { S3Service } from '../../core/storage/s3.service';
 import { FormsConfigController } from './config/config.controller';
 import { FormsConfigService } from './config/config.service';
 import type { FormsDatabase } from './db/types';
+import { FormsBounceController } from './outbound/bounce.controller';
+import { FormsBounceService } from './outbound/bounce.service';
 import { DeliverySweeperService } from './outbound/delivery-sweeper.service';
 import { FormsEmailService } from './outbound/email.service';
 import { FormsEmailWorker } from './outbound/email.worker';
@@ -66,6 +68,7 @@ export {
     FormsOAuthController,
     FormsWebhooksController,
     FormsMerchantsController,
+    FormsBounceController,
   ],
   providers: [
     FormsConfigService,
@@ -98,6 +101,8 @@ export {
     EmailService,
     WebhookDeliveryService,
     FormsEmailService,
+    // Inbound SES/SNS bounce endpoint → markBounced (PRD AC9).
+    FormsBounceService,
     WebhookDeliveryWorker,
     FormsEmailWorker,
     DeliverySweeperService,
