@@ -2,7 +2,7 @@ import type { Readable } from 'node:stream';
 import type { EmailMessage, EmailService } from '../../../../../src/core/email/email.service';
 import type { QueueService } from '../../../../../src/core/queue/queue.service';
 import type { S3Service } from '../../../../../src/core/storage/s3.service';
-import type { DeliveryFetchLike } from '../../../../../src/modules/forms/delivery/webhook-delivery.service';
+import type { DeliveryFetchLike } from '../../../../../src/modules/forms/outbound/webhook-delivery.service';
 import type { RecaptchaFetchLike } from '../../../../../src/modules/forms/spam/recaptcha.service';
 import type { RateLimitRedisLike } from '../../../../../src/modules/forms/spam/submit-rate-limit.service';
 

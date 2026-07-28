@@ -1,6 +1,6 @@
 import type { Merchant } from '@ratio-app/shared/schemas/merchant';
 import { describe, expect, it, vi } from 'vitest';
-import type { WebhookDeliveryService } from '../../../../src/modules/forms/delivery/webhook-delivery.service';
+import type { WebhookDeliveryService } from '../../../../src/modules/forms/outbound/webhook-delivery.service';
 import { FormsMerchantTokenGuard } from '../../../../src/modules/forms/guards';
 import type { CsvExportService } from '../../../../src/modules/forms/submissions/csv-export.service';
 import type { ExportJobService } from '../../../../src/modules/forms/submissions/export-job.service';

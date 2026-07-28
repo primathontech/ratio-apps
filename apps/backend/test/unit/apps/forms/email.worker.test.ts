@@ -3,8 +3,8 @@ import { FORMS_EMAIL_RETRY_DELAY_MS } from '@ratio-app/shared/constants/forms-ev
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EmailService } from '../../../../src/core/email/email.service';
 import type { FormEmailLogRow } from '../../../../src/modules/forms/db/types';
-import { FormsEmailService } from '../../../../src/modules/forms/delivery/email.service';
-import { FormsEmailWorker } from '../../../../src/modules/forms/delivery/email.worker';
+import { FormsEmailService } from '../../../../src/modules/forms/outbound/email.service';
+import { FormsEmailWorker } from '../../../../src/modules/forms/outbound/email.worker';
 import { makeFakeHandle, type Row } from './fixtures/fake-db';
 import { FakeEmailService, FakeQueueService } from './fixtures/fakes';
 import { configRow, contactForm, emailLogRow, MERCHANT_ID, submissionRow } from './fixtures/forms';
