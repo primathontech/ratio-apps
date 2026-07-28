@@ -20,7 +20,6 @@ export type SnsFetchLike = (url: string) => Promise<{
   text(): Promise<string>;
 }>;
 
-/** DI token for the fetch override (unset in prod → global fetch). */
 export const FORMS_SNS_FETCH = Symbol.for('ratio-app:forms:sns-fetch');
 
 /** Transport envelope (extra keys tolerated — SNS adds more we don't read). */
@@ -52,16 +51,7 @@ const sesBounceSchema = z
   })
   .passthrough();
 
-/**
- * Inbound SES-over-SNS bounce handler (PRD AC9). Unauthenticated by nature (SNS
- * posts to it), so every request is gated by SNS signature verification:
- * validate the SigningCertURL is an AWS host, fetch the cert, verify the
- * signature over the canonical string. Auto-confirms `SubscriptionConfirmation`;
- * on a verified bounce `Notification` resolves the owning merchant(s) from the
- * email log and calls the existing `FormsEmailService.markBounced`.
- *
- * No-PII invariant: never logs the raw body, recipient addresses, or the payload.
- */
+/** Inbound SES-over-SNS bounce handler (PRD AC9): unauthenticated, so every request is gated by SNS signature verification; never logs PII (raw body, recipients, payload). */
 @Injectable()
 export class FormsBounceService {
   private readonly logger = new Logger(FormsBounceService.name);
@@ -76,7 +66,6 @@ export class FormsBounceService {
     this.fetchImpl = fetchImpl ?? (globalThis.fetch as unknown as SnsFetchLike);
   }
 
-  /** Verify then dispatch by Type. Always 200 on success; throws → 4xx envelope. */
   async ingest(input: unknown): Promise<{ ok: true }> {
     const msg = this.toEnvelope(input);
     await this.verify(msg);
@@ -166,12 +155,7 @@ export class FormsBounceService {
     this.logger.warn({ msg: 'ses bounce processed', recipients: recipients.length });
   }
 
-  /**
-   * Merchant resolution: the email log is the authoritative record of which
-   * merchant we emailed at an address, so resolve the owning merchant(s) from
-   * `form_email_log` (a shared recipient can serve several merchants) and flip
-   * each via the existing markBounced.
-   */
+  /** Resolve owning merchant(s) from the email log (authoritative record; a shared recipient can serve several) and flip each via markBounced. */
   private async markBouncedForRecipient(recipient: string): Promise<void> {
     const rows = await this.handle.db
       .selectFrom('form_email_log')

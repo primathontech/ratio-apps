@@ -2,10 +2,7 @@ import { z } from 'zod';
 import { baseFieldShape } from '../_shared/base';
 import { isRealCalendarDate } from './constants';
 
-/** ISO calendar-date string (YYYY-MM-DD) — strict shape AND a real calendar day,
- * the same thing the submit-time validators enforce. The regex alone accepts
- * impossible dates (`2026-02-30`), which both validators then reject; the
- * calendar round-trip keeps the schema in agreement with them. */
+/** ISO date string (YYYY-MM-DD): strict shape AND a real calendar day, matching the submit-time validators (the regex alone would accept 2026-02-30). */
 const isoDateString = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, { message: 'must be an ISO date (YYYY-MM-DD)' })
@@ -15,11 +12,7 @@ const isoDateString = z
 const dateMinMaxConsistent = (v: { min?: string | undefined; max?: string | undefined }): boolean =>
   v.min === undefined || v.max === undefined || v.min <= v.max;
 
-/**
- * date: optional [min,max] ISO bounds enforced at submit-time, plus a client-only
- * `defaultTo` prefill ('today' seeds the input in the SDK; the server never
- * fabricates a value from it). The strict ISO shape itself is always enforced.
- */
+/** Optional [min,max] ISO bounds enforced at submit-time; defaultTo is a client-only prefill (the server never fabricates a value from it). */
 const dateValidationSchema = z
   .object({
     min: isoDateString.optional(),
