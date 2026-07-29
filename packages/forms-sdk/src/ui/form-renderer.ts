@@ -300,7 +300,7 @@ export class RatioForm extends LitElement {
       .rf-field {
         display: flex;
         flex-direction: column;
-        gap: 4px;
+        gap: 0.3em;
         flex: 0 1 100%;
         min-width: 0;
         max-width: 100%;
@@ -715,12 +715,12 @@ export class RatioForm extends LitElement {
       .rf-checks {
         display: flex;
         flex-direction: column;
-        gap: 6px;
+        gap: 0.43em;
       }
       .rf-check {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 0.57em;
         /* Content-proportional row height (relative to the form's font), the
            production pattern for option lists: scales with typography, no fixed
            px. The whole label is the clickable hit area. */

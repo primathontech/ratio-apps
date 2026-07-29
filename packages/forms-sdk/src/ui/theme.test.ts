@@ -230,13 +230,13 @@ describe('themeVars', () => {
     expect(lg).toContain('--wz-btn-pad-y: calc(var(--wz-pad-y) + 6px)');
   });
 
-  it('maps inputSize to the min-height token; md reproduces today (§1.9)', () => {
-    expect(themeVars(appearance())).toContain('--wz-input-min-h: 40px');
+  it('maps inputSize to the font-relative min-height token; md = 40px at the 14px base (§1.9)', () => {
+    expect(themeVars(appearance())).toContain('--wz-input-min-h: 2.86em');
     expect(themeVars(appearance({ layout: { inputSize: 'sm' } }))).toContain(
-      '--wz-input-min-h: 34px',
+      '--wz-input-min-h: 2.43em',
     );
     expect(themeVars(appearance({ layout: { inputSize: 'lg' } }))).toContain(
-      '--wz-input-min-h: 48px',
+      '--wz-input-min-h: 3.43em',
     );
   });
 

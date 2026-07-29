@@ -145,10 +145,12 @@ const BUTTON_SIZE: Record<ButtonSize, { padY: string; font: string }> = {
 // Input size (§1.9) → min control height (px) for text inputs, selects, and
 // textareas. 'md' is the default (~today). Height only: vertical padding still
 // comes from density / the §1.6 inputPadY override, so this composes with both.
-const INPUT_SIZE: Record<InputSize, number> = {
-  sm: 34,
-  md: 40,
-  lg: 48,
+// Font-relative (em) so control height tracks typography.baseSize instead of a
+// fixed px floor; equal to today's 34/40/48px at the default 14px base.
+const INPUT_SIZE: Record<InputSize, string> = {
+  sm: '2.43em',
+  md: '2.86em',
+  lg: '3.43em',
 };
 
 // Branding (Batch 6) — logo display size → its max-height cap (px). 'md' is the
@@ -376,7 +378,7 @@ export function themeVars(appearance?: FormsThemeInput): string {
     `--wz-pad-y: ${padY}px; ` +
     `--wz-pad-x: ${padX}px; ` +
     // §1.9 — min control height for text inputs, selects, and textareas.
-    `--wz-input-min-h: ${inputMinH}px; ` +
+    `--wz-input-min-h: ${inputMinH}; ` +
     // §1.3 — fluidWidth drops the cap (none); otherwise the bounded max-width.
     `--wz-max-width: ${maxWidth}; ` +
     // §1.3 — bounded status/ending cap; safe under fluidWidth (never `none`).
