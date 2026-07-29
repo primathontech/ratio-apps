@@ -93,8 +93,8 @@ export function customFontStack(name: string | undefined): string | null {
   return clean ? `'${clean}', ${SYSTEM_FONT}` : null;
 }
 
-// Density → field gap + vertical input padding + card padding (px). pad-x
-// stays constant.
+// Density → field gap + vertical input padding + card padding (px). pad-x is
+// font-relative (scales with baseSize) — see the --wz-pad-x emit below.
 const DENSITY: Record<
   FormAppearance['layout']['density'],
   { gap: number; padY: number; cardPad: number }
@@ -297,7 +297,9 @@ export function themeVars(appearance?: FormsThemeInput): string {
 
   // §1.6 — horizontal input padding + card inner padding overrides. cardPadding
   // wins over the density preset (fixes the missing override path).
-  const padX = l?.inputPadX ?? 10;
+  const padX = l?.inputPadX
+    ? `calc(var(--wz-font-size) * ${(l.inputPadX / 14).toFixed(3)})`
+    : 'calc(var(--wz-font-size) * 0.714)';
   const cardPad = l?.cardPadding ?? density.cardPad;
   const maxWidth = l?.fluidWidth ? 'none' : `${l?.maxWidth ?? 640}px`;
   // §1.3 — the status/ending card keeps a comfortable confirmation cap even
@@ -376,7 +378,7 @@ export function themeVars(appearance?: FormsThemeInput): string {
     `--wz-lh-heading: ${lhHeading}; ` +
     `--wz-gap: ${gap}px; ` +
     `--wz-pad-y: ${padY}px; ` +
-    `--wz-pad-x: ${padX}px; ` +
+    `--wz-pad-x: ${padX}; ` +
     // §1.9 — min control height for text inputs, selects, and textareas.
     `--wz-input-min-h: ${inputMinH}; ` +
     // §1.3 — fluidWidth drops the cap (none); otherwise the bounded max-width.

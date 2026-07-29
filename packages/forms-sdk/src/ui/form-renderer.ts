@@ -266,7 +266,7 @@ export class RatioForm extends LitElement {
         filter: var(--wz-cover-filter, none);
       }
       .rf-title {
-        margin: 0 0 4px;
+        margin: 0 0 calc(var(--wz-font-size) * 0.29);
         /* §1.2 — role-scoped size / heading font / heading line-height. Defaults
            reproduce today (base+6, --wz-font, normal). */
         font-size: var(--wz-fs-title);
@@ -278,7 +278,7 @@ export class RatioForm extends LitElement {
         overflow-wrap: break-word;
       }
       .rf-desc {
-        margin: 0 0 16px;
+        margin: 0 0 calc(var(--wz-font-size) * 1.14);
         color: var(--wz-muted);
         font-size: var(--wz-font-size);
         overflow-wrap: break-word;
@@ -358,7 +358,7 @@ export class RatioForm extends LitElement {
         }
       }
       .rf-label {
-        font-size: calc(var(--wz-font-size) - 1px);
+        font-size: calc(var(--wz-font-size) * 0.93);
         font-weight: 600;
         /* Long unbroken labels wrap inside the field instead of overflowing.
            min-width:0 lets the label shrink as a grid/flex child (label-left). */
@@ -399,7 +399,7 @@ export class RatioForm extends LitElement {
       .rf-eyebrow {
         display: block;
         margin: 0 0 2px;
-        font-size: calc(var(--wz-font-size) - 3px);
+        font-size: calc(var(--wz-font-size) * 0.79);
         font-weight: 600;
         letter-spacing: 0.06em;
         text-transform: uppercase;
@@ -415,13 +415,13 @@ export class RatioForm extends LitElement {
       }
       /* §4.15 — visual size decoupled from the h2/h3 tag; 'md' = the prior h2 size. */
       .rf-heading[data-size='sm'] {
-        font-size: calc(var(--wz-font-size) + 2px);
+        font-size: calc(var(--wz-font-size) * 1.14);
       }
       .rf-heading[data-size='md'] {
-        font-size: calc(var(--wz-font-size) + 4px);
+        font-size: calc(var(--wz-font-size) * 1.29);
       }
       .rf-heading[data-size='lg'] {
-        font-size: calc(var(--wz-font-size) + 8px);
+        font-size: calc(var(--wz-font-size) * 1.57);
       }
       .rf-paragraph {
         margin: 0;
@@ -440,7 +440,7 @@ export class RatioForm extends LitElement {
         width: 100%;
         border: none;
         border-top: 1px solid var(--wz-border);
-        margin: 4px 0;
+        margin: calc(var(--wz-font-size) * 0.29) 0;
       }
       /* §4.15 — variant flips only the border-style; 'spacer' drops the rule. */
       .rf-divider[data-variant='dashed'] {
@@ -485,7 +485,7 @@ export class RatioForm extends LitElement {
       /* §4.15 — caption under the image; follows the figure's alignment. */
       .rf-figcaption {
         margin-top: 6px;
-        font-size: calc(var(--wz-font-size) - 2px);
+        font-size: calc(var(--wz-font-size) * 0.86);
         color: var(--wz-muted);
       }
       .rf-figure[data-align='center'] .rf-figcaption {
@@ -627,7 +627,7 @@ export class RatioForm extends LitElement {
       }
       .rf-error {
         color: var(--wz-error);
-        font-size: calc(var(--wz-font-size) - 2px);
+        font-size: calc(var(--wz-font-size) * 0.86);
         overflow-wrap: break-word;
       }
       /* §2.3 — prefix/suffix adornment chips flanking a text-like input.
@@ -655,14 +655,14 @@ export class RatioForm extends LitElement {
       .rf-help {
         margin: 0;
         color: var(--wz-muted);
-        font-size: calc(var(--wz-font-size) - 2px);
+        font-size: calc(var(--wz-font-size) * 0.86);
         min-width: 0;
         overflow-wrap: break-word;
       }
       .rf-counter {
         align-self: flex-end;
         color: var(--wz-muted);
-        font-size: calc(var(--wz-font-size) - 2px);
+        font-size: calc(var(--wz-font-size) * 0.86);
         font-variant-numeric: tabular-nums;
       }
       .rf-counter[data-near='true'] {
@@ -671,7 +671,7 @@ export class RatioForm extends LitElement {
       /* Multi-select selection counter — matches the char-counter's muted helper look. */
       .rf-selcount {
         color: var(--wz-muted);
-        font-size: calc(var(--wz-font-size) - 2px);
+        font-size: calc(var(--wz-font-size) * 0.86);
         font-variant-numeric: tabular-nums;
       }
       /* Inline link-buttons: email "Did you mean…" correction + multi-select "Select all / Clear". */
@@ -683,7 +683,7 @@ export class RatioForm extends LitElement {
         padding: 0;
         margin-top: 4px;
         color: var(--wz-link);
-        font-size: calc(var(--wz-font-size) - 1px);
+        font-size: calc(var(--wz-font-size) * 0.93);
         text-decoration: underline;
         cursor: pointer;
       }
@@ -848,14 +848,14 @@ export class RatioForm extends LitElement {
       .rf-file-hint {
         margin: 0;
         color: var(--wz-muted);
-        font-size: calc(var(--wz-font-size) - 2px);
+        font-size: calc(var(--wz-font-size) * 0.86);
         overflow-wrap: break-word;
       }
       /* Transient "only N files allowed / couldn't add" notice — error-toned, no UA margin. */
       .rf-file-notice {
         margin: 0;
         color: var(--wz-error);
-        font-size: calc(var(--wz-font-size) - 2px);
+        font-size: calc(var(--wz-font-size) * 0.86);
         overflow-wrap: break-word;
       }
       .rf-files {
@@ -903,11 +903,11 @@ export class RatioForm extends LitElement {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        font-size: calc(var(--wz-font-size) - 1px);
+        font-size: calc(var(--wz-font-size) * 0.93);
       }
       .rf-file-size {
         color: var(--wz-muted);
-        font-size: calc(var(--wz-font-size) - 3px);
+        font-size: calc(var(--wz-font-size) * 0.79);
         font-variant-numeric: tabular-nums;
       }
       .rf-file-remove {
@@ -945,7 +945,7 @@ export class RatioForm extends LitElement {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        gap: 8px;
+        gap: calc(var(--wz-font-size) * 0.57);
         padding: var(--wz-btn-pad-y) calc(var(--wz-pad-x) + 8px);
         min-height: 44px;
         border: var(--wz-btn-bw) solid var(--wz-btn-border);
@@ -1043,7 +1043,7 @@ export class RatioForm extends LitElement {
         justify-content: center;
         min-height: 44px;
         cursor: pointer;
-        font-size: calc(var(--wz-font-size) + 8px);
+        font-size: calc(var(--wz-font-size) * 1.57);
         line-height: 1;
         color: var(--wz-border);
       }
@@ -1110,7 +1110,7 @@ export class RatioForm extends LitElement {
         display: flex;
         justify-content: space-between;
         margin-top: 4px;
-        font-size: calc(var(--wz-font-size) - 2px);
+        font-size: calc(var(--wz-font-size) * 0.86);
         color: var(--wz-muted);
       }
       /* A status screen is a self-contained, centred confirmation column — not
@@ -1119,8 +1119,8 @@ export class RatioForm extends LitElement {
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 12px;
-        padding: 28px 24px;
+        gap: calc(var(--wz-font-size) * 0.86);
+        padding: calc(var(--wz-font-size) * 2) calc(var(--wz-font-size) * 1.71);
         border-radius: var(--wz-radius);
         background: var(--wz-subtle);
         color: var(--wz-muted);
@@ -1155,7 +1155,7 @@ export class RatioForm extends LitElement {
       .rf-countdown {
         margin: 0;
         color: var(--wz-muted);
-        font-size: calc(var(--wz-font-size) - 1px);
+        font-size: calc(var(--wz-font-size) * 0.93);
       }
       /* §1 — success panel driven by the success tokens (default to the primary
          mix, so today's look is unchanged; recolors when colors.success is set). */
@@ -1180,7 +1180,7 @@ export class RatioForm extends LitElement {
       }
       .rf-form-error {
         color: var(--wz-error);
-        font-size: calc(var(--wz-font-size) - 1px);
+        font-size: calc(var(--wz-font-size) * 0.93);
       }
       /* Batch 6 — optional "Powered by" footer under the card content; only
          rendered when branding.showPoweredBy is on. A static link to a
@@ -1189,7 +1189,7 @@ export class RatioForm extends LitElement {
         margin: 14px 0 0;
         text-align: center;
         color: var(--wz-muted);
-        font-size: calc(var(--wz-font-size) - 2px);
+        font-size: calc(var(--wz-font-size) * 0.86);
       }
       .rf-powered a {
         color: var(--wz-link);
