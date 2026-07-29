@@ -506,6 +506,8 @@ export class RatioForm extends LitElement {
         color: var(--wz-fg);
         width: 100%;
         max-width: 100%;
+        /* Let inputs shrink inside flex rows (.rf-phone, .rf-adorned) instead of flooring at min-content and overflowing a narrow card. */
+        min-width: 0;
         box-sizing: border-box;
         /* §1.9 — control height scales with inputSize; 'md' (~40px) = today.
            A floor only, so density/§1.6 padding still applies within it and a
@@ -581,10 +583,23 @@ export class RatioForm extends LitElement {
       :is(input, select, textarea):hover {
         border-color: var(--wz-muted);
       }
+      /* Disabled control (e.g. multi-file picker at its limit): dim + inert cue. */
+      :is(input, select, textarea):disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        background: var(--wz-subtle);
+      }
       /* Real error state: an --wz-error border + soft ring on invalid inputs. */
       :is(input, select, textarea)[aria-invalid='true'] {
         border-color: var(--wz-error);
         box-shadow: 0 0 0 3px color-mix(in srgb, var(--wz-error) 22%, transparent);
+      }
+      /* Grouped fields (radio/multi_select/rating) carry aria-invalid on the container, not a native control — give the group its own error cue. */
+      .rf-checks[aria-invalid='true'],
+      .rf-rating[aria-invalid='true'] {
+        outline: 1px solid var(--wz-error);
+        outline-offset: 4px;
+        border-radius: var(--wz-radius);
       }
       /* Autofill (§1.4 I1): Chrome paints its own yellow bg + dark text, which
          breaks the filled/underlined/dark variants. Re-assert the field's own
@@ -604,13 +619,16 @@ export class RatioForm extends LitElement {
           outline: 2px solid CanvasText;
           outline-offset: 2px;
         }
-        :is(input, select, textarea)[aria-invalid='true'] {
+        :is(input, select, textarea)[aria-invalid='true'],
+        .rf-checks[aria-invalid='true'],
+        .rf-rating[aria-invalid='true'] {
           outline: 2px solid Mark;
         }
       }
       .rf-error {
         color: var(--wz-error);
         font-size: calc(var(--wz-font-size) - 2px);
+        overflow-wrap: break-word;
       }
       /* §2.3 — prefix/suffix adornment chips flanking a text-like input.
          Mirrors the +91 phone-prefix chip: standalone bordered chips, so the
@@ -638,6 +656,8 @@ export class RatioForm extends LitElement {
         margin: 0;
         color: var(--wz-muted);
         font-size: calc(var(--wz-font-size) - 2px);
+        min-width: 0;
+        overflow-wrap: break-word;
       }
       .rf-counter {
         align-self: flex-end;
@@ -647,6 +667,25 @@ export class RatioForm extends LitElement {
       }
       .rf-counter[data-near='true'] {
         color: var(--wz-error);
+      }
+      /* Multi-select selection counter — matches the char-counter's muted helper look. */
+      .rf-selcount {
+        color: var(--wz-muted);
+        font-size: calc(var(--wz-font-size) - 2px);
+        font-variant-numeric: tabular-nums;
+      }
+      /* Inline link-buttons: email "Did you mean…" correction + multi-select "Select all / Clear". */
+      .rf-email-suggest,
+      .rf-linkbtn {
+        align-self: flex-start;
+        background: none;
+        border: none;
+        padding: 0;
+        margin-top: 4px;
+        color: var(--wz-link);
+        font-size: calc(var(--wz-font-size) - 1px);
+        text-decoration: underline;
+        cursor: pointer;
       }
       .rf-phone {
         display: flex;
@@ -666,6 +705,12 @@ export class RatioForm extends LitElement {
         border: 1px solid var(--wz-border);
         border-radius: var(--wz-radius);
         background: var(--wz-subtle);
+      }
+      /* Multi-country dial-code select must not stretch to 100% and crowd the number input. */
+      .rf-phone-country {
+        flex: 0 0 auto;
+        width: auto;
+        max-width: 40%;
       }
       .rf-checks {
         display: flex;
@@ -698,6 +743,7 @@ export class RatioForm extends LitElement {
          file control opt out so their intrinsic sizing is unchanged. */
       .rf-check input,
       .rf-star input,
+      .rf-rating-num input,
       input[type='file'] {
         min-height: 0;
       }
@@ -800,6 +846,14 @@ export class RatioForm extends LitElement {
         margin: 0;
         color: var(--wz-muted);
         font-size: calc(var(--wz-font-size) - 2px);
+        overflow-wrap: break-word;
+      }
+      /* Transient "only N files allowed / couldn't add" notice — error-toned, no UA margin. */
+      .rf-file-notice {
+        margin: 0;
+        color: var(--wz-error);
+        font-size: calc(var(--wz-font-size) - 2px);
+        overflow-wrap: break-word;
       }
       .rf-files {
         list-style: none;
@@ -976,6 +1030,7 @@ export class RatioForm extends LitElement {
       /* Rating: an accessible radio group styled as star/heart glyphs. */
       .rf-rating {
         display: flex;
+        flex-wrap: wrap;
         gap: 4px;
       }
       .rf-star {
@@ -1014,6 +1069,46 @@ export class RatioForm extends LitElement {
         opacity: 0;
         width: 1px;
         height: 1px;
+      }
+      /* Numbered rating scale (display:'numbers', e.g. 0–10 NPS): each option a themed chip, selected = filled primary. */
+      .rf-rating-num {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 36px;
+        min-height: 36px;
+        padding: 0 6px;
+        border: 1px solid var(--wz-border);
+        border-radius: var(--wz-radius);
+        cursor: pointer;
+        font-size: var(--wz-font-size);
+        line-height: 1;
+        color: var(--wz-fg);
+      }
+      .rf-rating-num[data-on='true'] {
+        background: var(--wz-primary);
+        border-color: var(--wz-primary);
+        color: var(--wz-btn-fg);
+      }
+      .rf-rating-num:focus-within {
+        outline: 2px solid var(--wz-focus);
+        outline-offset: var(--wz-focus-offset);
+      }
+      .rf-rating-num input {
+        position: absolute;
+        opacity: 0;
+        width: 1px;
+        height: 1px;
+      }
+      /* Low/high end labels sit on their own full-width row, anchored to the two ends of the scale. */
+      .rf-rating-labels {
+        flex-basis: 100%;
+        display: flex;
+        justify-content: space-between;
+        margin-top: 4px;
+        font-size: calc(var(--wz-font-size) - 2px);
+        color: var(--wz-muted);
       }
       /* A status screen is a self-contained, centred confirmation column — not
          the form layout. */
