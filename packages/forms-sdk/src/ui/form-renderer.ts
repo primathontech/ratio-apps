@@ -721,7 +721,10 @@ export class RatioForm extends LitElement {
         display: flex;
         align-items: center;
         gap: 8px;
-        min-height: 44px;
+        /* Content-proportional row height (relative to the form's font), the
+           production pattern for option lists: scales with typography, no fixed
+           px. The whole label is the clickable hit area. */
+        min-height: 2.25em;
         font-size: var(--wz-font-size);
         /* Long unbroken option text wraps instead of overflowing the card;
            min-width:0 lets the label shrink within its .rf-checks column. */
