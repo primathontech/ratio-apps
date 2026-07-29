@@ -248,3 +248,102 @@ describe('RpRatioClientService.setVariantInventory', () => {
     await expect(svc.setVariantInventory('gk-merchant', 'missing', 5)).rejects.toThrow(HttpException);
   });
 });
+
+// Refunds moved off the direct OS Order Service admin API onto the proper Ratio
+// ecosystem app API (/api/v1/refunds/*, OAuth bearer) — the same pattern discounts/
+// customers already use — instead of a bare gk-merchant-id header. resolveOsOrderId's
+// own order-number→real-id lookup is unrelated plumbing and still hits OS directly.
+function stubOrderLookup(osOrderId: string, orderNumber: string) {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ data: { orders: [{ id: osOrderId, order_number: orderNumber }] } }),
+    }),
+  );
+}
+
+function makeServiceWithRatio(requestMock: ReturnType<typeof vi.fn>): RpRatioClientService {
+  const config = { get: () => 'http://os-order.test' } as never;
+  return new RpRatioClientService({ request: requestMock } as never, config);
+}
+
+describe('RpRatioClientService.calculateRefund', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('resolves the real OS order id and calls the Ratio ecosystem refunds/calculate endpoint with the access token', async () => {
+    stubOrderLookup('ordr_real123', '2439');
+    const requestMock = vi.fn().mockResolvedValue({ totalAmount: 35900, currency: 'INR' });
+    const svc = makeServiceWithRatio(requestMock);
+
+    const result = await svc.calculateRefund('access-tok-1', 'gk-merchant', '2439', {
+      line_items: [{ line_item_id: '700', quantity: 1 }],
+      include_shipping: false,
+      reason: 'test',
+    });
+
+    expect(requestMock).toHaveBeenCalledWith(
+      '/api/v1/refunds/calculate',
+      expect.anything(),
+      expect.objectContaining({
+        method: 'POST',
+        accessToken: 'access-tok-1',
+        body: expect.objectContaining({
+          order_id: 'ordr_real123',
+          line_items: [{ line_item_id: '700', quantity: 1 }],
+        }),
+      }),
+    );
+    expect(result).toEqual({ totalAmount: 35900, currency: 'INR' });
+  });
+});
+
+describe('RpRatioClientService.createRefund', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('resolves the real OS order id and POSTs to the Ratio ecosystem refunds endpoint with an idempotency key and the access token', async () => {
+    stubOrderLookup('ordr_real123', '2439');
+    const requestMock = vi.fn().mockResolvedValue({ id: 'ref_1', totalAmount: 52522 });
+    const svc = makeServiceWithRatio(requestMock);
+
+    const result = await svc.createRefund('access-tok-1', 'gk-merchant', '2439', {
+      line_items: [{ line_item_id: '700', quantity: 1 }],
+      include_shipping: false,
+      restock_type: 'CANCEL',
+      notify_customer: true,
+      reason: 'test',
+    });
+
+    expect(requestMock).toHaveBeenCalledWith(
+      '/api/v1/refunds',
+      expect.anything(),
+      expect.objectContaining({
+        method: 'POST',
+        accessToken: 'access-tok-1',
+        headers: expect.objectContaining({ 'x-idempotency-key': expect.any(String) }),
+        body: expect.objectContaining({ order_id: 'ordr_real123' }),
+      }),
+    );
+    expect(result).toEqual({ id: 'ref_1', totalAmount: 52522 });
+  });
+});
+
+describe('RpRatioClientService.getRefunds', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('resolves the real OS order id and GETs the Ratio ecosystem list-refunds-for-order endpoint with the access token', async () => {
+    stubOrderLookup('ordr_real123', '2439');
+    const requestMock = vi.fn().mockResolvedValue([{ id: 'ref_1' }]);
+    const svc = makeServiceWithRatio(requestMock);
+
+    const result = await svc.getRefunds('access-tok-1', 'gk-merchant', '2439');
+
+    expect(requestMock).toHaveBeenCalledWith(
+      '/api/v1/orders/ordr_real123/refunds',
+      expect.anything(),
+      expect.objectContaining({ accessToken: 'access-tok-1' }),
+    );
+    expect(result).toEqual([{ id: 'ref_1' }]);
+  });
+});

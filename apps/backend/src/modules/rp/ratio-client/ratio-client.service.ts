@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { HttpException, Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { z } from 'zod';
@@ -233,38 +234,46 @@ export class RpRatioClientService {
     return res.json();
   }
 
-  // ── Refunds (GoKwik OS Order Service) ────────────────────────────────────
+  // ── Refunds (Ratio App Ecosystem API) ────────────────────────────────────
+  // Unlike the rest of this file, refunds go through Ratio's own app API
+  // (OAuth bearer, like discounts/customers below) rather than hitting OS
+  // Order Service directly — resolveOsOrderId's order-number→real-id lookup
+  // is unrelated plumbing and still calls OS directly for that.
 
-  async calculateRefund(merchantId: string, orderId: string, body: unknown): Promise<unknown> {
+  async calculateRefund(
+    accessToken: string,
+    merchantId: string,
+    orderId: string,
+    body: unknown,
+  ): Promise<unknown> {
     const osId = await this.resolveOsOrderId(merchantId, orderId);
-    return this.osOrderPost(
-      merchantId,
-      '/api/v1/admin/refunds/calculate',
-      { ...(body as Record<string, unknown>), order_id: osId },
-    );
-  }
-
-  async createRefund(merchantId: string, orderId: string, body: unknown): Promise<unknown> {
-    const osId = await this.resolveOsOrderId(merchantId, orderId);
-    return this.osOrderPost(
-      merchantId,
-      '/api/v1/admin/refunds',
-      { ...(body as Record<string, unknown>), order_id: osId },
-    );
-  }
-
-  async getRefunds(merchantId: string, orderId: string): Promise<unknown> {
-    const base = this.config.get('OS_ORDER_BASE_URL', { infer: true }) as string;
-    if (!base) throw new Error('OS_ORDER_BASE_URL is not configured');
-    const osId = await this.resolveOsOrderId(merchantId, orderId);
-    const url = `${base}/api/v1/admin/orders/${encodeURIComponent(osId)}/refunds`;
-    const res = await fetch(url, {
-      headers: { 'gk-merchant-id': merchantId, 'Content-Type': 'application/json' },
+    return this.ratio.request('/api/v1/refunds/calculate', anySchema, {
+      method: 'POST',
+      accessToken,
+      body: { ...(body as Record<string, unknown>), order_id: osId },
     });
-    if (!res.ok) {
-      this.logger.error({ merchantId, orderId, status: res.status }, 'OS order service error');
-    }
-    return res.json();
+  }
+
+  async createRefund(
+    accessToken: string,
+    merchantId: string,
+    orderId: string,
+    body: unknown,
+  ): Promise<unknown> {
+    const osId = await this.resolveOsOrderId(merchantId, orderId);
+    return this.ratio.request('/api/v1/refunds', anySchema, {
+      method: 'POST',
+      accessToken,
+      headers: { 'x-idempotency-key': randomUUID() },
+      body: { ...(body as Record<string, unknown>), order_id: osId },
+    });
+  }
+
+  async getRefunds(accessToken: string, merchantId: string, orderId: string): Promise<unknown> {
+    const osId = await this.resolveOsOrderId(merchantId, orderId);
+    return this.ratio.request(`/api/v1/orders/${encodeURIComponent(osId)}/refunds`, anySchema, {
+      accessToken,
+    });
   }
 
   // Resolves an order_number (e.g. "2484") to the real OS order ID ("ordr_17835966307325080").

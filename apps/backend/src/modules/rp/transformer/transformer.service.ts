@@ -280,7 +280,7 @@ export class RpTransformerService {
         {
           id,
           order_id: oId,
-          amount: this.paiseToRupees(ratioRefund.amount as number),
+          amount: this.paiseToRupees(ratioRefund.totalAmount as number),
           currency: 'INR',
           kind: 'refund',
           status: 'success',
