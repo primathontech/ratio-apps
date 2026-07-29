@@ -30,7 +30,7 @@ describe('themeVars', () => {
     expect(css).toContain('--wz-font-size: 14px');
     expect(css).toContain('--wz-gap: 14px');
     expect(css).toContain('--wz-pad-y: 8px');
-    expect(css).toContain('--wz-pad-x: 10px');
+    expect(css).toContain('--wz-pad-x: calc(var(--wz-font-size) * 0.714)');
     expect(css).toContain('--wz-max-width: 640px');
     expect(css).toContain('--wz-btn-radius: var(--wz-radius)');
     expect(css).toContain('--wz-btn-align: flex-start');
@@ -474,9 +474,11 @@ describe('themeVars Batch 5 (visual-payoff theming)', () => {
     expect(css).toContain('--wz-placeholder: #9ca3af');
   });
 
-  it('wires inputPadX to --wz-pad-x; default reproduces the 10px literal', () => {
-    expect(themeVars(appearance())).toContain('--wz-pad-x: 10px');
-    expect(themeVars(appearance({ layout: { inputPadX: 16 } }))).toContain('--wz-pad-x: 16px');
+  it('wires inputPadX to --wz-pad-x as a font-relative calc; default = 10px at the 14px base', () => {
+    expect(themeVars(appearance())).toContain('--wz-pad-x: calc(var(--wz-font-size) * 0.714)');
+    expect(themeVars(appearance({ layout: { inputPadX: 16 } }))).toContain(
+      '--wz-pad-x: calc(var(--wz-font-size) * 1.143)',
+    );
   });
 
   it('lets an explicit cardPadding override the density preset (fixes the bug)', () => {
