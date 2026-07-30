@@ -61,6 +61,9 @@ export function sampleFieldValue(field: FormField): unknown {
     case 'paragraph':
     case 'image':
     case 'html':
+    // page_break (§steps) is a display-only step separator — like the other
+    // content blocks it submits nothing, and buildSampleFields filters it out.
+    case 'page_break':
       return undefined;
     default:
       return assertNever(field);

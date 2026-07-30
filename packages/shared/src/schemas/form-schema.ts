@@ -31,6 +31,9 @@ export const FORM_FIELD_TYPES = [
   'paragraph',
   'image',
   'html',
+  // page_break (§steps) — a display-only separator that splits the form's
+  // fields into multi-step pages. Submits no data, like the blocks above.
+  'page_break',
 ] as const;
 
 export type FormFieldType = (typeof FORM_FIELD_TYPES)[number];
@@ -88,6 +91,7 @@ export {
   type FormNumberLocale,
   type FormNumberStyle,
 } from './fields/number/schema';
+export { FORM_PAGE_BREAK_TITLE_MAX_LENGTH } from './fields/page_break/schema';
 export {
   RADIO_LAYOUTS,
   RADIO_MAX_GRID_COLUMNS,
@@ -124,6 +128,9 @@ export const FORM_NON_COLLECTABLE_FIELD_TYPES = [
   'paragraph',
   'image',
   'html',
+  // page_break is display-only too — it marks a step boundary and submits no
+  // value, so the CSV export and the server validator strip it like a divider.
+  'page_break',
 ] as const;
 
 export type FormNonCollectableFieldType = (typeof FORM_NON_COLLECTABLE_FIELD_TYPES)[number];

@@ -47,6 +47,15 @@ export function CanvasField({
   // Content blocks (§1.3) carry no label/required; fall back to the type name.
   const displayLabel = 'label' in field ? field.label : FIELD_TYPE_LABELS[field.type];
   const required = 'required' in field ? field.required : false;
+  // A page_break is a step boundary, not a field — spell that out under the
+  // label (and surface its optional step title) instead of the "type (key)"
+  // line the other rows show.
+  const subtitle =
+    field.type === 'page_break'
+      ? field.title
+        ? `Starts a new step · ${field.title}`
+        : 'Starts a new step'
+      : `${FIELD_TYPE_LABELS[field.type]} (${field.key})`;
   const active = selected || hovered;
   // Drop indicator: a 2px top-border marking where a NEW palette field will land.
   // Reorders of existing rows shift the list live, which is its own feedback, so
@@ -119,7 +128,7 @@ export function CanvasField({
           {required && <span style={{ color: '#cf1322' }}> *</span>}
         </Typography.Text>
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          {FIELD_TYPE_LABELS[field.type]} ({field.key})
+          {subtitle}
         </Typography.Text>
       </div>
       <Button

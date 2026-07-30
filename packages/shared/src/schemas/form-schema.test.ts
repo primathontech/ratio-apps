@@ -442,6 +442,9 @@ describe('content-block field types (§1.3 — heading / divider / paragraph / i
       'paragraph',
       'image',
       'html',
+      // page_break (§steps) is display-only too — a step separator that submits
+      // no value, so it strips from CSV/webhook exactly like the blocks above.
+      'page_break',
     ]);
     for (const t of FORM_NON_COLLECTABLE_FIELD_TYPES) {
       expect(isCollectableFieldType(t)).toBe(false);

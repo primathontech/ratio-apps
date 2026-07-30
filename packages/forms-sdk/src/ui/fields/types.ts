@@ -10,10 +10,13 @@ import type { nothing, TemplateResult } from 'lit';
  * is unchanged — this is a pure extraction of the two switch statements.
  */
 
-/** Content blocks (§1.3): display-only, submit no value, carry no label. */
+/** Content blocks (§1.3): display-only, submit no value, carry no label. The
+ * page_break block (§steps) is display-only too — it renders nothing in the
+ * form body (only marks a step boundary), so it groups here and is excluded
+ * from the interactive ControlField union / fieldControls registry. */
 export type ContentBlockField = Extract<
   FormField,
-  { type: 'heading' | 'divider' | 'paragraph' | 'image' | 'html' }
+  { type: 'heading' | 'divider' | 'paragraph' | 'image' | 'html' | 'page_break' }
 >;
 
 /** Every non-content-block (interactive control) field — what renderControl handles. */

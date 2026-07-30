@@ -1,8 +1,8 @@
-import { appearanceSchema, type FormAppearance } from '@ratio-app/shared';
+import { appearanceSchema, type FormAppearance, type FormField } from '@ratio-app/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import './form-renderer';
 import { FormsClient, type PublicFormSchema } from '../client';
-import { RATIO_FORM_TAG, RatioForm } from './form-renderer';
+import { RATIO_FORM_TAG, RatioForm, splitIntoSteps } from './form-renderer';
 
 /** A fully-defaulted appearance with optional group overrides + font family. */
 function appearanceWith(
@@ -2824,5 +2824,148 @@ describe('ratio-form inline validation (blur + live re-check)', () => {
     const { el } = await mount();
     // full_name is required but untouched → no error until blur or submit.
     expect(shadow(el).querySelector('[data-error-for="full_name"]')).toBeFalsy();
+  });
+});
+
+/** A 2-step form: text `a` (required) → page_break → text `b` (required). */
+function twoStepSchema(overrides: Partial<PublicFormSchema> = {}): PublicFormSchema {
+  return {
+    id: 'form_steps',
+    name: 'Stepped',
+    schema: [
+      { key: 'a', type: 'text', label: 'A', required: true },
+      { key: 'pb1', type: 'page_break', title: 'Second' },
+      { key: 'b', type: 'text', label: 'B', required: true },
+    ] as PublicFormSchema['schema'],
+    submitLabel: 'Send it',
+    successMessage: 'Done',
+    spamProtection: 'honeypot',
+    ...overrides,
+  };
+}
+
+async function clickBtn(el: RatioForm, selector: string): Promise<void> {
+  (shadow(el).querySelector(selector) as HTMLButtonElement | null)?.click();
+  await flush();
+  await el.updateComplete;
+}
+
+describe('splitIntoSteps (pure step-splitting helper)', () => {
+  const f = (key: string): FormField => ({ key, type: 'text', label: key }) as FormField;
+  const pb = (): FormField => ({ key: 'pb', type: 'page_break' }) as FormField;
+
+  it('a form with ZERO page_breaks is a single step (today’s behaviour)', () => {
+    const steps = splitIntoSteps([f('a'), f('b'), f('c')]);
+    expect(steps).toHaveLength(1);
+    expect(steps[0]?.map((x) => x.key)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('one page_break splits into two steps, dropping the break itself', () => {
+    const steps = splitIntoSteps([f('a'), pb(), f('b'), f('c')]);
+    expect(steps.map((s) => s.map((x) => x.key))).toEqual([['a'], ['b', 'c']]);
+    // The page_break separator never appears inside a rendered step group.
+    expect(steps.flat().some((x) => x.type === 'page_break')).toBe(false);
+  });
+
+  it('two page_breaks split into three steps', () => {
+    const steps = splitIntoSteps([f('a'), pb(), f('b'), pb(), f('c'), f('d')]);
+    expect(steps.map((s) => s.map((x) => x.key))).toEqual([['a'], ['b'], ['c', 'd']]);
+  });
+
+  it('an empty schema still yields one (empty) step', () => {
+    expect(splitIntoSteps([])).toEqual([[]]);
+  });
+});
+
+describe('ratio-form multi-step pagination (§steps)', () => {
+  it('renders ONLY the first step’s fields + progress, and no page_break DOM', async () => {
+    const { el } = await mount({ schema: { status: 200, body: { data: twoStepSchema() } } });
+    const root = shadow(el);
+    // Step 1 field present, step 2 field not yet rendered.
+    expect(root.querySelector('input[name="a"]')).toBeTruthy();
+    expect(root.querySelector('input[name="b"]')).toBeNull();
+    // The page_break renders nothing in the body.
+    expect(root.querySelector('[data-field="pb1"]')).toBeNull();
+    // Progress "Step 1 of 2" + a proportional bar.
+    expect(root.querySelector('.rf-progress-text')?.textContent).toContain('Step 1 of 2');
+    expect(root.querySelector('.rf-progressbar-fill')).toBeTruthy();
+    // Next present; Submit + Back absent on the first step.
+    expect(root.querySelector('.rf-next')).toBeTruthy();
+    expect(root.querySelector('.rf-back')).toBeNull();
+    expect(root.querySelector('.rf-submit:not(.rf-next):not(.rf-back)')).toBeNull();
+  });
+
+  it('Next validates ONLY the current step and blocks (focus first invalid) when invalid', async () => {
+    const { el } = await mount({ schema: { status: 200, body: { data: twoStepSchema() } } });
+    // `a` is empty → Next must not advance.
+    await clickBtn(el, '.rf-next');
+    const root = shadow(el);
+    expect(root.querySelector('[data-error-for="a"]')?.textContent).toContain('required');
+    // Still on step 1 (step 2 field never rendered).
+    expect(root.querySelector('input[name="b"]')).toBeNull();
+    expect(root.querySelector('.rf-progress-text')?.textContent).toContain('Step 1 of 2');
+    // The same invalid-focus path as submit moved focus to the invalid control.
+    expect(root.activeElement?.getAttribute('aria-invalid')).toBe('true');
+  });
+
+  it('Next advances after the current step is valid; Submit shows only on the last step', async () => {
+    const { el } = await mount({ schema: { status: 200, body: { data: twoStepSchema() } } });
+    setInput(el, 'a', 'hello');
+    await clickBtn(el, '.rf-next');
+    const root = shadow(el);
+    // Now on step 2: field b rendered, a unmounted, progress advanced.
+    expect(root.querySelector('input[name="b"]')).toBeTruthy();
+    expect(root.querySelector('input[name="a"]')).toBeNull();
+    expect(root.querySelector('.rf-progress-text')?.textContent).toContain('Step 2 of 2');
+    // Back now available; Next gone; the real Submit is present with its label.
+    expect(root.querySelector('.rf-back')).toBeTruthy();
+    expect(root.querySelector('.rf-next')).toBeNull();
+    const submit = root.querySelector('.rf-submit:not(.rf-back)') as HTMLButtonElement;
+    expect(submit?.textContent).toContain('Send it');
+  });
+
+  it('Back returns to the previous step without validating', async () => {
+    const { el } = await mount({ schema: { status: 200, body: { data: twoStepSchema() } } });
+    setInput(el, 'a', 'hello');
+    await clickBtn(el, '.rf-next');
+    // On step 2 with b empty — Back must go back regardless (no validation gate).
+    await clickBtn(el, '.rf-back');
+    const root = shadow(el);
+    expect(root.querySelector('input[name="a"]')).toBeTruthy();
+    expect(root.querySelector('input[name="b"]')).toBeNull();
+    expect(root.querySelector('.rf-progress-text')?.textContent).toContain('Step 1 of 2');
+    // Going back did not raise an error on the step-2 field it left.
+    expect(root.querySelector('[data-error-for="b"]')).toBeNull();
+  });
+
+  it('the honeypot + Submit ride the final step only, and page_break submits no value', async () => {
+    const { el, fetchImpl } = await mount({
+      schema: { status: 200, body: { data: twoStepSchema() } },
+    });
+    // Step 1 has no honeypot input (it lives on the last step).
+    expect(shadow(el).querySelector('.rf-hp')).toBeNull();
+    setInput(el, 'a', 'first');
+    await clickBtn(el, '.rf-next');
+    // Last step now carries the honeypot.
+    expect(shadow(el).querySelector('.rf-hp')).toBeTruthy();
+    setInput(el, 'b', 'second');
+    await clickBtn(el, '.rf-submit:not(.rf-back)');
+    const post = fetchImpl.mock.calls.find((c) => String(c[0]).endsWith('/submissions'));
+    expect(post).toBeDefined();
+    const body = JSON.parse(String((post?.[1] as RequestInit).body));
+    // Both real fields submitted; the page_break key never appears.
+    expect(body.fields).toEqual({ a: 'first', b: 'second' });
+    expect('pb1' in body.fields).toBe(false);
+  });
+
+  it('a zero-page_break form is unchanged: no progress, no nav, Submit renders inline', async () => {
+    const { el } = await mount();
+    const root = shadow(el);
+    expect(root.querySelector('.rf-progress')).toBeNull();
+    expect(root.querySelector('.rf-nav')).toBeNull();
+    expect(root.querySelector('.rf-next')).toBeNull();
+    expect(root.querySelector('.rf-back')).toBeNull();
+    // The single Submit still sits directly in the form column.
+    expect(root.querySelector('.rf-form > .rf-submit')).toBeTruthy();
   });
 });

@@ -139,6 +139,9 @@ export const FIELD_TYPE_LABELS: Record<FormFieldType, string> = {
   paragraph: 'Text block',
   image: 'Image',
   html: 'Custom HTML',
+  // Layout separator (§1.3) — splits the form's fields into wizard steps; no
+  // submitted value, only an optional step title.
+  page_break: 'Page break',
 };
 
 /**
@@ -205,6 +208,10 @@ export function makeField(fieldType: FormFieldType, existing: readonly FormField
       // Display-only raw-HTML block; seeds a small placeholder the merchant
       // replaces in the property panel. Rendered as-is (no sanitization).
       return { key, type: 'html', html: '<p>Your custom HTML</p>', width: 'full' };
+    case 'page_break':
+      // Layout separator: carries no submitted value and no label — just an
+      // optional step title, absent by default (mirrors `divider`).
+      return { key, type: 'page_break', width: 'full' };
   }
   // showCounter carries a schema default (false), so it is a required output
   // key on every collectable field type — seed it here (§2.3).

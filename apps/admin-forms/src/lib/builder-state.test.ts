@@ -249,6 +249,20 @@ describe('builderReducer', () => {
     expect(formInputSchema.safeParse(payload).success).toBe(true);
   });
 
+  it('adds a page_break as a value-less layout block with no label/required', () => {
+    let state = loaded();
+    state = builderReducer(state, { type: 'addField', fieldType: 'page_break' });
+    const block = state.fields.find((f) => f.type === 'page_break');
+    // Modeled on divider: key + width only, no label/required, no title by default.
+    expect(block).toMatchObject({ type: 'page_break', width: 'full' });
+    expect(block && 'label' in block).toBe(false);
+    expect(block && 'required' in block).toBe(false);
+    expect(block && 'title' in block).toBe(false);
+    // The whole set (with a real input around the break) still parses.
+    state = builderReducer(state, { type: 'addField', fieldType: 'text' });
+    expect(formFieldsSchema.safeParse(state.fields).success).toBe(true);
+  });
+
   it('makeField builds schema-valid url/rating/hidden fields', () => {
     let state = loaded();
     state = builderReducer(state, { type: 'addField', fieldType: 'rating' });

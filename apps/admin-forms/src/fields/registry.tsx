@@ -12,6 +12,7 @@ import { HtmlBlockSettings } from './html/settings';
 import { ImageBlockSettings } from './image/settings';
 import { MultiSelectSettings } from './multi_select/settings';
 import { NumberValidationSettings } from './number/settings';
+import { PageBreakSettings } from './page_break/settings';
 import { ParagraphSettings } from './paragraph/settings';
 import { PhoneSettings } from './phone/settings';
 import { RadioSettings } from './radio/settings';
@@ -49,4 +50,5 @@ export const fieldSettingsRegistry: Record<FormFieldType, FieldSettingsComponent
   paragraph: ParagraphSettings as FieldSettingsComponent,
   image: ImageBlockSettings as FieldSettingsComponent,
   html: HtmlBlockSettings as FieldSettingsComponent,
+  page_break: PageBreakSettings as FieldSettingsComponent,
 };
