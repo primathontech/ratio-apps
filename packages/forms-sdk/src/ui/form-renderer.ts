@@ -1196,12 +1196,42 @@ export class RatioForm extends LitElement {
       .rf-powered a {
         color: var(--wz-link);
       }
+      /* WCAG 2.5.5 (a11y) — floor the interactive tap targets to 44px on touch
+         devices ONLY, so the deliberately tight desktop density (option rows at
+         1.7em, the 36px number chips, the ~sm input height) is untouched for
+         mouse/precise pointers. */
+      @media (pointer: coarse) {
+        :is(input, select, textarea) {
+          min-height: max(var(--wz-input-min-h), 44px);
+        }
+        /* Preserve the §1.9 opt-out: toggles/stars/number-chip inputs and the
+           file control keep their intrinsic size — the wrapping row/label is the
+           tap target, not the control. */
+        .rf-check input,
+        .rf-star input,
+        .rf-rating-num input,
+        input[type='file'] {
+          min-height: 0;
+        }
+        .rf-check {
+          min-height: 44px;
+        }
+        .rf-rating-num {
+          min-width: 44px;
+          min-height: 44px;
+        }
+      }
       /* Reduced motion (§1.7): collapse the duration token to ~0 rather than
          killing transitions outright, so transitionend still fires (floating
          label). Animations are disabled defensively. */
       @media (prefers-reduced-motion: reduce) {
         :host {
           --wz-dur: 0.01ms;
+          /* Floor the motion role tokens too, so every duration collapses to
+             ~0 (transitionend still fires) when the OS asks for less motion. */
+          --wz-dur-fast: 0.01ms;
+          --wz-dur-normal: 0.01ms;
+          --wz-dur-slow: 0.01ms;
         }
         *,
         *::before,

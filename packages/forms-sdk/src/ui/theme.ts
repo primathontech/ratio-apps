@@ -254,6 +254,13 @@ export function themeVars(appearance?: FormsThemeInput): string {
   // transitions; the renderer still collapses it to ~0 under
   // prefers-reduced-motion so the OS setting always wins.
   const dur = l?.animations ? `${MOTION_SPEED_S[l?.motionSpeed ?? 'normal']}s` : '0s';
+  // §1.8 — motion role durations. The selected motionSpeed sets the `normal`
+  // base (so --wz-dur-normal reproduces --wz-dur, back-compat); fast/slow scale
+  // it ×0.5 / ×2 so fast < normal < slow. All collapse to 0s while animations
+  // are off (today), and the renderer's prefers-reduced-motion rule floors them
+  // to ~0 alongside --wz-dur, so the OS setting still wins.
+  const durBaseS = l?.animations ? MOTION_SPEED_S[l?.motionSpeed ?? 'normal'] : 0;
+  const durRole = (mult: number): string => `${Number((durBaseS * mult).toFixed(4))}s`;
   // §2.6 — frosted-card blur radius (px). Only meaningful over an image
   // backdrop; the renderer gates the actual backdrop-filter behind a host
   // attribute, so 0 (default) is a no-op.
@@ -408,6 +415,11 @@ export function themeVars(appearance?: FormsThemeInput): string {
     // shared by every transition. Both collapse to ~0 under prefers-reduced-
     // motion in the renderer's stylesheet, which preserves transitionend.
     `--wz-dur: ${dur}; ` +
+    // §1.8 — motion role tokens (fast < normal < slow); --wz-dur-normal mirrors
+    // --wz-dur for back-compat. All 0s while animations are off.
+    `--wz-dur-fast: ${durRole(0.5)}; ` +
+    `--wz-dur-normal: ${durRole(1)}; ` +
+    `--wz-dur-slow: ${durRole(2)}; ` +
     `--wz-ease: ${ease}; ` +
     // §2.6 — frosted-card blur radius; gated to an image backdrop by a host
     // attribute in the renderer, so this value is inert without one.
@@ -450,6 +462,9 @@ export const baseStyles = css`
     display: block;
     box-sizing: border-box;
     container-type: inline-size;
+    /* Named so future @container queries can target this host explicitly;
+       existing unnamed queries still match it as the nearest container. */
+    container-name: rf;
     contain: layout style;
     /* The host fills its mount; the card centers within it via its own
        max-width + margin, so --wz-page-bg shows as the area around the card. */
