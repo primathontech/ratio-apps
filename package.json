@@ -24,6 +24,7 @@
     "dev:admin:rp": "pnpm --filter @ratio-app/admin-rp dev",
     "dev:admin:loyalty": "pnpm --filter @ratio-app/admin-loyalty dev",
     "//--- build ---//": "",
+    "build:shared": "pnpm --filter @ratio-app/shared build",
     "build:backend": "pnpm --filter @ratio-app/backend build",
     "build:admin": "pnpm --filter @ratio-app/admin-google build",
     "build:admin:google": "pnpm --filter @ratio-app/admin-google build",
