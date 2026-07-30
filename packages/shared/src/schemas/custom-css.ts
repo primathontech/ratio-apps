@@ -1,7 +1,7 @@
 import * as csstree from 'css-tree';
-import { MAX_FIELD_CSS_LENGTH } from './fields/_shared/base';
+import { MAX_FIELD_CSS_LENGTH, MAX_FORM_CSS_LENGTH } from './fields/_shared/base';
 
-export { MAX_FIELD_CSS_LENGTH };
+export { MAX_FIELD_CSS_LENGTH, MAX_FORM_CSS_LENGTH };
 
 /**
  * Per-field custom CSS sanitizer (the deferred "raw custom CSS — AST allowlist"
@@ -281,7 +281,13 @@ function filterDeclarations(block: csstree.Block, removed: string[]): csstree.De
   return kept;
 }
 
-/** Re-scope a rule's selectors under `scope`, dropping any forbidden selector. */
+/**
+ * Re-scope a rule's selectors under `scope`, dropping any forbidden selector.
+ * An empty `scope` means FORM-LEVEL CSS (appearance.customCss): the selector is
+ * emitted as-authored so it can style the whole form (`.rf-card`, `.rf-submit`,
+ * …). The forbidden-selector checks (host/page piercing, leading combinators,
+ * escapes) are the safety boundary regardless of scope — they run either way.
+ */
 function scopeSelectors(
   prelude: csstree.Raw | csstree.SelectorList,
   scope: string,
@@ -294,20 +300,23 @@ function scopeSelectors(
       removed.push('a selector targeting the host/page was dropped');
       return;
     }
-    scoped.push(`${scope} ${csstree.generate(selector)}`);
+    const gen = csstree.generate(selector);
+    scoped.push(scope ? `${scope} ${gen}` : gen);
   });
   return scoped;
 }
 
 /**
- * Sanitize `rawCss` and scope every rule under `scope` (e.g.
- * `[data-field="email"]`). Returns safe CSS + a list of what was removed.
+ * Sanitize `rawCss`, allow-listing declarations and (when `scope` is non-empty)
+ * scoping every rule under `scope`. Shared core behind `sanitizeFieldCss`
+ * (field-scoped) and `sanitizeFormCss` (form-level, unscoped); `maxLength` caps
+ * the raw input before parsing.
  */
-export function sanitizeFieldCss(rawCss: string, scope: string): CssSanitizeResult {
+function sanitizeCss(rawCss: string, scope: string, maxLength: number): CssSanitizeResult {
   const removed: string[] = [];
-  if (!rawCss || !rawCss.trim()) return { css: '', removed };
-  if (rawCss.length > MAX_FIELD_CSS_LENGTH) {
-    return { css: '', removed: [`CSS exceeds ${MAX_FIELD_CSS_LENGTH} characters`] };
+  if (!rawCss?.trim()) return { css: '', removed };
+  if (rawCss.length > maxLength) {
+    return { css: '', removed: [`CSS exceeds ${maxLength} characters`] };
   }
 
   let ast: csstree.CssNode;
@@ -376,4 +385,26 @@ export function sanitizeFieldCss(rawCss: string, scope: string): CssSanitizeResu
   });
 
   return { css: out.join('\n\n'), removed: [...new Set(removed)] };
+}
+
+/**
+ * Sanitize `rawCss` and scope every rule under `scope` (e.g.
+ * `[data-field="email"]`). Returns safe CSS + a list of what was removed.
+ */
+export function sanitizeFieldCss(rawCss: string, scope: string): CssSanitizeResult {
+  return sanitizeCss(rawCss, scope, MAX_FIELD_CSS_LENGTH);
+}
+
+/**
+ * Sanitize FORM-LEVEL custom CSS (appearance.customCss). Unlike per-field CSS,
+ * it is NOT re-scoped under a `[data-field]` wrapper — it is emitted as authored
+ * so a merchant can style the whole form (`.rf-card`, `.rf-submit`, `.rf-field`,
+ * …) inside the form's shadow root. The css-tree allow-list is the safety
+ * boundary: the same declaration/value/selector rules run, still stripping
+ * url()/@import/@font-face, position:fixed|sticky, host/page-piercing selectors,
+ * leading combinators, and `</style>`/escape breakouts. Bounded by
+ * MAX_FORM_CSS_LENGTH (larger than per-field — it styles the entire form).
+ */
+export function sanitizeFormCss(rawCss: string): CssSanitizeResult {
+  return sanitizeCss(rawCss, '', MAX_FORM_CSS_LENGTH);
 }

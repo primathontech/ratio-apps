@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_FIELD_CSS_LENGTH, sanitizeFieldCss } from './custom-css';
+import {
+  MAX_FIELD_CSS_LENGTH,
+  MAX_FORM_CSS_LENGTH,
+  sanitizeFieldCss,
+  sanitizeFormCss,
+} from './custom-css';
 
 const SCOPE = '[data-field="email"]';
 const san = (css: string) => sanitizeFieldCss(css, SCOPE);
@@ -175,5 +180,50 @@ describe('sanitizeFieldCss — red-team regressions (must stay neutralized)', ()
     // `.a ~ .b` (non-leading) stays contained: both are descendants of the field.
     const { css } = san('.a ~ .b { color: red; }');
     expect(css).toMatch(/\[data-field="email"\] \.a\s*~\s*\.b/);
+  });
+});
+
+describe('sanitizeFormCss — form-level (unscoped) CSS', () => {
+  it('keeps a benign form-chrome rule and does NOT prefix it with [data-field]', () => {
+    const { css } = sanitizeFormCss('.rf-submit { border-radius: 0; }');
+    expect(css).toMatch(/\.rf-submit/);
+    expect(css).toMatch(/border-radius:\s*0/);
+    // Form-level CSS styles the whole form — never scoped to a single field.
+    expect(css).not.toContain('[data-field');
+  });
+
+  it('lets a rule reach the card / any form element (no containment scope)', () => {
+    const { css } = sanitizeFormCss('.rf-card { padding: 24px; } .rf-field { gap: 8px; }');
+    expect(css).toMatch(/\.rf-card/);
+    expect(css).toMatch(/\.rf-field/);
+    expect(css).not.toContain('[data-field');
+  });
+
+  it('still strips the same exfiltration / shadow-escape vectors as per-field', () => {
+    expect(sanitizeFormCss('.rf-card { background: url(https://evil/x); }').css).toBe('');
+    expect(sanitizeFormCss('@import url(https://evil/x.css);').css).not.toContain('@import');
+    expect(sanitizeFormCss('.rf-card { position: fixed; top: 0; }').css).not.toContain('fixed');
+    expect(sanitizeFormCss(':host { color: red; }').css).toBe('');
+    expect(sanitizeFormCss('body { color: red; }').css).toBe('');
+    // `</style>` breakout via an allow-listed string value stays neutralized.
+    expect(sanitizeFormCss('.rf-card { font-family: "</style><b>"; }').css).not.toContain('<');
+  });
+
+  it('enforces the larger form-level length cap (5000, not 2000)', () => {
+    // A payload between the per-field and form-level caps survives at form level.
+    const mid = `.rf-card { color: red; }${' '.repeat(MAX_FIELD_CSS_LENGTH + 100)}`;
+    expect(mid.length).toBeGreaterThan(MAX_FIELD_CSS_LENGTH);
+    expect(mid.length).toBeLessThan(MAX_FORM_CSS_LENGTH);
+    expect(sanitizeFormCss(mid).css).toMatch(/\.rf-card/);
+    // Over the form-level cap ⇒ dropped wholesale.
+    const big = `.rf-card { color: red; }${' '.repeat(MAX_FORM_CSS_LENGTH)}`;
+    const { css, removed } = sanitizeFormCss(big);
+    expect(css).toBe('');
+    expect(removed.join(' ')).toMatch(/exceeds/);
+  });
+
+  it('returns empty for blank input, never throws on garbage', () => {
+    expect(sanitizeFormCss('').css).toBe('');
+    expect(() => sanitizeFormCss('}{)(#$%^ not css @@@ ;;;')).not.toThrow();
   });
 });

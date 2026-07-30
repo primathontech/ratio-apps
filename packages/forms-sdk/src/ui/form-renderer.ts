@@ -1783,6 +1783,7 @@ export class RatioForm extends LitElement {
     return html`<style>
         ${unsafeCSS(themeVars(this.appearance))}
         ${unsafeCSS(this.customFieldCss())}
+        ${unsafeCSS(this.formCustomCss())}
       </style>
       <div class="rf-root">
         <div class="rf-bg"></div>
@@ -1816,6 +1817,17 @@ export class RatioForm extends LitElement {
       .map((f) => (f as { customCss?: string }).customCss)
       .filter((c): c is string => Boolean(c))
       .join('\n');
+  }
+
+  /**
+   * Merchant FORM-LEVEL custom CSS (appearance.customCss). Already sanitized by
+   * the server (see shared `sanitizeFormCss`), and — unlike per-field CSS — NOT
+   * scoped to a `[data-field]` wrapper, so it can style the whole form
+   * (`.rf-card`, `.rf-submit`, `.rf-field`, …). Emitted AFTER customFieldCss()
+   * so a form-level rule wins over a field-level one at equal specificity.
+   */
+  private formCustomCss(): string {
+    return this.appearance?.customCss ?? '';
   }
 
   /**

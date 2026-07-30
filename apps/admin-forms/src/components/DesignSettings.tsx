@@ -208,6 +208,10 @@ const CONTRAST_STATE: Record<ContrastState, { glyph: string; word: string; color
   low: { glyph: '▲', word: 'Low contrast', color: '#b54708' },
 };
 
+/** Bound on the form-level custom CSS textarea, matching the schema's `.max()`
+ * (the SDK/server sanitizer is the real safety boundary — this is just a hint). */
+const MAX_FORM_CSS_LENGTH = 5000;
+
 interface Props {
   /** Resolved appearance (defaults filled) — never partial. */
   appearance: FormAppearance;
@@ -1158,6 +1162,35 @@ export function DesignSettings({ appearance, dispatch }: Props) {
                     onChange={(panel) => setEndingPanel(state, panel)}
                   />
                 ))}
+              </div>
+            ),
+          },
+          {
+            key: 'custom-css',
+            forceRender: true,
+            label: 'Custom CSS',
+            children: (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  Advanced — CSS applied to the whole form; unsafe rules are stripped.
+                </Typography.Text>
+                <Input.TextArea
+                  aria-label="Form custom CSS"
+                  rows={6}
+                  maxLength={MAX_FORM_CSS_LENGTH}
+                  spellCheck={false}
+                  placeholder={'.rf-card {\n  box-shadow: 0 8px 24px rgba(0,0,0,0.12);\n}'}
+                  style={{ fontFamily: 'monospace', fontSize: 12 }}
+                  value={appearance.customCss ?? ''}
+                  onChange={(e) => patch({ customCss: e.target.value || undefined })}
+                />
+                <Typography.Text
+                  type="secondary"
+                  aria-label="Form custom CSS character count"
+                  style={{ display: 'block', fontSize: 12 }}
+                >
+                  {(appearance.customCss ?? '').length} / {MAX_FORM_CSS_LENGTH}
+                </Typography.Text>
               </div>
             ),
           },

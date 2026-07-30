@@ -8,7 +8,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { sanitizeFieldCss } from '@ratio-app/shared/schemas/custom-css';
+import { sanitizeFieldCss, sanitizeFormCss } from '@ratio-app/shared/schemas/custom-css';
 import {
   HIDDEN_DEFAULT_SOURCE,
   type SubmissionContext,
@@ -280,7 +280,13 @@ export class SubmissionsService {
       form.spamProtection === 'recaptcha'
         ? (config.recaptchaSiteKey ?? process.env.FORMS_RECAPTCHA_SHARED_SITE_KEY?.trim() ?? null)
         : null;
-    const appearance = parseJsonColumnOrNull<FormAppearance>(form.appearanceJson);
+    // Sanitize form-level custom CSS on the same read path. Unlike per-field CSS
+    // it is NOT scoped to a `[data-field]` wrapper (it styles the whole form);
+    // the css-tree allow-list (sanitizeFormCss) is the shadow-safe boundary.
+    const rawAppearance = parseJsonColumnOrNull<FormAppearance>(form.appearanceJson);
+    const appearance = rawAppearance?.customCss
+      ? { ...rawAppearance, customCss: sanitizeFormCss(rawAppearance.customCss).css || undefined }
+      : rawAppearance;
     return {
       id: form.id,
       name: form.name,

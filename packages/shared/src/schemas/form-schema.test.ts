@@ -682,6 +682,16 @@ describe('appearanceSchema (theme contract)', () => {
     expect(parsed.background.cardBlur).toBe(0);
     expect(parsed.logo).toBeUndefined();
     expect(parsed.cover).toBeUndefined();
+    // Form-level custom CSS is opt-in ⇒ absent by default.
+    expect(parsed.customCss).toBeUndefined();
+  });
+
+  it('accepts optional form-level customCss and bounds it (5000 chars)', () => {
+    const ok = appearanceSchema.parse({ customCss: '.rf-submit { border-radius: 0; }' });
+    expect(ok.customCss).toBe('.rf-submit { border-radius: 0; }');
+    // Stored raw here (server sanitizes on the read path) but length-capped.
+    expect(appearanceSchema.safeParse({ customCss: 'a'.repeat(5000) }).success).toBe(true);
+    expect(appearanceSchema.safeParse({ customCss: 'a'.repeat(5001) }).success).toBe(false);
   });
 
   it('accepts the Tier-1 layout enums and rejects out-of-set values (§1.2/1.5/1.7/1.8)', () => {
@@ -1010,7 +1020,7 @@ describe('appearanceSchema (theme contract)', () => {
   });
 
   it('rejects an unknown top-level key (strict)', () => {
-    expect(appearanceSchema.safeParse({ customCss: 'body{}' }).success).toBe(false);
+    expect(appearanceSchema.safeParse({ bogusKey: 'x' }).success).toBe(false);
   });
 
   it('rejects an unknown font family', () => {

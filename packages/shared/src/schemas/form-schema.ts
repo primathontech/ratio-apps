@@ -42,7 +42,12 @@ export type FormFieldType = (typeof FORM_FIELD_TYPES)[number];
 // helpers) live in ./fields/_shared/base and are re-exported here so the public
 // surface of this module is unchanged. Field-owned constants are likewise
 // re-exported next to the field schemas.
-import { FORM_INPUT_VARIANTS, hexColor, httpsAssetUrl } from './fields/_shared/base';
+import {
+  FORM_INPUT_VARIANTS,
+  hexColor,
+  httpsAssetUrl,
+  MAX_FORM_CSS_LENGTH,
+} from './fields/_shared/base';
 import { fieldSchemaMembers } from './fields/registry';
 
 export {
@@ -54,12 +59,12 @@ export {
   type FormInputVariant,
   formFieldKeySchema,
 } from './fields/_shared/base';
-export { FORM_DIVIDER_VARIANTS, type FormDividerVariant } from './fields/divider/schema';
 export {
   FORM_SELECT_OTHER_DEFAULT_LABEL,
   FORM_SELECT_OTHER_MAX_LENGTH,
   FORM_SELECT_OTHER_SENTINEL,
 } from './fields/_shared/select-constants';
+export { FORM_DIVIDER_VARIANTS, type FormDividerVariant } from './fields/divider/schema';
 export {
   FORM_FILE_ALLOWED_MIME_TYPES,
   FORM_FILE_MAX_BYTES,
@@ -511,6 +516,13 @@ export const appearanceSchema = z
     // defined { showPoweredBy: false }.
     endings: appearanceEndingsSchema.optional(),
     branding: appearanceBrandingSchema,
+    // FORM-LEVEL raw custom CSS — distinct from the PER-FIELD `customCss` on
+    // baseFieldShape. Stored raw + bounded; the server sanitizes it on the embed
+    // read path (see sanitize `sanitizeFormCss`) and, unlike per-field CSS, it is
+    // NOT scoped to a `[data-field]` wrapper — it styles the whole form
+    // (`.rf-card`, `.rf-submit`, …) inside the shadow root, with the css-tree
+    // allow-list as the safety boundary. Absent ⇒ nothing injected ⇒ unchanged.
+    customCss: z.string().max(MAX_FORM_CSS_LENGTH).optional(),
   })
   .strict(); // reject unknown keys — same posture as the field schemas
 

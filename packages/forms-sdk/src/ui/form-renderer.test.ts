@@ -624,6 +624,57 @@ describe('ratio-form theming', () => {
   });
 });
 
+describe('ratio-form form-level custom CSS (appearance.customCss)', () => {
+  it('injects form-level custom CSS into the shadow <style>', async () => {
+    const appearance = appearanceWith({ customCss: '.rf-submit { letter-spacing: 3px; }' });
+    const { el } = await mount({
+      schema: { status: 200, body: { data: kitchenSinkSchema({ appearance }) } },
+    });
+    const style = shadow(el).querySelector('style');
+    expect(style?.textContent).toContain('.rf-submit');
+    expect(style?.textContent).toMatch(/letter-spacing:\s*3px/);
+  });
+
+  it('injects nothing when appearance.customCss is absent', async () => {
+    const { el } = await mount({
+      schema: {
+        status: 200,
+        body: { data: kitchenSinkSchema({ appearance: appearanceWith({}) }) },
+      },
+    });
+    const style = shadow(el).querySelector('style');
+    // A value only our custom rule would introduce must not appear.
+    expect(style?.textContent).not.toMatch(/letter-spacing:\s*3px/);
+  });
+
+  it('emits form-level CSS AFTER per-field CSS so it can override at equal specificity', async () => {
+    const appearance = appearanceWith({ customCss: '/* FORM-LEVEL */ .rf-submit { opacity: 1; }' });
+    const withField: PublicFormSchema = {
+      id: 'form_css',
+      name: 'CSS order',
+      schema: [
+        {
+          key: 'email',
+          type: 'email',
+          label: 'Email',
+          required: false,
+          // Server-sanitized shape: already field-scoped under [data-field].
+          customCss: '/* FIELD-LEVEL */ [data-field="email"] input { color: teal; }',
+        },
+      ] as PublicFormSchema['schema'],
+      submitLabel: 'Go',
+      successMessage: 'Done',
+      spamProtection: 'honeypot',
+      appearance,
+    };
+    const { el } = await mount({ schema: { status: 200, body: { data: withField } } });
+    const text = shadow(el).querySelector('style')?.textContent ?? '';
+    expect(text).toContain('FIELD-LEVEL');
+    expect(text).toContain('FORM-LEVEL');
+    expect(text.indexOf('FORM-LEVEL')).toBeGreaterThan(text.indexOf('FIELD-LEVEL'));
+  });
+});
+
 describe('ratio-form side-by-side field widths', () => {
   /** Two half fields, then a full field, to exercise the wrap pairing. */
   function widthsSchema(): PublicFormSchema {

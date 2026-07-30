@@ -52,6 +52,9 @@ export interface AppearancePatch {
   // is composed whole by the caller); `undefined` clears the whole object, an
   // absent key leaves it — same set/clear posture as logo/cover.
   endings?: FormAppearance['endings'];
+  // Form-level raw custom CSS — set/cleared wholesale (a single string), same
+  // posture as logo/cover: `undefined` clears it, an absent key leaves it.
+  customCss?: FormAppearance['customCss'];
 }
 
 export interface BuilderState {
@@ -387,6 +390,8 @@ export function builderReducer(state: BuilderState, action: BuilderAction): Buil
               ? undefined
               : { ...base.endings, ...patch.endings }
             : base.endings,
+        // Form-level custom CSS is a single string, set/cleared wholesale.
+        customCss: 'customCss' in patch ? patch.customCss : base.customCss,
       };
       return { ...state, meta: { ...state.meta, appearance }, dirty: true };
     }

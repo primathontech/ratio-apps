@@ -450,4 +450,30 @@ describe('DesignSettings', () => {
     expect(dispatch).not.toHaveBeenCalled();
     expect(screen.getByText(/valid JSON/i)).toBeInTheDocument();
   });
+
+  // ── Form-level Custom CSS ──────────────────────────────────────
+  it('dispatches an updateAppearance patch when typing into the form Custom CSS textarea', () => {
+    const dispatch = vi.fn();
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />);
+    fireEvent.click(screen.getByText('Custom CSS'));
+    fireEvent.change(screen.getByLabelText('Form custom CSS'), {
+      target: { value: '.rf-card { border-radius: 12px; }' },
+    });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateAppearance',
+      patch: { customCss: '.rf-card { border-radius: 12px; }' },
+    });
+  });
+
+  it('clears the form Custom CSS to undefined on an empty textarea', () => {
+    const dispatch = vi.fn();
+    const withCss = { ...DEFAULT_APPEARANCE, customCss: '.rf-card { color: red; }' };
+    renderWithProviders(<DesignSettings appearance={withCss} dispatch={dispatch} />);
+    fireEvent.click(screen.getByText('Custom CSS'));
+    fireEvent.change(screen.getByLabelText('Form custom CSS'), { target: { value: '' } });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateAppearance',
+      patch: { customCss: undefined },
+    });
+  });
 });

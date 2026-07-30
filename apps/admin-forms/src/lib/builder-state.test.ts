@@ -401,6 +401,27 @@ describe('appearance', () => {
     expect(state.meta.appearance?.logo).toBeUndefined();
   });
 
+  it('sets and clears form-level customCss without dropping the other tokens', () => {
+    let state = loaded();
+    state = builderReducer(state, {
+      type: 'updateAppearance',
+      patch: { customCss: '.rf-submit { border-radius: 0; }' },
+    });
+    expect(state.meta.appearance?.customCss).toBe('.rf-submit { border-radius: 0; }');
+
+    // A colour edit must not wipe the custom CSS (absent key = leave as-is).
+    state = builderReducer(state, {
+      type: 'updateAppearance',
+      patch: { colors: { primary: '#123456' } },
+    });
+    expect(state.meta.appearance?.customCss).toBe('.rf-submit { border-radius: 0; }');
+    expect(state.meta.appearance?.colors.primary).toBe('#123456');
+
+    // An explicit undefined clears it.
+    state = builderReducer(state, { type: 'updateAppearance', patch: { customCss: undefined } });
+    expect(state.meta.appearance?.customCss).toBeUndefined();
+  });
+
   it('toFormInput includes appearance only when set, and stays schema-valid', () => {
     let state = loaded();
     state = builderReducer(state, { type: 'addField', fieldType: 'text' });
