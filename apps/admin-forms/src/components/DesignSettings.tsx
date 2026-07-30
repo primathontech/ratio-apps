@@ -116,6 +116,15 @@ const OPTIONAL_COLOR_TOKENS: {
   { key: 'placeholder', label: 'Placeholder', fallback: (c) => c.muted },
 ];
 
+/** Required + optional swatches as one list, so they render in a single even
+ * 2-column grid (12 items = 6 full rows) instead of two grids that each leave a
+ * lonely odd-one-out cell. Optional tokens keep their derived fallback. */
+const ALL_COLOR_SWATCHES: {
+  key: keyof FormAppearance['colors'];
+  label: string;
+  fallback?: (c: FormAppearance['colors']) => string;
+}[] = [...COLOR_TOKENS, ...OPTIONAL_COLOR_TOKENS];
+
 /** Content-alignment labels — 'Centered' avoids colliding with the button
  * alignment's 'Center' segment. */
 const CONTENT_ALIGN_LABELS: Record<(typeof FORM_CONTENT_ALIGNS)[number], string> = {
@@ -254,8 +263,22 @@ export function DesignSettings({ appearance, dispatch }: Props) {
 
   return (
     <Card title="Design" className="design-settings">
-      <PresetRow onApply={applyPreset} onReset={resetToDefault} />
-      <PresetTransfer appearance={appearance} onImport={applyImported} />
+      {/* Presets + design transfer live in one enclosing box so the top of the
+          panel reads as a single grouped section, not loose floating rows. */}
+      <div
+        style={{
+          border: '1px solid #d9d9d9',
+          borderRadius: 8,
+          padding: '12px',
+          marginBottom: 16,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
+        }}
+      >
+        <PresetRow onApply={applyPreset} onReset={resetToDefault} />
+        <PresetTransfer appearance={appearance} onImport={applyImported} />
+      </div>
       <Collapse
         accordion
         defaultActiveKey={['colors']}
@@ -266,9 +289,9 @@ export function DesignSettings({ appearance, dispatch }: Props) {
             label: 'Colors',
             children: (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {/* Exactly two swatches per row (e.g. Primary + Form background),
-                    each filling its half — a single column left the panel
-                    half-empty and very tall. */}
+                {/* Required + optional swatches in one even 2-column grid, so no
+                    row is left with a lonely empty cell (labels stay single-line
+                    so paired pickers share a baseline). */}
                 <div
                   style={{
                     display: 'grid',
@@ -276,45 +299,7 @@ export function DesignSettings({ appearance, dispatch }: Props) {
                     gap: 12,
                   }}
                 >
-                  {COLOR_TOKENS.map(({ key, label }) => (
-                    <div
-                      key={key}
-                      style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}
-                    >
-                      <Typography.Text
-                        title={label}
-                        style={{
-                          fontSize: 13,
-                          // Keep every label on one line so the two pickers in a
-                          // row align on the same baseline (a wrapped label would
-                          // push its neighbour's swatch up).
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                        }}
-                      >
-                        {label}
-                      </Typography.Text>
-                      <ColorPicker
-                        aria-label={`${label} color`}
-                        value={colors[key]}
-                        format="hex"
-                        showText
-                        onChangeComplete={(c) => patch({ colors: { [key]: c.toHexString() } })}
-                      />
-                    </div>
-                  ))}
-                </div>
-                {/* Optional semantic colors (Batch 5). Unset ⇒ derived at the
-                    SDK, so the swatch shows the fallback. */}
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-                    gap: 12,
-                  }}
-                >
-                  {OPTIONAL_COLOR_TOKENS.map(({ key, label, fallback }) => (
+                  {ALL_COLOR_SWATCHES.map(({ key, label, fallback }) => (
                     <div
                       key={key}
                       style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}
@@ -332,7 +317,7 @@ export function DesignSettings({ appearance, dispatch }: Props) {
                       </Typography.Text>
                       <ColorPicker
                         aria-label={`${label} color`}
-                        value={colors[key] ?? fallback(colors)}
+                        value={colors[key] ?? fallback?.(colors) ?? colors.primary}
                         format="hex"
                         showText
                         onChangeComplete={(c) => patch({ colors: { [key]: c.toHexString() } })}
@@ -1189,87 +1174,103 @@ function PresetRow({
   onApply: (preset: AppearancePreset) => void;
   onReset: () => void;
 }) {
+  const [open, setOpen] = useState(false);
   return (
-    <Collapse
-      style={{ marginBottom: 16 }}
-      items={[
-        {
-          key: 'presets',
-          label: (
-            <Typography.Text strong style={{ fontSize: 13 }}>
-              Presets
-            </Typography.Text>
-          ),
-          extra: (
-            <Button
-              type="text"
-              size="small"
-              icon={<UndoOutlined />}
-              aria-label="Reset design to default"
-              onClick={(e) => {
-                // Don't toggle the panel when resetting.
-                e.stopPropagation();
-                onReset();
-              }}
-            >
-              Reset to default
-            </Button>
-          ),
-          children: (
-            <>
-              {/* Batch 6: presets are grouped under their category heading, in the
-                  declared category order; empty categories are skipped. */}
-              {PRESET_CATEGORIES.map((category) => {
-                const inCategory = FORM_APPEARANCE_PRESETS.filter((p) => p.category === category);
-                if (inCategory.length === 0) return null;
-                return (
-                  <div key={category} style={{ marginBottom: 10 }}>
-                    <Typography.Text
-                      type="secondary"
-                      style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4 }}
-                    >
-                      {category}
-                    </Typography.Text>
-                    <div
+    <div>
+      {/* Custom header row: the disclosure toggle (chevron + title) and the Reset
+          button sit on one flex row sharing a single centre line, so they always
+          align — antd's Collapse `extra` slot sat the button a touch too high. */}
+      <div
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}
+      >
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: 0,
+            border: 'none',
+            background: 'none',
+            font: 'inherit',
+            cursor: 'pointer',
+          }}
+        >
+          <span
+            aria-hidden
+            style={{ color: '#8c8c8c', fontSize: 10, width: 10, display: 'inline-flex' }}
+          >
+            {open ? '▼' : '▶'}
+          </span>
+          <Typography.Text strong style={{ fontSize: 13 }}>
+            Presets
+          </Typography.Text>
+        </button>
+        <Button
+          type="text"
+          size="small"
+          icon={<UndoOutlined />}
+          aria-label="Reset design to default"
+          onClick={onReset}
+        >
+          Reset to default
+        </Button>
+      </div>
+      {open && (
+        <div style={{ marginTop: 10 }}>
+          {/* Batch 6: presets are grouped under their category heading, in the
+              declared category order; empty categories are skipped. */}
+          {PRESET_CATEGORIES.map((category) => {
+            const inCategory = FORM_APPEARANCE_PRESETS.filter((p) => p.category === category);
+            if (inCategory.length === 0) return null;
+            return (
+              <div key={category} style={{ marginBottom: 10 }}>
+                <Typography.Text
+                  type="secondary"
+                  style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4 }}
+                >
+                  {category}
+                </Typography.Text>
+                <div
+                  style={{
+                    display: 'grid',
+                    // Even columns that fill the panel width (flex-wrap left-packed them).
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))',
+                    gap: 8,
+                    marginTop: 4,
+                  }}
+                >
+                  {inCategory.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      aria-label={`Apply ${preset.name} preset`}
+                      onClick={() => onApply(preset)}
                       style={{
-                        display: 'grid',
-                        // Even columns that fill the panel width (flex-wrap left-packed them).
-                        gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))',
-                        gap: 8,
-                        marginTop: 4,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: 6,
+                        border: '1px solid #e5e5e5',
+                        borderRadius: 8,
+                        background: '#fff',
+                        cursor: 'pointer',
                       }}
                     >
-                      {inCategory.map((preset) => (
-                        <button
-                          key={preset.id}
-                          type="button"
-                          aria-label={`Apply ${preset.name} preset`}
-                          onClick={() => onApply(preset)}
-                          style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            gap: 6,
-                            padding: 6,
-                            border: '1px solid #e5e5e5',
-                            borderRadius: 8,
-                            background: '#fff',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          <PresetThumbnail id={preset.id} appearance={preset.appearance} />
-                          <span style={{ fontSize: 12 }}>{preset.name}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </>
-          ),
-        },
-      ]}
-    />
+                      <PresetThumbnail id={preset.id} appearance={preset.appearance} />
+                      <span style={{ fontSize: 12 }}>{preset.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1319,32 +1320,41 @@ function PresetTransfer({
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Button size="small" onClick={handleExport}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <Typography.Text
+        type="secondary"
+        style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4 }}
+      >
+        Transfer design
+      </Typography.Text>
+      {/* Two equal-width outline buttons that read as a matched pair. Import is
+          left enabled (Orion renders disabled buttons as a heavy muted-blue
+          block); pasting nothing just surfaces the inline error below. */}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <Button size="small" block onClick={handleExport}>
           Export design
         </Button>
-        <Button size="small" onClick={handleImport}>
+        <Button size="small" block onClick={handleImport}>
           Import design
         </Button>
       </div>
       {exported && (
-        <textarea
+        <Input.TextArea
           aria-label="Exported preset JSON"
           data-testid="preset-export-json"
           readOnly
           value={exported}
           rows={4}
-          style={{ width: '100%', fontFamily: 'monospace', fontSize: 11 }}
+          style={{ fontFamily: 'monospace', fontSize: 11 }}
         />
       )}
-      <textarea
+      <Input.TextArea
         aria-label="Import preset JSON"
-        placeholder="Paste a preset JSON here, then click Import design"
+        placeholder="Paste preset JSON to import…"
         value={importText}
-        rows={3}
+        rows={2}
         onChange={(e) => setImportText(e.target.value)}
-        style={{ width: '100%', fontFamily: 'monospace', fontSize: 11 }}
+        style={{ fontFamily: 'monospace', fontSize: 11 }}
       />
       {importError && (
         <Typography.Text type="danger" style={{ fontSize: 12 }}>

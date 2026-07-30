@@ -132,42 +132,61 @@ export function OptionsEditor({
           return (
             // biome-ignore lint/suspicious/noArrayIndexKey: options are editable rows, index is the identity
             <div key={index} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <div style={{ display: 'flex', gap: 4 }}>
-                <Input
-                  aria-label={`Option ${index + 1} label`}
-                  placeholder="Label"
-                  value={option.label}
-                  onChange={(e) => {
-                    const label = e.target.value;
-                    const next = [...field.options];
-                    const current = next[index];
-                    if (current === undefined) return;
-                    const taken = new Set(
-                      field.options.filter((_, i) => i !== index).map((o) => o.value),
-                    );
-                    // Track the label while the value is still auto-managed — empty, or
-                    // still equal to the prior label's slug. Once the merchant hand-edits
-                    // the value it diverges and stops tracking.
-                    const autoManaged =
-                      current.value === '' || current.value === slugifyValue(current.label);
-                    const value = autoManaged ? derivedValue(label, taken) : current.value;
-                    next[index] = { value, label };
-                    setOptions(next);
-                  }}
-                />
-                <Input
-                  aria-label={`Option ${index + 1} value`}
-                  placeholder="Value"
-                  {...(error ? { status: 'error' as const } : {})}
-                  value={option.value}
-                  onChange={(e) => {
-                    const next = [...field.options];
-                    const current = next[index];
-                    if (current === undefined) return;
-                    next[index] = { ...current, value: e.target.value };
-                    setOptions(next);
-                  }}
-                />
+              {/* Label and value each take a full line so both render completely
+                  in the narrow settings panel; the row controls sit on their own
+                  line below rather than stealing input width. */}
+              <Input
+                aria-label={`Option ${index + 1} label`}
+                placeholder="Label"
+                style={{ width: '100%' }}
+                value={option.label}
+                onChange={(e) => {
+                  const label = e.target.value;
+                  const next = [...field.options];
+                  const current = next[index];
+                  if (current === undefined) return;
+                  const taken = new Set(
+                    field.options.filter((_, i) => i !== index).map((o) => o.value),
+                  );
+                  // Track the label while the value is still auto-managed —
+                  // empty, or still mirroring the prior label (as its slug, or
+                  // verbatim, e.g. a value seeded as "Morning" from the label).
+                  // Once the merchant hand-edits the value it diverges and stops.
+                  const autoManaged =
+                    current.value === '' ||
+                    current.value === slugifyValue(current.label) ||
+                    current.value === current.label;
+                  const value = autoManaged ? derivedValue(label, taken) : current.value;
+                  next[index] = { value, label };
+                  setOptions(next);
+                }}
+              />
+              <Input
+                aria-label={`Option ${index + 1} value`}
+                addonBefore="Value"
+                size="small"
+                style={{ width: '100%' }}
+                placeholder="export value"
+                {...(error ? { status: 'error' as const } : {})}
+                value={option.value}
+                onChange={(e) => {
+                  const next = [...field.options];
+                  const current = next[index];
+                  if (current === undefined) return;
+                  next[index] = { ...current, value: e.target.value };
+                  setOptions(next);
+                }}
+              />
+              {/* Row controls (default / reorder / remove) on their own
+                  right-aligned line. */}
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 4,
+                  alignItems: 'center',
+                  justifyContent: 'flex-end',
+                }}
+              >
                 <Button
                   size="small"
                   {...(isDefault(option.value) ? { type: 'primary' as const } : {})}
@@ -181,6 +200,8 @@ export function OptionsEditor({
                 <Button
                   size="small"
                   aria-label={`Move option ${index + 1} up`}
+                  // First row can't move up — disable so the dead control is obvious.
+                  disabled={index === 0}
                   onClick={() => move(index, -1)}
                 >
                   ↑
@@ -188,6 +209,8 @@ export function OptionsEditor({
                 <Button
                   size="small"
                   aria-label={`Move option ${index + 1} down`}
+                  // Last row can't move down.
+                  disabled={index === field.options.length - 1}
                   onClick={() => move(index, 1)}
                 >
                   ↓

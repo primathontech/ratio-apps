@@ -143,7 +143,8 @@ function PaletteItem({
       gap: 6,
       textAlign: 'left' as const,
       padding: '4px 8px',
-      minHeight: 28,
+      // Fixed height so 2-line labels ("Custom HTML") don't grow their cell.
+      height: 38,
       border: '1px solid #e5e5e5',
       borderRadius: 6,
       background: '#fff',
