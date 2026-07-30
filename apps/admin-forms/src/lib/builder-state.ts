@@ -55,6 +55,14 @@ export interface AppearancePatch {
   // Form-level raw custom CSS — set/cleared wholesale (a single string), same
   // posture as logo/cover: `undefined` clears it, an absent key leaves it.
   customCss?: FormAppearance['customCss'];
+  // Dark mode — the color scheme is a single enum, set/cleared wholesale like
+  // customCss: `undefined` (or 'light') restores today's single-palette behavior.
+  colorScheme?: FormAppearance['colorScheme'];
+  // Optional dark-palette overrides (same shape as `colors`, every token
+  // optional). Shallow-merged onto the current dark palette like colors/endings,
+  // so a single-token edit never drops the rest; `undefined` clears the whole
+  // dark palette, an absent key leaves it.
+  colorsDark?: FormAppearance['colorsDark'];
 }
 
 export interface BuilderState {
@@ -392,6 +400,17 @@ export function builderReducer(state: BuilderState, action: BuilderAction): Buil
             : base.endings,
         // Form-level custom CSS is a single string, set/cleared wholesale.
         customCss: 'customCss' in patch ? patch.customCss : base.customCss,
+        // Dark mode — colorScheme is set/cleared wholesale like customCss.
+        colorScheme: 'colorScheme' in patch ? patch.colorScheme : base.colorScheme,
+        // Dark palette merges onto the current object (like colors/endings):
+        // `undefined` clears it, an absent key leaves it, an object shallow-merges
+        // so a single-token edit keeps the previously-set dark tokens.
+        colorsDark:
+          'colorsDark' in patch
+            ? patch.colorsDark === undefined
+              ? undefined
+              : { ...base.colorsDark, ...patch.colorsDark }
+            : base.colorsDark,
       };
       return { ...state, meta: { ...state.meta, appearance }, dirty: true };
     }

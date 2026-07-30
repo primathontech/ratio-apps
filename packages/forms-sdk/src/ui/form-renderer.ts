@@ -38,6 +38,7 @@ import type {
 import {
   baseStyles,
   customGoogleFontHref,
+  darkThemeVars,
   GOOGLE_FONT_HREF,
   sanitizeFontName,
   themeVars,
@@ -1708,6 +1709,11 @@ export class RatioForm extends LitElement {
     this.reflectAttr('data-layout', l?.layoutMode === 'flat' ? 'flat' : null);
     // §2.1 — form-wide column count; '1' (today) reflects nothing.
     this.reflectAttr('data-cols', l?.columns && l.columns !== '1' ? l.columns : null);
+    // Dark theme — reflect the opted-in scheme ('dark'/'auto') so the dark
+    // override blocks apply. 'light' (or unset) is today's behavior and reflects
+    // nothing. colorScheme lives on the appearance root, not layout.
+    const scheme = this.appearance?.colorScheme;
+    this.reflectAttr('data-scheme', scheme === 'dark' || scheme === 'auto' ? scheme : null);
     // §2.6 — frosted card only over an image backdrop with a blur radius.
     this.reflectAttr('data-card-blur', this.cardBlurActive ? 'on' : null);
     // Status screens shrink the card; the form (ready/submitting) keeps full width.
@@ -1782,6 +1788,7 @@ export class RatioForm extends LitElement {
     // is required: a binding directly after a raw-text `</style>` is mis-parsed.
     return html`<style>
         ${unsafeCSS(themeVars(this.appearance))}
+        ${unsafeCSS(this.darkThemeCss())}
         ${unsafeCSS(this.customFieldCss())}
         ${unsafeCSS(this.formCustomCss())}
       </style>
@@ -1828,6 +1835,28 @@ export class RatioForm extends LitElement {
    */
   private formCustomCss(): string {
     return this.appearance?.customCss ?? '';
+  }
+
+  /**
+   * Dark-theme override CSS. Emitted into the same theme <style> block, AFTER
+   * the light `:host` tokens so it layers on top when active. Two blocks share
+   * the same dark color vars: `:host([data-scheme='dark'])` applies whenever the
+   * merchant forced dark, and the `@media (prefers-color-scheme: dark)` /
+   * `:host([data-scheme='auto'])` pair applies only under the OS dark
+   * preference. Each is keyed to the reflected `data-scheme` value, so only the
+   * active scheme's block ever matches. Light (or unset) reflects no
+   * `data-scheme` and emits neither block, so an un-themed form is byte-identical
+   * to today. Only COLOR tokens are re-declared; every non-color token stays
+   * inherited from the light `:host`.
+   */
+  private darkThemeCss(): string {
+    const scheme = this.appearance?.colorScheme;
+    if (scheme !== 'dark' && scheme !== 'auto') return '';
+    const vars = darkThemeVars(this.appearance);
+    return (
+      `:host([data-scheme='dark']){ ${vars} } ` +
+      `@media (prefers-color-scheme: dark){ :host([data-scheme='auto']){ ${vars} } }`
+    );
   }
 
   /**

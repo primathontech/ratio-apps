@@ -20,6 +20,7 @@ import {
   FORM_BUTTON_SHAPES,
   FORM_BUTTON_SIZES,
   FORM_BUTTON_VARIANTS,
+  FORM_COLOR_SCHEMES,
   FORM_COLUMN_MODES,
   FORM_CONTENT_ALIGNS,
   FORM_DENSITIES,
@@ -222,6 +223,8 @@ interface Props {
 export function DesignSettings({ appearance, dispatch }: Props) {
   const patch = (p: AppearancePatch) => dispatch({ type: 'updateAppearance', patch: p });
   const { colors, typography, layout, background } = appearance;
+  // Undefined = today's single-palette behavior; treat it as 'light'.
+  const colorScheme = appearance.colorScheme ?? 'light';
 
   // A preset swaps colors/typography/layout/background wholesale; logo/cover and
   // the Batch 6 branding/endings are content, so they survive (catalog note).
@@ -293,42 +296,36 @@ export function DesignSettings({ appearance, dispatch }: Props) {
             label: 'Colors',
             children: (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {/* Light/Dark/Auto. 'light' (or unset) = today's single palette;
+                    dark/auto reveal the separate dark-palette overrides below. */}
+                <Row label="Color scheme">
+                  <Segmented
+                    aria-label="Color scheme"
+                    value={colorScheme}
+                    onChange={(value) =>
+                      patch({ colorScheme: value as FormAppearance['colorScheme'] })
+                    }
+                    options={FORM_COLOR_SCHEMES.map((s) => ({ value: s, label: titleCase(s) }))}
+                  />
+                </Row>
                 {/* Required + optional swatches in one even 2-column grid, so no
                     row is left with a lonely empty cell (labels stay single-line
                     so paired pickers share a baseline). */}
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-                    gap: 12,
-                  }}
-                >
-                  {ALL_COLOR_SWATCHES.map(({ key, label, fallback }) => (
-                    <div
-                      key={key}
-                      style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}
-                    >
-                      <Typography.Text
-                        title={label}
-                        style={{
-                          fontSize: 13,
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                        }}
-                      >
-                        {label}
-                      </Typography.Text>
-                      <ColorPicker
-                        aria-label={`${label} color`}
-                        value={colors[key] ?? fallback?.(colors) ?? colors.primary}
-                        format="hex"
-                        showText
-                        onChangeComplete={(c) => patch({ colors: { [key]: c.toHexString() } })}
-                      />
-                    </div>
-                  ))}
-                </div>
+                <ColorSwatchGrid appearance={appearance} mode="light" patch={patch} />
+                {/* Dark-palette overrides — only when the scheme isn't 'light'.
+                    Every token is optional and falls back to its light value, so a
+                    merchant can re-tint just a few. */}
+                {colorScheme !== 'light' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <Typography.Text strong style={{ fontSize: 13 }}>
+                      Dark palette
+                    </Typography.Text>
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      Overrides for dark mode. Untouched tokens reuse the light colour.
+                    </Typography.Text>
+                    <ColorSwatchGrid appearance={appearance} mode="dark" patch={patch} />
+                  </div>
+                )}
                 <ContrastReport appearance={appearance} patch={patch} />
               </div>
             ),
@@ -1589,6 +1586,69 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <Typography.Text style={{ fontSize: 13 }}>{label}</Typography.Text>
       <div style={{ width: '100%' }}>{children}</div>
+    </div>
+  );
+}
+
+/**
+ * The even 2-column grid of colour pickers, shared by the light palette and the
+ * dark-palette overrides. In 'dark' mode each swatch reads from
+ * `appearance.colorsDark` (falling back to the light colour so the swatch is
+ * never empty) and patches `{ colorsDark: { [key]: hex } }`; in 'light' mode it
+ * edits `colors` directly. Both iterate the same ALL_COLOR_SWATCHES list.
+ */
+function ColorSwatchGrid({
+  appearance,
+  mode,
+  patch,
+}: {
+  appearance: FormAppearance;
+  mode: 'light' | 'dark';
+  patch: (p: AppearancePatch) => void;
+}) {
+  const { colors } = appearance;
+  const isDark = mode === 'dark';
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+        gap: 12,
+      }}
+    >
+      {ALL_COLOR_SWATCHES.map(({ key, label, fallback }) => {
+        const lightValue = colors[key] ?? fallback?.(colors) ?? colors.primary;
+        // Dark tokens are optional; an unset one shows the light colour it inherits.
+        const value = isDark ? (appearance.colorsDark?.[key] ?? lightValue) : lightValue;
+        return (
+          <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
+            <Typography.Text
+              title={label}
+              style={{
+                fontSize: 13,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {label}
+            </Typography.Text>
+            <ColorPicker
+              aria-label={isDark ? `${label} dark color` : `${label} color`}
+              value={value}
+              format="hex"
+              showText
+              onChangeComplete={(c) =>
+                patch(
+                  isDark
+                    ? { colorsDark: { [key]: c.toHexString() } }
+                    : { colors: { [key]: c.toHexString() } },
+                )
+              }
+            />
+          </div>
+        );
+      })}
     </div>
   );
 }

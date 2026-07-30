@@ -4,6 +4,7 @@ import { appearanceSchema, FORM_FONT_FAMILIES, type FormAppearance } from '@rati
 import { describe, expect, it } from 'vitest';
 import {
   customGoogleFontHref,
+  darkThemeVars,
   GOOGLE_FONT_HREF,
   safeCssUrl,
   sanitizeFontName,
@@ -377,6 +378,121 @@ describe('themeVars page background (§1.1)', () => {
       }),
     );
     expect(css).toContain('--wz-page-scrim: linear-gradient(rgba(0,0,0,0.6),rgba(0,0,0,0.6))');
+  });
+});
+
+describe('darkThemeVars (dark scheme color overrides)', () => {
+  it('returns only color declarations, with no :host wrapper (the renderer wraps them)', () => {
+    const css = darkThemeVars(appearance());
+    expect(css).not.toContain(':host');
+    expect(css).not.toContain('{');
+    expect(css.trim().startsWith('--wz-primary:')).toBe(true);
+  });
+
+  it('falls back to the LIGHT token value for every unset dark token', () => {
+    // colorsDark absent entirely ⇒ every dark token mirrors the light color.
+    const css = darkThemeVars(
+      appearance({
+        colors: {
+          primary: '#123456',
+          background: '#0b0b0b',
+          surface: '#151515',
+          text: '#eeeeee',
+          muted: '#999999',
+          border: '#333333',
+          error: '#ff8800',
+          buttonText: '#ffffff',
+        },
+      }),
+    );
+    expect(css).toContain('--wz-primary: #123456');
+    expect(css).toContain('--wz-bg: #0b0b0b');
+    expect(css).toContain('--wz-surface: #151515');
+    expect(css).toContain('--wz-fg: #eeeeee');
+    expect(css).toContain('--wz-muted: #999999');
+    expect(css).toContain('--wz-border: #333333');
+    expect(css).toContain('--wz-error: #ff8800');
+    expect(css).toContain('--wz-btn-text: #ffffff');
+    // Derived tokens track the (light-sourced) values via the same formulas.
+    expect(css).toContain('--wz-primary-hover: color-mix(in srgb, #123456 85%, #000)');
+    expect(css).toContain('--wz-focus: #123456');
+  });
+
+  it('reproduces today’s baked defaults when no colors are set at all', () => {
+    const css = darkThemeVars(undefined);
+    expect(css).toContain('--wz-primary: #0fb3a9');
+    expect(css).toContain('--wz-bg: #fff');
+    expect(css).toContain('--wz-surface: #fff');
+    expect(css).toContain('--wz-fg: #1a1a1a');
+    expect(css).toContain('--wz-muted: #6b7280');
+    expect(css).toContain('--wz-border: #e5e7eb');
+    expect(css).toContain('--wz-error: #c0392b');
+    expect(css).toContain('--wz-btn-text: #fff');
+  });
+
+  it('lets explicit colorsDark tokens win over the light values', () => {
+    const css = darkThemeVars(
+      appearance({
+        colors: { primary: '#0fb3a9', background: '#ffffff', text: '#1a1a1a' },
+        colorsDark: { background: '#0b0b0b', text: '#f5f5f5', primary: '#7dd3fc' },
+      }),
+    );
+    expect(css).toContain('--wz-bg: #0b0b0b');
+    expect(css).toContain('--wz-fg: #f5f5f5');
+    expect(css).toContain('--wz-primary: #7dd3fc');
+    // primary-derived tokens follow the dark primary.
+    expect(css).toContain('--wz-primary-hover: color-mix(in srgb, #7dd3fc 85%, #000)');
+    expect(css).toContain('--wz-focus: #7dd3fc');
+  });
+
+  it('mixes per-token: an overridden token uses the dark value, an absent one the light value', () => {
+    // Only background is overridden for dark; surface/text stay on the light color.
+    const css = darkThemeVars(
+      appearance({
+        colors: { background: '#ffffff', surface: '#fafafa', text: '#111111' },
+        colorsDark: { background: '#101010' },
+      }),
+    );
+    expect(css).toContain('--wz-bg: #101010'); // dark override wins
+    expect(css).toContain('--wz-surface: #fafafa'); // falls back to light
+    expect(css).toContain('--wz-fg: #111111'); // falls back to light
+  });
+
+  it('keeps semantic colors deriving from primary/muted unless overridden for dark', () => {
+    const base = darkThemeVars(appearance({ colors: { primary: '#123456', muted: '#999999' } }));
+    // success/link default to primary, placeholder to muted (same as light).
+    expect(base).toContain('--wz-success: #123456');
+    expect(base).toContain('--wz-link: #123456');
+    expect(base).toContain('--wz-placeholder: #999999');
+    // An explicit dark override for a semantic token wins.
+    const over = darkThemeVars(
+      appearance({ colors: { primary: '#123456' }, colorsDark: { link: '#7dd3fc' } }),
+    );
+    expect(over).toContain('--wz-link: #7dd3fc');
+  });
+
+  it('recolors only the solid page gutter, mirroring the light §2 rule on the dark colors', () => {
+    // A distinct dark pageBackground (≠ dark card bg) paints; otherwise transparent.
+    const painted = darkThemeVars(
+      appearance({ colorsDark: { background: '#0b0b0b', pageBackground: '#050505' } }),
+    );
+    expect(painted).toContain('--wz-page-bg: #050505');
+    // Equal to the dark card bg ⇒ transparent (nothing distinct chosen).
+    const flat = darkThemeVars(
+      appearance({ colorsDark: { background: '#0b0b0b', pageBackground: '#0b0b0b' } }),
+    );
+    expect(flat).toContain('--wz-page-bg: transparent');
+  });
+
+  it('only re-declares COLOR tokens — no non-color tokens leak in', () => {
+    const css = darkThemeVars(appearance({ layout: { radius: 4, density: 'spacious' } }));
+    // Spacing/radius/motion/size tokens must stay inherited from the light block.
+    expect(css).not.toContain('--wz-radius');
+    expect(css).not.toContain('--wz-gap');
+    expect(css).not.toContain('--wz-card-pad');
+    expect(css).not.toContain('--wz-dur');
+    expect(css).not.toContain('--wz-input-min-h');
+    expect(css).not.toContain('--wz-font');
   });
 });
 

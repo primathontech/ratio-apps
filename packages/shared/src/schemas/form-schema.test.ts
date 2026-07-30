@@ -684,6 +684,9 @@ describe('appearanceSchema (theme contract)', () => {
     expect(parsed.cover).toBeUndefined();
     // Form-level custom CSS is opt-in ⇒ absent by default.
     expect(parsed.customCss).toBeUndefined();
+    // Dark theme is opt-in ⇒ both absent by default (today's light behavior).
+    expect(parsed.colorScheme).toBeUndefined();
+    expect(parsed.colorsDark).toBeUndefined();
   });
 
   it('accepts optional form-level customCss and bounds it (5000 chars)', () => {
@@ -770,6 +773,48 @@ describe('appearanceSchema (theme contract)', () => {
     expect(appearanceSchema.safeParse({ background: { scrim: 0.81 } }).success).toBe(false);
     expect(appearanceSchema.safeParse({ background: { imageFit: 'stretch' } }).success).toBe(false);
     expect(appearanceSchema.safeParse({ background: { type: 'video' } }).success).toBe(false);
+  });
+
+  it('accepts the dark-theme colorScheme enum and rejects out-of-set values', () => {
+    expect(appearanceSchema.parse({ colorScheme: 'dark' }).colorScheme).toBe('dark');
+    expect(appearanceSchema.parse({ colorScheme: 'auto' }).colorScheme).toBe('auto');
+    expect(appearanceSchema.parse({ colorScheme: 'light' }).colorScheme).toBe('light');
+    // No implicit default — an omitted scheme stays undefined (back-compat).
+    expect(appearanceSchema.parse({}).colorScheme).toBeUndefined();
+    expect(appearanceSchema.safeParse({ colorScheme: 'sepia' }).success).toBe(false);
+  });
+
+  it('accepts colorsDark as a partial of the colors shape, with no defaults filled in', () => {
+    // A single overridden token is valid; the rest stay ABSENT (fall back to
+    // the light values at the SDK), so no default is materialized here.
+    const parsed = appearanceSchema.parse({
+      colorScheme: 'dark',
+      colorsDark: { background: '#0b0b0b', text: '#f5f5f5' },
+    });
+    expect(parsed.colorsDark).toEqual({ background: '#0b0b0b', text: '#f5f5f5' });
+    // Every colors token is accepted, including the optional semantic ones.
+    const full = appearanceSchema.parse({
+      colorsDark: {
+        primary: '#7dd3fc',
+        background: '#0b0b0b',
+        pageBackground: '#050505',
+        surface: '#151515',
+        text: '#f5f5f5',
+        muted: '#a3a3a3',
+        border: '#333333',
+        error: '#ff8888',
+        buttonText: '#0b0b0b',
+        success: '#22c55e',
+        link: '#7dd3fc',
+        placeholder: '#777777',
+      },
+    });
+    expect(full.colorsDark?.primary).toBe('#7dd3fc');
+    expect(full.colorsDark?.success).toBe('#22c55e');
+    // An empty object is a valid (no-op) partial — every token stays undefined.
+    expect(appearanceSchema.parse({ colorsDark: {} }).colorsDark).toEqual({});
+    // Non-hex values are rejected, same as the light colors sub-schema.
+    expect(appearanceSchema.safeParse({ colorsDark: { background: 'black' } }).success).toBe(false);
   });
 
   it('accepts the §2.1 column modes and rejects out-of-set values', () => {

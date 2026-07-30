@@ -445,6 +445,73 @@ export function themeVars(appearance?: FormsThemeInput): string {
 }
 
 /**
+ * Emit the dark-scheme COLOR custom-property overrides for an appearance.
+ * Returns ONLY the `--wz-*: value;` declarations — no `:host` wrapper — so the
+ * renderer can wrap them in the dark scheme selectors
+ * (`:host([data-scheme='dark'])` plus the `prefers-color-scheme: dark` /
+ * `data-scheme='auto'` block). Every token derives from `colorsDark`, falling
+ * back per-token to the matching LIGHT value (`colorsDark[t] ?? colors[t] ??`
+ * today's default), so an un-overridden token is identical to the light theme
+ * and a merchant can recolor just a few. Only COLOR tokens are re-declared;
+ * non-color tokens (radius, spacing, motion, sizes, …) stay inherited from the
+ * light `:host` block. Mirrors {@link themeVars}' color derivations exactly so
+ * primary-hover / subtle / success recompute the same way on the dark values.
+ */
+export function darkThemeVars(appearance?: FormsThemeInput): string {
+  const c = appearance?.colors;
+  const d = appearance?.colorsDark;
+
+  // Per token: an explicit dark override wins, else the effective LIGHT value
+  // (which itself falls back to today's baked default) — so an un-overridden
+  // token renders identically to the light theme.
+  const primary = d?.primary ?? c?.primary ?? '#0fb3a9';
+  const bg = d?.background ?? c?.background ?? '#fff';
+  const surface = d?.surface ?? c?.surface ?? '#fff';
+  const fg = d?.text ?? c?.text ?? '#1a1a1a';
+  const muted = d?.muted ?? c?.muted ?? '#6b7280';
+  const border = d?.border ?? c?.border ?? '#e5e7eb';
+  const error = d?.error ?? c?.error ?? '#c0392b';
+  const buttonText = d?.buttonText ?? c?.buttonText ?? '#fff';
+  // Semantic colors keep the light derivations (success/link → primary,
+  // placeholder → muted) unless the dark override supplies them.
+  const success = d?.success ?? c?.success ?? primary;
+  const link = d?.link ?? c?.link ?? primary;
+  const placeholder = d?.placeholder ?? c?.placeholder ?? muted;
+
+  // Page color AROUND the card — mirror the light §2 rule (transparent unless a
+  // distinct solid page color is chosen) on the dark bg/pageBackground. The
+  // background TYPE is shared with light (gradient/image paint via their own
+  // layers), so this only recolors the solid gutter.
+  const bgType = appearance?.background?.type ?? 'solid';
+  const pageBackground = d?.pageBackground ?? c?.pageBackground;
+  const pageBg =
+    bgType === 'solid' && pageBackground && pageBackground !== bg ? pageBackground : 'transparent';
+
+  return (
+    `--wz-primary: ${primary}; ` +
+    `--wz-primary-hover: color-mix(in srgb, ${primary} 85%, #000); ` +
+    `--wz-bg: ${bg}; ` +
+    `--wz-page-bg: ${pageBg}; ` +
+    `--wz-surface: ${surface}; ` +
+    // Derived tokens reference the redeclared color vars, so they recompute
+    // against the dark surface/fg automatically (same formulas as themeVars).
+    `--wz-subtle: color-mix(in srgb, var(--wz-surface) 92%, var(--wz-fg)); ` +
+    `--wz-fg: ${fg}; ` +
+    `--wz-muted: ${muted}; ` +
+    `--wz-border: ${border}; ` +
+    `--wz-error: ${error}; ` +
+    `--wz-btn-text: ${buttonText}; ` +
+    `--wz-success: ${success}; ` +
+    `--wz-success-bg: color-mix(in srgb, ${success} 8%, var(--wz-bg)); ` +
+    `--wz-success-border: color-mix(in srgb, ${success} 28%, transparent); ` +
+    `--wz-success-on: var(--wz-fg); ` +
+    `--wz-link: ${link}; ` +
+    `--wz-placeholder: ${placeholder}; ` +
+    `--wz-focus: ${primary}; `
+  );
+}
+
+/**
  * Shared resets + token-driven helpers imported by every Forms UI component.
  * Kept lean: box model, system font stack, button/anchor resets, and a couple
  * of layout helpers (`.wz-card`, `.wz-grid`). The `:host` also carries the

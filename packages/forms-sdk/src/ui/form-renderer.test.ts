@@ -624,6 +624,91 @@ describe('ratio-form theming', () => {
   });
 });
 
+describe('ratio-form dark theme (colorScheme + colorsDark)', () => {
+  const darkAppearance = (scheme: 'light' | 'dark' | 'auto'): FormAppearance =>
+    appearanceSchema.parse({
+      colorScheme: scheme,
+      colors: { background: '#ffffff', text: '#1a1a1a' },
+      colorsDark: { background: '#0b0b0b', text: '#f5f5f5' },
+    });
+
+  it('reflects colorScheme:dark onto the host as data-scheme', async () => {
+    const { el } = await mount({
+      schema: {
+        status: 200,
+        body: { data: kitchenSinkSchema({ appearance: darkAppearance('dark') }) },
+      },
+    });
+    expect(el.getAttribute('data-scheme')).toBe('dark');
+  });
+
+  it('reflects colorScheme:auto onto the host as data-scheme', async () => {
+    const { el } = await mount({
+      schema: {
+        status: 200,
+        body: { data: kitchenSinkSchema({ appearance: darkAppearance('auto') }) },
+      },
+    });
+    expect(el.getAttribute('data-scheme')).toBe('auto');
+  });
+
+  it('reflects nothing for colorScheme:light (today’s behavior)', async () => {
+    const { el } = await mount({
+      schema: {
+        status: 200,
+        body: { data: kitchenSinkSchema({ appearance: darkAppearance('light') }) },
+      },
+    });
+    expect(el.hasAttribute('data-scheme')).toBe(false);
+  });
+
+  it('reflects nothing when colorScheme is unset', async () => {
+    const { el } = await mount({
+      schema: {
+        status: 200,
+        body: { data: kitchenSinkSchema({ appearance: appearanceWith() }) },
+      },
+    });
+    expect(el.hasAttribute('data-scheme')).toBe(false);
+  });
+
+  it('emits the dark :host block AND the prefers-color-scheme auto block when scheme is set', async () => {
+    const { el } = await mount({
+      schema: {
+        status: 200,
+        body: { data: kitchenSinkSchema({ appearance: darkAppearance('dark') }) },
+      },
+    });
+    const style = shadow(el).querySelector('style')?.textContent ?? '';
+    // The forced-dark block, carrying the dark color overrides.
+    expect(style).toContain(":host([data-scheme='dark'])");
+    expect(style).toContain('--wz-bg: #0b0b0b');
+    expect(style).toContain('--wz-fg: #f5f5f5');
+    // The OS-driven auto block wraps the SAME vars under prefers-color-scheme.
+    expect(style).toContain('@media (prefers-color-scheme: dark)');
+    expect(style).toContain(":host([data-scheme='auto'])");
+  });
+
+  it('emits neither dark block for light/unset, and the light tokens are unchanged', async () => {
+    const light = await mount({
+      schema: {
+        status: 200,
+        body: { data: kitchenSinkSchema({ appearance: darkAppearance('light') }) },
+      },
+    });
+    const lightStyle = shadow(light.el).querySelector('style')?.textContent ?? '';
+    expect(lightStyle).not.toContain('data-scheme');
+    expect(lightStyle).not.toContain('prefers-color-scheme');
+    // The light :host tokens still render today's values.
+    expect(lightStyle).toContain('--wz-bg: #ffffff');
+
+    const unset = await mount();
+    const unsetStyle = shadow(unset.el).querySelector('style')?.textContent ?? '';
+    expect(unsetStyle).not.toContain('data-scheme');
+    expect(unsetStyle).not.toContain('prefers-color-scheme');
+  });
+});
+
 describe('ratio-form form-level custom CSS (appearance.customCss)', () => {
   it('injects form-level custom CSS into the shadow <style>', async () => {
     const appearance = appearanceWith({ customCss: '.rf-submit { letter-spacing: 3px; }' });

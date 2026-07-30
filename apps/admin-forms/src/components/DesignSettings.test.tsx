@@ -351,7 +351,9 @@ describe('DesignSettings', () => {
     expect(screen.getByText('Classic')).toBeInTheDocument();
     expect(screen.getByText('Cool')).toBeInTheDocument();
     expect(screen.getByText('Bold')).toBeInTheDocument();
-    expect(screen.getByText('Dark')).toBeInTheDocument();
+    // 'Dark' also labels the always-visible Color-scheme segment, so match at
+    // least one occurrence rather than a unique node.
+    expect(screen.getAllByText('Dark').length).toBeGreaterThan(0);
   });
 
   it('reveals logo size/align/alt controls only once a logo URL is set (Batch 6)', () => {
@@ -474,6 +476,53 @@ describe('DesignSettings', () => {
     expect(dispatch).toHaveBeenCalledWith({
       type: 'updateAppearance',
       patch: { customCss: undefined },
+    });
+  });
+
+  // ── Dark mode (colorScheme + dark palette) ─────────────────────
+  it('dispatches a colorScheme change from the Color-scheme segmented control', () => {
+    const dispatch = vi.fn();
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />);
+    // Scope to the Color-scheme row so 'Dark' (also a preset category) is unambiguous.
+    const schemeRow = screen.getByText('Color scheme').closest('div') as HTMLElement;
+    const dark = within(schemeRow).getByText('Dark');
+    fireEvent.click(dark.closest('label') ?? dark);
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateAppearance',
+      patch: { colorScheme: 'dark' },
+    });
+  });
+
+  it('hides the Dark palette while the scheme is light (default)', () => {
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={vi.fn()} />);
+    expect(screen.queryByText('Dark palette')).not.toBeInTheDocument();
+    // No dark-token pickers when the scheme is light.
+    expect(screen.queryByLabelText('Primary dark color')).not.toBeInTheDocument();
+  });
+
+  it('reveals the Dark palette pickers once the scheme is not light', () => {
+    const appearance = { ...DEFAULT_APPEARANCE, colorScheme: 'dark' as const };
+    renderWithProviders(<DesignSettings appearance={appearance} dispatch={vi.fn()} />);
+    expect(screen.getByText('Dark palette')).toBeInTheDocument();
+    expect(screen.getByLabelText('Primary dark color')).toBeInTheDocument();
+    expect(screen.getByLabelText('Button text dark color')).toBeInTheDocument();
+  });
+
+  it('dispatches a colorsDark override from a dark-palette picker', () => {
+    const dispatch = vi.fn();
+    const appearance = { ...DEFAULT_APPEARANCE, colorScheme: 'dark' as const };
+    renderWithProviders(<DesignSettings appearance={appearance} dispatch={dispatch} />);
+    // Open the token's picker popover, then type a valid hex into the panel's
+    // hex field — antd fires onChangeComplete on a committed (non-drag) change.
+    fireEvent.click(screen.getByLabelText('Form background dark color'));
+    const hexInput = document.querySelector(
+      '.ant-color-picker-hex-input input',
+    ) as HTMLInputElement | null;
+    if (!hexInput) throw new Error('hex input not found in the opened color-picker panel');
+    fireEvent.change(hexInput, { target: { value: '111111' } });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateAppearance',
+      patch: { colorsDark: { background: '#111111' } },
     });
   });
 });

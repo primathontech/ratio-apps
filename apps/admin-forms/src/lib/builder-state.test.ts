@@ -422,6 +422,62 @@ describe('appearance', () => {
     expect(state.meta.appearance?.customCss).toBeUndefined();
   });
 
+  it('sets and clears the colorScheme without dropping the other tokens', () => {
+    let state = loaded();
+    state = builderReducer(state, {
+      type: 'updateAppearance',
+      patch: { colorScheme: 'dark' },
+    });
+    expect(state.meta.appearance?.colorScheme).toBe('dark');
+
+    // A colour edit must not reset the scheme (absent key = leave as-is).
+    state = builderReducer(state, {
+      type: 'updateAppearance',
+      patch: { colors: { primary: '#123456' } },
+    });
+    expect(state.meta.appearance?.colorScheme).toBe('dark');
+    expect(state.meta.appearance?.colors.primary).toBe('#123456');
+
+    // An explicit undefined restores the light (single-palette) default.
+    state = builderReducer(state, { type: 'updateAppearance', patch: { colorScheme: undefined } });
+    expect(state.meta.appearance?.colorScheme).toBeUndefined();
+  });
+
+  it('shallow-merges colorsDark token-by-token and clears the whole palette on undefined', () => {
+    let state = loaded();
+    state = builderReducer(state, { type: 'addField', fieldType: 'text' });
+    state = builderReducer(state, {
+      type: 'updateAppearance',
+      patch: { colorsDark: { background: '#111111' } },
+    });
+    expect(state.meta.appearance?.colorsDark?.background).toBe('#111111');
+
+    // A second dark-token edit must not clobber the first.
+    state = builderReducer(state, {
+      type: 'updateAppearance',
+      patch: { colorsDark: { text: '#eeeeee' } },
+    });
+    expect(state.meta.appearance?.colorsDark?.background).toBe('#111111');
+    expect(state.meta.appearance?.colorsDark?.text).toBe('#eeeeee');
+    // Untouched dark tokens stay absent (they track the light value at the SDK).
+    expect(state.meta.appearance?.colorsDark?.primary).toBeUndefined();
+
+    // A light-colour edit must not wipe the dark palette (absent key = leave).
+    state = builderReducer(state, {
+      type: 'updateAppearance',
+      patch: { colors: { primary: '#123456' } },
+    });
+    expect(state.meta.appearance?.colorsDark?.background).toBe('#111111');
+
+    // The payload round-trips through the schema with both palettes set.
+    state = builderReducer(state, { type: 'updateAppearance', patch: { colorScheme: 'dark' } });
+    expect(formInputSchema.safeParse(toFormInput(state)).success).toBe(true);
+
+    // An explicit undefined clears the whole dark palette.
+    state = builderReducer(state, { type: 'updateAppearance', patch: { colorsDark: undefined } });
+    expect(state.meta.appearance?.colorsDark).toBeUndefined();
+  });
+
   it('toFormInput includes appearance only when set, and stays schema-valid', () => {
     let state = loaded();
     state = builderReducer(state, { type: 'addField', fieldType: 'text' });

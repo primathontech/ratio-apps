@@ -317,6 +317,15 @@ export type FormLogoSize = (typeof FORM_LOGO_SIZES)[number];
 export const FORM_LOGO_ALIGNS = ['left', 'center', 'right'] as const;
 export type FormLogoAlign = (typeof FORM_LOGO_ALIGNS)[number];
 
+// ── Dark theme (color scheme) ──────────────────────────────────
+// Opt-in color scheme. 'light' (the default when unset) = today's behavior,
+// fully back-compat. 'dark' always applies the colorsDark override; 'auto'
+// applies it only under the OS `prefers-color-scheme: dark`. The renderer
+// reflects the active scheme onto the host as `data-scheme` so the dark
+// override CSS blocks apply (mirrors the data-layout/data-align reflection).
+export const FORM_COLOR_SCHEMES = ['light', 'dark', 'auto'] as const;
+export type FormColorScheme = (typeof FORM_COLOR_SCHEMES)[number];
+
 const appearanceColorsSchema = z
   .object({
     primary: hexColor.default('#0fb3a9'), // submit bg  (today's --wz-primary)
@@ -336,6 +345,26 @@ const appearanceColorsSchema = z
     placeholder: hexColor.optional(),
   })
   .prefault({}); // parse the empty default so each sub-token default applies
+
+// Dark-scheme color overrides — the SAME token shape as appearanceColorsSchema,
+// but every token is OPTIONAL with NO default. An absent token falls back to
+// its LIGHT value at the SDK (colorsDark[t] ?? colors[t]), so a merchant can
+// override just a few and the rest track the light theme. NOT prefaulted:
+// absent ⇒ the whole group is undefined ⇒ dark reuses every light token.
+const appearanceColorsDarkSchema = z.object({
+  primary: hexColor.optional(),
+  background: hexColor.optional(),
+  pageBackground: hexColor.optional(),
+  surface: hexColor.optional(),
+  text: hexColor.optional(),
+  muted: hexColor.optional(),
+  border: hexColor.optional(),
+  error: hexColor.optional(),
+  buttonText: hexColor.optional(),
+  success: hexColor.optional(),
+  link: hexColor.optional(),
+  placeholder: hexColor.optional(),
+});
 
 const appearanceTypographySchema = z
   .object({
@@ -506,6 +535,11 @@ const appearanceBackgroundSchema = z
 export const appearanceSchema = z
   .object({
     colors: appearanceColorsSchema,
+    // Dark theme — opt-in scheme + its partial color overrides. Both optional
+    // and default-free: an absent `colorScheme` (or 'light') is today's exact
+    // behavior, and `colorsDark` tokens fall back to the light values at the SDK.
+    colorScheme: z.enum(FORM_COLOR_SCHEMES).optional(),
+    colorsDark: appearanceColorsDarkSchema.optional(),
     typography: appearanceTypographySchema,
     layout: appearanceLayoutSchema,
     background: appearanceBackgroundSchema,
