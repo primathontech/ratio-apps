@@ -266,6 +266,27 @@ describe('themeVars', () => {
     expect(themeVars(appearance())).toContain('--wz-dur: 0s');
     expect(themeVars(appearance({ layout: { animations: true } }))).toContain('--wz-dur: 0.12s');
   });
+
+  it('emits the motion role tokens (fast < normal < slow); normal mirrors --wz-dur (§1.8)', () => {
+    // Off by default = today: every role duration is 0s, like --wz-dur.
+    const off = themeVars(appearance());
+    expect(off).toContain('--wz-dur-fast: 0s');
+    expect(off).toContain('--wz-dur-normal: 0s');
+    expect(off).toContain('--wz-dur-slow: 0s');
+    // Animations on, default speed: normal reproduces --wz-dur (0.12s), fast is
+    // half and slow is double, so fast < normal < slow.
+    const on = themeVars(appearance({ layout: { animations: true } }));
+    expect(on).toContain('--wz-dur-fast: 0.06s');
+    expect(on).toContain('--wz-dur-normal: 0.12s');
+    expect(on).toContain('--wz-dur-slow: 0.24s');
+    // The chosen motionSpeed scales the whole set: 'fast' halves every role,
+    // and --wz-dur-normal still tracks --wz-dur.
+    const fast = themeVars(appearance({ layout: { animations: true, motionSpeed: 'fast' } }));
+    expect(fast).toContain('--wz-dur: 0.06s');
+    expect(fast).toContain('--wz-dur-fast: 0.03s');
+    expect(fast).toContain('--wz-dur-normal: 0.06s');
+    expect(fast).toContain('--wz-dur-slow: 0.12s');
+  });
 });
 
 describe('themeVars page background (§1.1)', () => {

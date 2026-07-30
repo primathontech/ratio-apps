@@ -1748,6 +1748,29 @@ function staticCss(): string {
     .join('\n');
 }
 
+describe('ratio-form SDK theming polish', () => {
+  it('names the host container so @container queries can target it (rf)', () => {
+    const css = staticCss();
+    expect(css).toContain('container-type: inline-size');
+    expect(css).toContain('container-name: rf');
+  });
+
+  it('floors interactive tap targets to 44px on coarse pointers only (WCAG 2.5.5)', () => {
+    const css = staticCss();
+    // The floor is gated on touch devices, so the tight desktop density stays.
+    expect(css).toContain('@media (pointer: coarse)');
+    // Inputs floor to 44px without dropping below their configured min-height.
+    expect(css).toContain('min-height: max(var(--wz-input-min-h), 44px)');
+    // The number-scale chip widens to a 44px square target (unique to the
+    // coarse block — no other rule sets a 44px min-width).
+    expect(css).toContain('min-width: 44px');
+    // The coarse floor slices out of the same stylesheet, after the tight
+    // desktop base (.rf-check keeps its 1.7em base row height for precise
+    // pointers).
+    expect(css).toContain('min-height: 1.7em');
+  });
+});
+
 describe('ratio-form multi-column layout (§2.1)', () => {
   it('reflects data-cols for 2 / auto and sets nothing for the single-column default', async () => {
     const two = await mount({
