@@ -76,7 +76,13 @@ export function CanvasField({
         gap: 8,
         padding: '10px 12px',
         border: selected ? '1px solid #1677ff' : '1px solid #e5e5e5',
-        borderTop: showDropIndicator ? '2px solid #1677ff' : undefined,
+        // Explicit in every branch: `undefined` here emits `border-top: ''`,
+        // clearing the top edge the `border` shorthand set.
+        borderTop: showDropIndicator
+          ? '2px solid #1677ff'
+          : selected
+            ? '1px solid #1677ff'
+            : '1px solid #e5e5e5',
         borderRadius: 6,
         background: selected ? '#f0f7ff' : active ? '#fafafa' : '#fff',
         boxShadow: isDragging

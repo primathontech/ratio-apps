@@ -1,4 +1,4 @@
-import { type CollisionDetection, closestCorners } from '@dnd-kit/core';
+import { type CollisionDetection, closestCorners, pointerWithin } from '@dnd-kit/core';
 
 /**
  * Drag-and-drop wiring for the builder canvas (TDD §4). Pure, framework-free
@@ -48,17 +48,36 @@ export function resolveReorder(
 }
 
 /**
- * Insertion index for a palette drop. Dropping onto a field inserts AT that
- * field's index (i.e. before it); dropping on the container, an empty canvas,
- * or past the last row appends.
+ * Insertion index for a palette drop. Dropping onto the TOP half of a field
+ * inserts BEFORE it (its index); the BOTTOM half inserts AFTER it (index + 1) —
+ * this is what lets a drop reach the slot past the last field. Dropping on the
+ * container, an empty canvas, or past the last row appends.
  */
 export function resolvePaletteIndex(
   overId: string | null,
   fields: readonly { key: string }[],
+  insertAfter = false,
 ): number {
   if (!overId || overId === CANVAS_DROPPABLE_ID) return fields.length;
   const index = fields.findIndex((f) => f.key === overId);
-  return index === -1 ? fields.length : index;
+  if (index === -1) return fields.length;
+  return insertAfter ? index + 1 : index;
+}
+
+/**
+ * True when the dragged item's vertical center sits below the hovered row's
+ * midpoint — i.e. the user is aiming to drop AFTER that row, not before it. The
+ * row and the canvas droppable overlap, so collision always resolves to the row;
+ * this midpoint check recovers the "insert after the last field" intent.
+ */
+export function droppedBelowMidpoint(
+  activeRect: { top: number; height: number } | null | undefined,
+  overRect: { top: number; height: number } | null | undefined,
+): boolean {
+  if (!activeRect || !overRect) return false;
+  const activeCenter = activeRect.top + activeRect.height / 2;
+  const overMid = overRect.top + overRect.height / 2;
+  return activeCenter > overMid;
 }
 
 /**
@@ -80,6 +99,9 @@ export function resolvePaletteIndex(
  * tall row registers it symmetrically whether approached from above or below.
  */
 export const canvasCollisionDetection: CollisionDetection = (args) => {
+  // closestCorners always returns a nearest droppable, so gate on the pointer:
+  // an empty pointerWithin means the drop landed outside the canvas — cancel it.
+  if (pointerWithin(args).length === 0) return [];
   const collisions = closestCorners(args);
   const overItems = collisions.filter((c) => c.id !== CANVAS_DROPPABLE_ID);
   return overItems.length > 0 ? overItems : collisions;

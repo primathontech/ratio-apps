@@ -715,7 +715,7 @@ export class RatioForm extends LitElement {
       .rf-checks {
         display: flex;
         flex-direction: column;
-        gap: 0.43em;
+        gap: 0.25em;
       }
       .rf-check {
         display: flex;
@@ -723,8 +723,10 @@ export class RatioForm extends LitElement {
         gap: 0.57em;
         /* Content-proportional row height (relative to the form's font), the
            production pattern for option lists: scales with typography, no fixed
-           px. The whole label is the clickable hit area. */
-        min-height: 2.25em;
+           px. The whole label is the clickable hit area. Kept just above the
+           control size so rows stay a comfortable tap target without the airy
+           gaps that made the list look disconnected from the rest of the form. */
+        min-height: 1.7em;
         font-size: var(--wz-font-size);
         /* Long unbroken option text wraps instead of overflowing the card;
            min-width:0 lets the label shrink within its .rf-checks column. */

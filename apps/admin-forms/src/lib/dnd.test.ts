@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CANVAS_DROPPABLE_ID,
+  droppedBelowMidpoint,
   isPaletteId,
   PALETTE_PREFIX,
   paletteFieldType,
@@ -61,10 +62,30 @@ describe('resolvePaletteIndex', () => {
     expect(resolvePaletteIndex('banner', fields)).toBe(2);
   });
 
+  it('inserts AFTER the hovered row when dropped on its bottom half (index + 1)', () => {
+    expect(resolvePaletteIndex('name', fields, true)).toBe(1);
+    // dropping on the bottom half of the LAST row appends to the very end
+    expect(resolvePaletteIndex('message', fields, true)).toBe(fields.length);
+  });
+
   it('appends on the container, an empty canvas, or an unknown over', () => {
     expect(resolvePaletteIndex(CANVAS_DROPPABLE_ID, fields)).toBe(fields.length);
     expect(resolvePaletteIndex(null, fields)).toBe(fields.length);
     expect(resolvePaletteIndex('ghost', fields)).toBe(fields.length);
     expect(resolvePaletteIndex(CANVAS_DROPPABLE_ID, [])).toBe(0);
+  });
+});
+
+describe('droppedBelowMidpoint', () => {
+  const over = { top: 100, height: 40 }; // midpoint at y=120
+  it('is true when the dragged item center is below the row midpoint (drop after)', () => {
+    expect(droppedBelowMidpoint({ top: 118, height: 20 }, over)).toBe(true); // center 128 > 120
+  });
+  it('is false when the dragged item center is above the row midpoint (drop before)', () => {
+    expect(droppedBelowMidpoint({ top: 90, height: 20 }, over)).toBe(false); // center 100 < 120
+  });
+  it('is false (safe default) when either rect is missing', () => {
+    expect(droppedBelowMidpoint(null, over)).toBe(false);
+    expect(droppedBelowMidpoint({ top: 118, height: 20 }, undefined)).toBe(false);
   });
 });

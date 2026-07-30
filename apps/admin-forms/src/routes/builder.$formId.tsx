@@ -72,6 +72,7 @@ import {
 import {
   CANVAS_DROPPABLE_ID,
   canvasCollisionDetection,
+  droppedBelowMidpoint,
   isPaletteId,
   paletteFieldType,
   resolvePaletteIndex,
@@ -136,16 +137,19 @@ export function BuilderScreen({ formId }: { formId: string }) {
   };
 
   // Field-to-field reorders are already committed live in onDragOver, so onDragEnd
-  // only handles palette drops: insert the new field at the hovered row's index,
-  // or append when dropped on the container / empty canvas / past the last row.
+  // only handles palette drops: insert the new field before/after the hovered row
+  // (bottom half → after, so a drop can land past the last field), or append when
+  // dropped on the canvas container / empty canvas. A drop OUTSIDE any drop zone
+  // (over === null — e.g. over the palette or off-canvas) is a CANCEL: nothing added.
   const onDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     const activeId = String(active.id);
-    if (!isPaletteId(activeId)) return;
+    if (!isPaletteId(activeId) || !over) return;
+    const insertAfter = droppedBelowMidpoint(active.rect.current.translated, over.rect);
     dispatch({
       type: 'addField',
       fieldType: paletteFieldType(activeId) as FormFieldType,
-      index: resolvePaletteIndex(over ? String(over.id) : null, state.fields),
+      index: resolvePaletteIndex(String(over.id), state.fields, insertAfter),
     });
   };
 
@@ -299,8 +303,17 @@ export function BuilderScreen({ formId }: { formId: string }) {
 function Canvas({ state, dispatch }: { state: BuilderState; dispatch: Dispatch<BuilderAction> }) {
   const { setNodeRef } = useDroppable({ id: CANVAS_DROPPABLE_ID });
   return (
-    <Card title="Form canvas" style={{ flex: '2 1 320px', minWidth: 280 }}>
-      <div ref={setNodeRef} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <Card
+      title="Form canvas"
+      style={{ flex: '2 1 320px', minWidth: 280 }}
+      // Flex column so the droppable fills the card and drops anywhere inside
+      // the canvas register (drops outside it cancel).
+      styles={{ body: { display: 'flex', flexDirection: 'column' } }}
+    >
+      <div
+        ref={setNodeRef}
+        style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 160 }}
+      >
         <SortableContext
           items={state.fields.map((f) => f.key)}
           strategy={verticalListSortingStrategy}
