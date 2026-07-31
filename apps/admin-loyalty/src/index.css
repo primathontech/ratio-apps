@@ -27,6 +27,23 @@ body,
   padding: 1.5rem 1rem;
 }
 
+/*
+ * Visually hidden but announced by screen readers. Pairs the required-field
+ * `*` marker in FieldRow with real "(required)" text, so the marker can stay
+ * aria-hidden instead of being read out as "asterisk".
+ */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 @media (max-width: 600px) {
   .container {
     padding: 1rem 0.75rem;

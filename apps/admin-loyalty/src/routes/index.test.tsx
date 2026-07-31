@@ -16,7 +16,6 @@ const summary = {
   redemptionRate: 25,
   customersWithBalance: 340,
   outstandingPoints: 9000,
-  liabilityInr: 900,
 };
 
 function routeApi(opts: { trend?: unknown[] } = {}) {

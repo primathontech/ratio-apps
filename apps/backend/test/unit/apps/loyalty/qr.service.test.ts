@@ -27,9 +27,7 @@ function makeConfig(storefrontBaseUrl?: string): LoyaltyConfigService {
   return {
     getByMerchantId: () =>
       Promise.resolve({
-        programName: 'Coins',
-        baseEarnRate: 1,
-        coinValueInr: 0.1,
+        claimSecretSet: true,
         ...(storefrontBaseUrl ? { storefrontBaseUrl } : {}),
       }),
   } as unknown as LoyaltyConfigService;

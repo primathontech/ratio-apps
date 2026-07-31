@@ -1,18 +1,34 @@
 import { z } from 'zod';
 
 /**
- * Per-merchant Loyalty app config — the fields the merchant edits in the
- * admin Settings screen. No secrets live here: QR-claim identity is verified
- * via KwikPass tokens server-side and the Core Loyalty API is called with the
+ * The coin program's display label.
+ *
+ * This used to be the per-merchant `programName` config field. Naming, the
+ * earning rate, and coin valuation are all owned by the Core Loyalty team, so
+ * the app no longer stores them (see ADR-adjacent note in
+ * `docs/agent/apps/loyalty/CONTEXT.md`, 2026-07-31).
+ *
+ * It stays in the WIRE contract (`loyalty-claim.ts`, the public storefront
+ * config) filled with this constant, because the deployed `packages/loyalty-sdk`
+ * claim widget renders `Earn {points} {programName}` and dropping the field
+ * outright would break already-installed storefront script tags. Serve the
+ * constant; never accept it as input.
+ */
+export const LOYALTY_PROGRAM_NAME = 'Coins';
+
+/**
+ * Per-merchant Loyalty app config — the fields the merchant edits in the admin
+ * Settings screen. No secrets live here: QR-claim identity is verified via
+ * KwikPass tokens server-side and the Core Loyalty API is called with the
  * merchant's OAuth token, so the app needs no vendor API key.
+ *
+ * Deliberately NOT here (owned by Core Loyalty, removed 2026-07-31):
+ *   - programName    → {@link LOYALTY_PROGRAM_NAME}
+ *   - baseEarnRate   → Core computes order earning; earning rules now grant
+ *                      flat BONUS coins, which need no local rate
+ *   - coinValueInr   → coin valuation / liability reporting is Core's
  */
 export const loyaltyConfigSchema = z.object({
-  /** Display name for points ("Wellversed Coins", "Stars", …). */
-  programName: z.string().min(1).max(64).default('Coins'),
-  /** Coins earned per ₹1 of order value — the base the rule engine multiplies. */
-  baseEarnRate: z.coerce.number().positive().max(1000).default(1),
-  /** ₹ value of one coin — drives the outstanding-liability dashboard tile. */
-  coinValueInr: z.coerce.number().positive().max(1000).default(0.1),
   /**
    * Merchant storefront origin QR claim links are minted against
    * (`{storefrontBaseUrl}/?loyalty_qr={code}`). Optional at save time; QR

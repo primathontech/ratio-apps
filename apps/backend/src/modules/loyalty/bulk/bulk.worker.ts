@@ -10,6 +10,7 @@ import { QueueService } from '../../../core/queue/queue.service';
 import { type CoreLoyaltyClient, CoreLoyaltyError } from '../core-client/core-loyalty.client';
 import type { LoyaltyBulkOperationRow, LoyaltyBulkOpRowRow, LoyaltyDatabase } from '../db/types';
 import { LOYALTY_DB_TOKEN } from '../kysely.module';
+import { CustomerMirrorService } from '../mirror/customer-mirror.service';
 import { LOYALTY_CORE_CLIENT } from '../tokens';
 import { LOYALTY_QUEUE_NAMES, type LoyaltyBulkMessage } from './loyalty-queues';
 
@@ -43,6 +44,7 @@ export class BulkWorker implements OnModuleInit, OnModuleDestroy {
     @Inject(LOYALTY_DB_TOKEN) private readonly handle: KyselyClient<LoyaltyDatabase>,
     private readonly queue: QueueService,
     @Inject(LOYALTY_CORE_CLIENT) private readonly core: CoreLoyaltyClient,
+    private readonly mirror: CustomerMirrorService,
   ) {}
 
   onModuleDestroy(): void {
@@ -157,6 +159,19 @@ export class BulkWorker implements OnModuleInit, OnModuleDestroy {
       };
       const res =
         op.type === 'credit' ? await this.core.credit(input) : await this.core.debit(input);
+
+      // Mirror upkeep. Without this a bulk-credited phone that has never
+      // ordered holds coins in Core but has NO `loyalty_customers` row, so it
+      // is invisible to the Customers screen, the leaderboard, exports and
+      // segment rules — which reads to a merchant as "the credit didn't work".
+      // INSERT IGNORE, so an existing row keeps its original firstSeenSource.
+      await this.mirror.ensurePhone(this.handle.db, op.merchantId, row.phone, 'bulk');
+      await this.mirror.applyAdjustedBalance(
+        this.handle.db,
+        op.merchantId,
+        row.phone,
+        res.new_balance,
+      );
 
       await this.markRow(op.id, row.id, 'success', { coreTransactionId: res.transaction_id });
     } catch (err) {

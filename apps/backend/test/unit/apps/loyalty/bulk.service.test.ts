@@ -134,7 +134,11 @@ describe('BulkService', () => {
     expect(fake.table('loyalty_bulk_operations')[0]).toMatchObject({
       status: 'processing',
       validRows: 2,
+      // Coins in play = winners only (40 for the deduped phone + 30), NOT the
+      // 100 the file literally listed. The history row reports this.
+      totalPoints: 70,
     });
+    expect(summary.totalPoints).toBe(70);
   });
 
   it('confirm on a non-validating status → 409 mentioning the current status', async () => {
@@ -206,5 +210,79 @@ describe('BulkService', () => {
     await expect(service.get('other-merchant', op.id)).rejects.toBeInstanceOf(NotFoundException);
     const foreign = await service.list('other-merchant', 1, 20);
     expect(foreign.items).toHaveLength(0);
+  });
+
+  it('#total-points-persisted-at-confirm: 0 before, winners sum after', async () => {
+    const op = await service.createOperation(MERCHANT_ID, { type: 'credit' });
+    await service.ingestRows(MERCHANT_ID, op.id, [
+      { rowNumber: 1, phone: '9876543210', points: 100 },
+      { rowNumber: 2, phone: '9876543211', points: 250 },
+    ]);
+
+    // Nothing is committed until confirm applies duplicate last-wins.
+    expect((await service.get(MERCHANT_ID, op.id)).totalPoints).toBe(0);
+
+    await service.confirm(MERCHANT_ID, op.id);
+    expect((await service.get(MERCHANT_ID, op.id)).totalPoints).toBe(350);
+  });
+
+  describe('rows (per-operation detail)', () => {
+    it('returns each row with its status, reason and problem', async () => {
+      const op = await service.createOperation(MERCHANT_ID, { type: 'credit' });
+      await service.ingestRows(MERCHANT_ID, op.id, [
+        { rowNumber: 1, phone: 'bogus', points: 10 },
+        { rowNumber: 2, phone: '9876543210', points: 20, reason: 'Diwali' },
+      ]);
+
+      const page = await service.rows(MERCHANT_ID, op.id, 1, 50);
+
+      expect(page.total).toBe(2);
+      expect(page.items).toHaveLength(2);
+      expect(page.items[0]).toMatchObject({
+        rowNumber: 1,
+        status: 'failed',
+        errorReason: 'Invalid phone number',
+      });
+      expect(page.items[1]).toMatchObject({
+        rowNumber: 2,
+        // Normalized to E.164 on ingest, so the detail view shows one identity.
+        phone: '+919876543210',
+        points: 20,
+        reason: 'Diwali',
+        status: 'pending',
+      });
+    });
+
+    it('filters to a single status bucket', async () => {
+      const op = await service.createOperation(MERCHANT_ID, { type: 'credit' });
+      await service.ingestRows(MERCHANT_ID, op.id, [
+        { rowNumber: 1, phone: 'bogus', points: 10 },
+        { rowNumber: 2, phone: '9876543210', points: 20 },
+      ]);
+
+      const failed = await service.rows(MERCHANT_ID, op.id, 1, 50, 'failed');
+      expect(failed.total).toBe(1);
+      expect(failed.items[0]).toMatchObject({ rowNumber: 1, status: 'failed' });
+    });
+
+    it('paginates and clamps the limit', async () => {
+      const op = await service.createOperation(MERCHANT_ID, { type: 'credit' });
+      await service.ingestRows(MERCHANT_ID, op.id, mkRows(5));
+
+      const first = await service.rows(MERCHANT_ID, op.id, 1, 2);
+      expect(first.items.map((r) => r.rowNumber)).toEqual([1, 2]);
+      expect(first.total).toBe(5);
+
+      const third = await service.rows(MERCHANT_ID, op.id, 3, 2);
+      expect(third.items.map((r) => r.rowNumber)).toEqual([5]);
+
+      // limit is clamped to 200, page floored at 1
+      expect((await service.rows(MERCHANT_ID, op.id, 0, 9_999)).limit).toBe(200);
+    });
+
+    it('404s an operation belonging to another merchant', async () => {
+      const op = await service.createOperation(MERCHANT_ID, { type: 'credit' });
+      await expect(service.rows('other-merchant', op.id, 1, 50)).rejects.toThrow(/not found/);
+    });
   });
 });

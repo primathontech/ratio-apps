@@ -33,6 +33,9 @@ const UNIQUE_KEYS: Record<string, string[][]> = {
   loyalty_bulk_operations: [['id']],
   loyalty_bulk_operation_rows: [['operationId', 'rowNumber']],
   loyalty_exports: [['id']],
+  // The bulk worker keeps the customer mirror in step via INSERT IGNORE, so the
+  // (merchantId, phone) uniqueness has to be modeled for that to mean anything.
+  loyalty_customers: [['merchantId', 'phone']],
 };
 
 function rowMatches(row: Row, wheres: Where[]): boolean {
@@ -79,6 +82,25 @@ export class FakeLoyaltyDb {
         failureCount: 0,
         totalPoints: 0,
         createdBy: null,
+        createdAt: now,
+        updatedAt: now,
+        ...v,
+      };
+    }
+    if (table === 'loyalty_customers') {
+      return {
+        name: null,
+        email: null,
+        pointsBalance: 0,
+        lifetimeEarned: 0,
+        lifetimeRedeemed: 0,
+        lifetimeExpired: 0,
+        lifetimeAdjusted: 0,
+        lifetimeSpend: '0.00',
+        lifetimeOrders: 0,
+        lastOrderAt: null,
+        firstSeenSource: 'order',
+        balanceSyncedAt: null,
         createdAt: now,
         updatedAt: now,
         ...v,

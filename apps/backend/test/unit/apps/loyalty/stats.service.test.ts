@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { LoyaltyConfigService } from '../../../../src/modules/loyalty/config/config.service';
 import { StatsService } from '../../../../src/modules/loyalty/dashboard/stats.service';
 import { FakeQrDb, makeFakeQrHandle } from './helpers/fake-qr-db';
 import { MERCHANT_ID } from './helpers/fakes';
@@ -20,11 +19,6 @@ function mkStatsRow(overrides: Record<string, unknown>): Record<string, unknown>
   };
 }
 
-const config = {
-  getByMerchantId: () =>
-    Promise.resolve({ programName: 'Coins', baseEarnRate: 1, coinValueInr: 0.5 }),
-} as unknown as LoyaltyConfigService;
-
 describe('StatsService', () => {
   let fake: FakeQrDb;
   let svc: StatsService;
@@ -32,11 +26,11 @@ describe('StatsService', () => {
   beforeEach(() => {
     const made = makeFakeQrHandle();
     fake = made.fake;
-    svc = new StatsService(made.handle, config);
+    svc = new StatsService(made.handle);
   });
 
   describe('#summary-tiles', () => {
-    it('sums the range, computes redemption rate and ₹ liability off the latest row', async () => {
+    it('sums the range and computes the redemption rate off the latest row', async () => {
       fake.seed('loyalty_daily_stats', [
         mkStatsRow({
           statDate: '2026-07-01',
@@ -65,7 +59,8 @@ describe('StatsService', () => {
       expect(res.redemptionRate).toBe(30); // round(45/150*1000)/10
       expect(res.customersWithBalance).toBe(5); // latest row in range
       expect(res.outstandingPoints).toBe(600);
-      expect(res.liabilityInr).toBe(300); // 600 × coinValueInr 0.5
+      // No ₹ liability tile any more — coin valuation is Core Loyalty's.
+      expect('liabilityInr' in res).toBe(false);
     });
 
     it('is all-zero (rate 0, no division blowup) on an empty range', async () => {
@@ -77,7 +72,6 @@ describe('StatsService', () => {
         redemptionRate: 0,
         customersWithBalance: 0,
         outstandingPoints: 0,
-        liabilityInr: 0,
       });
     });
   });

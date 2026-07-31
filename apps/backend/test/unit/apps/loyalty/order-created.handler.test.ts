@@ -21,9 +21,9 @@ const PHONE = '+919876543210';
 function mkCachedRule(over: Partial<CachedRule> = {}): CachedRule {
   return {
     id: 'rule-1',
-    name: 'Triple points',
-    ruleType: 'MULTIPLIER',
-    value: 3,
+    name: 'Diwali bonus',
+    ruleType: 'BONUS',
+    value: 200,
     targetType: 'CUSTOMER_LIST',
     conditions: null,
     startsAt: '2026-01-01T00:00:00.000Z',
@@ -194,10 +194,9 @@ describe('LoyaltyOrderCreatedHandler', () => {
     expect(sqlText(odku.email)).toContain('COALESCE(VALUES(email), email)');
   });
 
-  it('#credits-multiplier-delta-once — 3x rule on ₹1000 at base rate 1 credits 2000 extra with rule:{id}:{orderId}', async () => {
+  it('#credits-bonus-once — a flat bonus credits its value with rule:{id}:{orderId}', async () => {
     const { handler, core, trx, captured } = setup({
       cached: { rules: [mkCachedRule()], listMembership: { 'rule-1': [PHONE] } },
-      configRow: { baseEarnRate: '1.00' },
     });
     await handler.handle(mkOrderPayload(), MERCHANT_ID, trx);
 
@@ -206,9 +205,9 @@ describe('LoyaltyOrderCreatedHandler', () => {
       op: 'credit',
       merchantId: MERCHANT_ID,
       phone: PHONE,
-      points: 2000,
+      points: 200,
       idempotencyKey: 'rule:rule-1:order-1001',
-      description: 'Triple points',
+      description: 'Diwali bonus',
       metadata: { rule_id: 'rule-1', order_id: 'order-1001' },
     });
     // application row written through the trx before the Core call
@@ -218,14 +217,28 @@ describe('LoyaltyOrderCreatedHandler', () => {
       ruleId: 'rule-1',
       orderId: 'order-1001',
       phone: PHONE,
-      extraPoints: 2000,
+      extraPoints: 200,
+      // Core owns order earning and the app no longer mirrors its rate, so the
+      // legacy reporting column is always 0.
+      basePoints: 0,
     });
+  });
+
+  it('#skips-retired-multiplier-rules — no Core credit, no application row', async () => {
+    const { handler, core, trx, captured } = setup({
+      cached: {
+        rules: [mkCachedRule({ ruleType: 'MULTIPLIER', value: 3 })],
+        listMembership: { 'rule-1': [PHONE] },
+      },
+    });
+    await handler.handle(mkOrderPayload(), MERCHANT_ID, trx);
+    expect(core.calls).toHaveLength(0);
+    expect(captured.appInserts).toHaveLength(0);
   });
 
   it('#redelivery-is-noop-via-unique-rule-order — duplicate application insert skips the Core call', async () => {
     const { handler, core, trx } = setup({
       cached: { rules: [mkCachedRule()], listMembership: { 'rule-1': [PHONE] } },
-      configRow: { baseEarnRate: '1.00' },
       appInsertResult: 0n,
     });
     await handler.handle(mkOrderPayload(), MERCHANT_ID, trx);
@@ -258,7 +271,6 @@ describe('LoyaltyOrderCreatedHandler', () => {
   it('#throws-on-core-failure — Core error propagates so the webhook retries', async () => {
     const { handler, core, trx } = setup({
       cached: { rules: [mkCachedRule()], listMembership: { 'rule-1': [PHONE] } },
-      configRow: { baseEarnRate: '1.00' },
     });
     core.failOn.set(PHONE, new Error('core down'));
     await expect(handler.handle(mkOrderPayload(), MERCHANT_ID, trx)).rejects.toThrow('core down');

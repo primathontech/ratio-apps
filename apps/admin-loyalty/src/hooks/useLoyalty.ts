@@ -21,7 +21,6 @@ export interface DashboardSummary {
   redemptionRate: number;
   customersWithBalance: number;
   outstandingPoints: number;
-  liabilityInr: number;
 }
 
 export interface TrendPoint {
@@ -142,7 +141,29 @@ export interface BulkOperation {
   processedRows: number;
   successCount: number;
   failureCount: number;
+  /** Coins the operation moves, after duplicate-phone last-wins. 0 pre-confirm. */
+  totalPoints: number;
   createdAt: string;
+}
+
+export type BulkRowStatus = 'pending' | 'success' | 'failed' | 'skipped';
+
+export interface BulkOperationRow {
+  rowNumber: number;
+  phone: string;
+  points: number;
+  reason: string | null;
+  status: BulkRowStatus | string;
+  errorReason: string | null;
+  coreTransactionId: string | null;
+  processedAt: string | null;
+}
+
+export interface BulkOpRowsPage {
+  items: BulkOperationRow[];
+  total: number;
+  page: number;
+  limit: number;
 }
 
 export interface BulkOpsPage {
@@ -181,6 +202,21 @@ export function useBulkOp(id: string | null) {
       const status = query.state.data?.status;
       return status === 'processing' || status === 'validating' ? 2000 : false;
     },
+  });
+}
+
+/**
+ * One page of an operation's rows — which customers it touched and what
+ * happened to each. Only fetched while the detail view is open (`id` non-null).
+ */
+export function useBulkOpRows(id: string | null, page = 1, limit = 50) {
+  const token = useToken();
+  return useQuery({
+    queryKey: queryKeys.bulkOpRows(id ?? 'none', page),
+    queryFn: () =>
+      api<BulkOpRowsPage>('GET', `/api/bulk-operations/${id}/rows?page=${page}&limit=${limit}`),
+    enabled: !!token && !!id,
+    refetchOnWindowFocus: false,
   });
 }
 

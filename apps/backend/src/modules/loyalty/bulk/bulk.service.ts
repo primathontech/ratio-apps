@@ -45,7 +45,24 @@ export interface BulkOperationSummary {
   processedRows: number;
   successCount: number;
   failureCount: number;
+  /**
+   * Coins this operation will move, summed over the rows that survived
+   * duplicate-phone last-wins. Persisted at confirm time; 0 until then.
+   */
+  totalPoints: number;
   createdAt: Date;
+}
+
+/** One row of a bulk operation, for the per-operation detail view. */
+export interface BulkOperationRow {
+  rowNumber: number;
+  phone: string;
+  points: number;
+  reason: string | null;
+  status: string;
+  errorReason: string | null;
+  coreTransactionId: string | null;
+  processedAt: Date | null;
 }
 
 /**
@@ -184,7 +201,7 @@ export class BulkService {
 
     const pending = await this.handle.db
       .selectFrom('loyalty_bulk_operation_rows')
-      .select(['id', 'rowNumber', 'phone'])
+      .select(['id', 'rowNumber', 'phone', 'points'])
       .where('operationId', '=', opId)
       .where('status', '=', 'pending')
       .orderBy('rowNumber', 'asc')
@@ -212,10 +229,18 @@ export class BulkService {
     }
 
     const winners = pending.filter((r) => r.rowNumber === lastRowByPhone.get(r.phone));
+    // Coins actually in play = the winners' points (superseded duplicates are
+    // already excluded), so the history row can report the operation's size.
+    const totalPoints = winners.reduce((acc, r) => acc + Number(r.points), 0);
     const nextStatus = winners.length ? 'processing' : 'done';
     await this.handle.db
       .updateTable('loyalty_bulk_operations')
-      .set({ status: nextStatus, validRows: winners.length, updatedAt: new Date() })
+      .set({
+        status: nextStatus,
+        validRows: winners.length,
+        totalPoints,
+        updatedAt: new Date(),
+      })
       .where('id', '=', opId)
       .execute();
 
@@ -264,6 +289,60 @@ export class BulkService {
 
   async get(merchantId: string, opId: string): Promise<BulkOperationSummary> {
     return this.toSummary(await this.getOpRow(merchantId, opId));
+  }
+
+  /**
+   * One page of an operation's rows — who was credited/debited, how much, and
+   * what happened to each. Backs the admin's per-operation detail view, so a
+   * merchant can see exactly which customers an upload touched instead of only
+   * an aggregate count. `status` filters to one bucket (e.g. only failures).
+   */
+  async rows(
+    merchantId: string,
+    opId: string,
+    page: number,
+    limit: number,
+    status?: string,
+  ): Promise<{ items: BulkOperationRow[]; total: number; page: number; limit: number }> {
+    await this.getOpRow(merchantId, opId); // 404 on foreign/missing op
+    const safePage = Math.max(1, Math.trunc(page) || 1);
+    const safeLimit = Math.min(200, Math.max(1, Math.trunc(limit) || 50));
+
+    let query = this.handle.db
+      .selectFrom('loyalty_bulk_operation_rows')
+      .where('operationId', '=', opId);
+    if (status) query = query.where('status', '=', status as never);
+
+    const rows = await query
+      .select([
+        'rowNumber',
+        'phone',
+        'points',
+        'reason',
+        'status',
+        'errorReason',
+        'coreTransactionId',
+        'processedAt',
+      ])
+      .orderBy('rowNumber', 'asc')
+      .limit(safeLimit)
+      .offset((safePage - 1) * safeLimit)
+      .execute();
+
+    let countQuery = this.handle.db
+      .selectFrom('loyalty_bulk_operation_rows')
+      .where('operationId', '=', opId);
+    if (status) countQuery = countQuery.where('status', '=', status as never);
+    const counted = await countQuery
+      .select((eb) => eb.fn.countAll().as('count'))
+      .executeTakeFirst();
+
+    return {
+      items: rows.map((r) => ({ ...r, points: Number(r.points) })),
+      total: Number(counted?.count ?? 0),
+      page: safePage,
+      limit: safeLimit,
+    };
   }
 
   /** `row_number,phone,points,reason,error_reason` for failed + skipped rows. */
@@ -315,6 +394,7 @@ export class BulkService {
       processedRows: op.processedRows,
       successCount: op.successCount,
       failureCount: op.failureCount,
+      totalPoints: Number(op.totalPoints ?? 0),
       createdAt: op.createdAt,
     };
   }

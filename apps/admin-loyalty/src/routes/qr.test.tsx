@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '@/lib/api';
 import { useMerchantStore } from '@/stores/useMerchantStore';
 import { renderWithProviders } from '../test-utils';
-import { maskPhone, QrPage } from './qr';
+import { maskPhone, QrPage, validate } from './qr';
 
 vi.mock('@/lib/api');
 vi.mock('@/lib/download', () => ({ downloadAuthenticated: vi.fn() }));
@@ -129,5 +129,73 @@ describe('QrPage', () => {
       expect(call).toBeDefined();
       expect(call?.[2]).toEqual({ status: 'PAUSED' });
     });
+  });
+});
+
+describe('validate (QR form)', () => {
+  const good = {
+    eventName: 'Diwali Expo',
+    pointsPerScan: '100',
+    maxScans: '0',
+    startsAt: '2026-01-01T00:00',
+    expiresAt: '2026-12-31T00:00',
+    claimMessage: '',
+  };
+
+  it('passes a complete form', () => {
+    expect(validate(good)).toEqual({});
+  });
+
+  it('keys each message to the field that owns it', () => {
+    const errors = validate({
+      ...good,
+      eventName: '  ',
+      pointsPerScan: '0',
+      maxScans: '-1',
+      startsAt: '',
+    });
+    expect(errors.eventName).toMatch(/required/i);
+    expect(errors.pointsPerScan).toMatch(/at least 1/i);
+    expect(errors.maxScans).toMatch(/0 \(unlimited\) or more/i);
+    expect(errors.startsAt).toMatch(/required/i);
+  });
+
+  it('blames the expiry for an inverted date range', () => {
+    const errors = validate({
+      ...good,
+      startsAt: '2026-12-31T00:00',
+      expiresAt: '2026-01-01T00:00',
+    });
+    expect(errors.expiresAt).toMatch(/after the start date/i);
+    expect(errors.startsAt).toBeUndefined();
+  });
+
+  it('reports a missing expiry as missing, not as an inverted range', () => {
+    const errors = validate({ ...good, expiresAt: '' });
+    expect(errors.expiresAt).toMatch(/required/i);
+  });
+});
+
+describe('QrPage — validation', () => {
+  it('marks mandatory fields and reports errors against their own inputs', async () => {
+    routeApi([]);
+    renderWithProviders(<QrPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'New QR code' }));
+
+    for (const label of ['Event name', 'Coins per scan', 'Starts at', 'Expires at']) {
+      const marked = screen
+        .getAllByText(new RegExp(`^${label}`))
+        .some((el) => /\*/.test(el.textContent ?? '') && /\(required\)/.test(el.textContent ?? ''));
+      expect(marked, `${label} should be marked required`).toBe(true);
+    }
+    expect(screen.getByText(/^Claim message/)).not.toHaveTextContent('*');
+
+    // Event name is blank by default → its own inline message, no lumped banner.
+    fireEvent.click(screen.getByRole('button', { name: 'Create QR code' }));
+    await waitFor(() => expect(screen.getByText('Event name is required.')).toBeInTheDocument());
+    expect(screen.queryByText('QR code is invalid')).not.toBeInTheDocument();
+    expect(mockedApi.mock.calls.filter((c) => c[0] === 'POST' && c[1] === '/api/qr-codes')).toEqual(
+      [],
+    );
   });
 });

@@ -13,6 +13,7 @@ import {
 } from '@primathonos/orion';
 import { createFileRoute } from '@tanstack/react-router';
 import { useState } from 'react';
+import { FieldRow } from '@/components/FieldRow';
 import {
   type CustomerProfile,
   type CustomerRow,
@@ -22,8 +23,13 @@ import {
   useCustomers,
 } from '@/hooks/useLoyalty';
 import { ApiException } from '@/lib/api';
+import { normalizeBulkPhone } from '@/lib/parse-csv';
 
 export const Route = createFileRoute('/customers')({ component: CustomersPage });
+
+const MIN_POINTS = 1;
+const MAX_POINTS = 100_000;
+const INVALID_PHONE_MESSAGE = 'Enter a valid Indian mobile number — 10 digits starting 6-9.';
 
 export function CustomersPage() {
   return (
@@ -51,31 +57,55 @@ export function CustomersPage() {
 function CustomerSearch() {
   const [query, setQuery] = useState('');
   const [phone, setPhone] = useState<string | null>(null);
+  const [searchError, setSearchError] = useState<string | undefined>(undefined);
   const profile = useCustomerProfile(phone);
 
   const search = () => {
     const trimmed = query.trim();
-    setPhone(trimmed || null);
+    if (!trimmed) {
+      setSearchError('Enter a phone number to search.');
+      setPhone(null);
+      return;
+    }
+    // Normalize before the request so `9876543210`, `+91 98765 43210` and
+    // `09876543210` all resolve to the one customer the backend stores.
+    const normalized = normalizeBulkPhone(trimmed);
+    if (!normalized) {
+      setSearchError(INVALID_PHONE_MESSAGE);
+      setPhone(null);
+      return;
+    }
+    setSearchError(undefined);
+    setPhone(normalized);
   };
+
+  const notFound =
+    profile.isError &&
+    profile.error instanceof ApiException &&
+    profile.error.errorCode === 'CUSTOMER_NOT_FOUND';
 
   return (
     <Space direction="vertical" size="large" style={{ display: 'flex' }}>
       <Card>
-        <Space wrap>
-          <Input
-            aria-label="Search phone"
-            placeholder="9876543210"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onPressEnter={search}
-            style={{ width: 240 }}
-          />
-          <PrimaryButton onClick={search}>Search</PrimaryButton>
-        </Space>
+        <FieldRow label="Phone number" required error={searchError}>
+          <Space wrap>
+            <Input
+              aria-label="Search phone"
+              placeholder="9876543210"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onPressEnter={search}
+              style={{ width: 240 }}
+              {...(searchError ? { status: 'error' as const } : {})}
+            />
+            <PrimaryButton onClick={search}>Search</PrimaryButton>
+          </Space>
+        </FieldRow>
       </Card>
 
       {phone && profile.isLoading && <Card loading title="Customer" />}
-      {phone && profile.isError && (
+      {phone && notFound && <UnknownCustomerCard phone={phone} />}
+      {phone && profile.isError && !notFound && (
         <Alert
           type="error"
           showIcon
@@ -84,6 +114,31 @@ function CustomerSearch() {
       )}
       {phone && profile.data && <ProfileCard phone={phone} data={profile.data} />}
     </Space>
+  );
+}
+
+/**
+ * A phone with no mirror row — never ordered, never scanned a QR, never in a
+ * bulk op. This used to be a dead end: a bare "customer not found" error with
+ * no way to give them coins, even though the adjust endpoint accepts any valid
+ * phone. Adjusting here creates the mirror row (firstSeenSource 'manual'), so
+ * the next search finds them.
+ */
+function UnknownCustomerCard({ phone }: { phone: string }) {
+  const [dialogOpen, setDialogOpen] = useState(false);
+  return (
+    <Card title="Not in your loyalty program yet">
+      <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
+        <Typography.Text type="secondary">
+          {phone} has no orders, QR scans or bulk adjustments yet. You can still credit or debit
+          coins — doing so adds them to your customer list.
+        </Typography.Text>
+        <div>
+          <PrimaryButton onClick={() => setDialogOpen(true)}>Credit or debit coins</PrimaryButton>
+        </div>
+        <AdjustDialog phone={phone} open={dialogOpen} onClose={() => setDialogOpen(false)} />
+      </Space>
+    </Card>
   );
 }
 
@@ -162,19 +217,27 @@ function AdjustDialog({
   const [direction, setDirection] = useState<'credit' | 'debit'>('credit');
   const [points, setPoints] = useState('100');
   const [reason, setReason] = useState('');
+  const [errors, setErrors] = useState<{ points?: string; reason?: string }>({});
   const [error, setError] = useState<string | null>(null);
 
   const submit = async () => {
     setError(null);
-    const amount = Number(points);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      setError('Points must be a positive number.');
-      return;
+    // Each rule reports against its own field rather than into one shared
+    // banner, and every failing field is reported at once.
+    const next: { points?: string; reason?: string } = {};
+    const trimmedPoints = points.trim();
+    const amount = Number(trimmedPoints);
+    if (!trimmedPoints) next.points = 'Points are required.';
+    else if (!Number.isFinite(amount) || !Number.isInteger(amount)) {
+      next.points = 'Points must be a whole number.';
+    } else if (amount < MIN_POINTS || amount > MAX_POINTS) {
+      next.points = `Points must be between ${MIN_POINTS} and ${MAX_POINTS.toLocaleString('en-IN')}.`;
     }
-    if (!reason.trim()) {
-      setError('A reason is required.');
-      return;
-    }
+    if (!reason.trim()) next.reason = 'A reason is required.';
+
+    setErrors(next);
+    if (Object.keys(next).length > 0) return;
+
     try {
       await adjust.mutateAsync({
         phone,
@@ -184,7 +247,7 @@ function AdjustDialog({
       setReason('');
     } catch (err) {
       if (err instanceof ApiException && err.errorCode === 'INSUFFICIENT_BALANCE') {
-        setError('Insufficient balance — the debit exceeds the customer’s coins.');
+        setErrors({ points: 'Insufficient balance — the debit exceeds the customer’s coins.' });
         return;
       }
       setError(err instanceof Error ? err.message : 'Adjustment failed');
@@ -201,18 +264,17 @@ function AdjustDialog({
       onOk={() => void submit()}
     >
       <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
-        <RadioGroup
-          value={direction}
-          onChange={(e) => setDirection(e.target.value as 'credit' | 'debit')}
-          options={[
-            { label: 'Credit', value: 'credit' },
-            { label: 'Debit', value: 'debit' },
-          ]}
-        />
-        <div>
-          <Typography.Text strong style={{ display: 'block', marginBottom: 4 }}>
-            Points
-          </Typography.Text>
+        <FieldRow label="Direction" required>
+          <RadioGroup
+            value={direction}
+            onChange={(e) => setDirection(e.target.value as 'credit' | 'debit')}
+            options={[
+              { label: 'Credit', value: 'credit' },
+              { label: 'Debit', value: 'debit' },
+            ]}
+          />
+        </FieldRow>
+        <FieldRow label="Points" required error={errors.points}>
           <input
             type="number"
             aria-label="Adjustment points"
@@ -221,18 +283,21 @@ function AdjustDialog({
             onChange={(e) => setPoints(e.target.value)}
             style={{ padding: '4px 8px', width: 160 }}
           />
-        </div>
-        <div>
-          <Typography.Text strong style={{ display: 'block', marginBottom: 4 }}>
-            Reason
-          </Typography.Text>
+        </FieldRow>
+        <FieldRow
+          label="Reason"
+          required
+          error={errors.reason}
+          hint="Shown on the customer's coin history"
+        >
           <Input
             aria-label="Adjustment reason"
             placeholder="Goodwill credit"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
+            {...(errors.reason ? { status: 'error' as const } : {})}
           />
-        </div>
+        </FieldRow>
         {error && <Alert type="error" showIcon message={error} />}
       </Space>
     </Modal>

@@ -20,7 +20,7 @@ function routeApi(
 ) {
   mockedApi.mockImplementation((method: string, path: string) => {
     if (method === 'GET' && path === '/api/loyalty-config') {
-      return Promise.resolve({ programName: 'Coins', baseEarnRate: 1, coinValueInr: 0.1 });
+      return Promise.resolve({ claimSecretSet: true });
     }
     if (method === 'GET' && path.startsWith('/api/customers')) {
       return Promise.resolve({ rows: [], total: opts.count ?? 0 });

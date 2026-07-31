@@ -7,6 +7,7 @@ import type { Merchant } from '@ratio-app/shared/schemas/merchant';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { CoreLoyaltyClient } from '../../../../src/modules/loyalty/core-client/core-loyalty.client';
 import { LoyaltyCustomersController } from '../../../../src/modules/loyalty/customers/customers.controller';
+import { CustomerMirrorService } from '../../../../src/modules/loyalty/mirror/customer-mirror.service';
 import type { CustomerQueryService } from '../../../../src/modules/loyalty/mirror/customer-query.service';
 import { FakeCustomerQuery } from './helpers/fake-loyalty-db';
 import { FakeQrDb, makeFakeQrHandle } from './helpers/fake-qr-db';
@@ -30,6 +31,7 @@ describe('LoyaltyCustomersController', () => {
       made.handle,
       query as unknown as CustomerQueryService,
       core as unknown as CoreLoyaltyClient,
+      new CustomerMirrorService(),
     );
   });
 
@@ -138,6 +140,46 @@ describe('LoyaltyCustomersController', () => {
       await expect(
         controller.adjust(merchant, 'abc', { direction: 'credit', points: 1, reason: 'x' }),
       ).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
+
+  describe('POST …/adjust for a phone with no mirror row', () => {
+    const NEW_PHONE = '+919812345678';
+
+    it('#creates-the-mirror-row: a never-ordered customer becomes visible', async () => {
+      // Pre-fix the balance UPDATE matched zero rows, so the customer held
+      // coins in Core but never appeared in Customers / leaderboard / exports.
+      expect(fake.table('loyalty_customers')).toHaveLength(0);
+
+      const res = await controller.adjust(merchant, '9812345678', {
+        direction: 'credit',
+        points: 250,
+        reason: 'Event giveaway',
+      });
+
+      expect(res.newBalance).toBe(250);
+      const customers = fake.table('loyalty_customers');
+      expect(customers).toHaveLength(1);
+      expect(customers[0]).toMatchObject({
+        merchantId: MERCHANT_ID,
+        phone: NEW_PHONE,
+        firstSeenSource: 'manual',
+        pointsBalance: 250,
+      });
+    });
+
+    it('does not create a row when the debit precheck rejects', async () => {
+      core.setBalance(NEW_PHONE, 0);
+
+      await expect(
+        controller.adjust(merchant, NEW_PHONE, {
+          direction: 'debit',
+          points: 10,
+          reason: 'nope',
+        }),
+      ).rejects.toBeInstanceOf(UnprocessableEntityException);
+
+      expect(fake.table('loyalty_customers')).toHaveLength(0);
     });
   });
 });

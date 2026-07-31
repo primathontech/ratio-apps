@@ -30,6 +30,7 @@ import type {
 import type { LoyaltyCustomerRow, LoyaltyDatabase } from '../db/types';
 import { LoyaltyMerchantTokenGuard } from '../guards';
 import { LOYALTY_DB_TOKEN } from '../kysely.module';
+import { CustomerMirrorService } from '../mirror/customer-mirror.service';
 import { CustomerQueryService } from '../mirror/customer-query.service';
 import type { LoyaltyCustomerSort } from '../mirror/customer-query.types';
 import { LOYALTY_CORE_CLIENT } from '../tokens';
@@ -63,6 +64,7 @@ export class LoyaltyCustomersController {
     @Inject(LOYALTY_DB_TOKEN) private readonly handle: KyselyClient<LoyaltyDatabase>,
     private readonly customerQuery: CustomerQueryService,
     @Inject(LOYALTY_CORE_CLIENT) private readonly core: CoreLoyaltyClient,
+    private readonly mirror: CustomerMirrorService,
   ) {}
 
   /** Mirror query: AND-joined filters + sort + pagination (export preview, leaderboard, search). */
@@ -165,12 +167,13 @@ export class LoyaltyCustomersController {
     const result =
       body.direction === 'credit' ? await this.core.credit(input) : await this.core.debit(input);
 
-    await this.handle.db
-      .updateTable('loyalty_customers')
-      .set({ pointsBalance: result.new_balance, balanceSyncedAt: new Date() })
-      .where('merchantId', '=', merchant.id)
-      .where('phone', '=', phone)
-      .execute();
+    // A merchant can adjust a phone that has never ordered (the admin offers
+    // this explicitly). Create the mirror row first, or the balance UPDATE
+    // below matches nothing and the customer stays invisible to the Customers
+    // screen, leaderboard, exports and segment rules despite holding coins.
+    // INSERT IGNORE, so an existing row keeps its original firstSeenSource.
+    await this.mirror.ensurePhone(this.handle.db, merchant.id, phone, 'manual');
+    await this.mirror.applyAdjustedBalance(this.handle.db, merchant.id, phone, result.new_balance);
 
     return { direction: body.direction, points: body.points, newBalance: result.new_balance };
   }

@@ -16,11 +16,14 @@ type DecimalColumnWithDefault = ColumnType<string, number | string | undefined, 
 /** BIGINT columns: mysql2 returns number (within JS safe range for our sums). */
 type BigIntColumnWithDefault = ColumnType<number, number | string | undefined, number | string>;
 
+/**
+ * Per-merchant config. `program_name` / `base_earn_rate` / `coin_value_inr`
+ * were dropped in migration 0003 — naming, order earning and coin valuation
+ * are owned by Core Loyalty (see `LOYALTY_PROGRAM_NAME` in
+ * `@ratio-app/shared/schemas/loyalty-config`).
+ */
 export interface LoyaltyConfigsTable {
   merchantId: string;
-  programName: Generated<string>;
-  baseEarnRate: DecimalColumnWithDefault;
-  coinValueInr: DecimalColumnWithDefault;
   storefrontBaseUrl: string | null;
   exportEmail: string | null;
   claimSigningSecret: string | null;

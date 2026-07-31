@@ -5,7 +5,15 @@ import { type ZodType, z } from 'zod';
 import { CurrentMerchant } from '../../../core/common/decorators/merchant.decorator';
 import { ZodValidationPipe } from '../../../core/common/pipes/zod-validation.pipe';
 import { LoyaltyMerchantTokenGuard } from '../guards';
-import { type BulkOperationSummary, type BulkRowInput, BulkService } from './bulk.service';
+import {
+  type BulkOperationRow,
+  type BulkOperationSummary,
+  type BulkRowInput,
+  BulkService,
+} from './bulk.service';
+
+/** Allow-listed `?status=` values for the rows detail view. */
+const ROW_STATUSES = ['pending', 'success', 'failed', 'skipped'] as const;
 
 /** POST /loyalty/api/bulk-operations body (TRD §2). */
 const createBulkOperationSchema = z.object({
@@ -86,6 +94,24 @@ export class LoyaltyBulkController {
     @Param('id') id: string,
   ): Promise<BulkOperationSummary> {
     return this.bulk.get(merchant.id, id);
+  }
+
+  /** Paginated rows of one operation — the admin's per-operation detail view. */
+  @Get('bulk-operations/:id/rows')
+  rows(
+    @CurrentMerchant() merchant: Merchant,
+    @Param('id') id: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('status') status?: string,
+  ): Promise<{ items: BulkOperationRow[]; total: number; page: number; limit: number }> {
+    return this.bulk.rows(
+      merchant.id,
+      id,
+      Number(page ?? 1),
+      Number(limit ?? 50),
+      ROW_STATUSES.includes(status as never) ? status : undefined,
+    );
   }
 
   /**

@@ -4,6 +4,7 @@ import { BulkWorker } from '../../../../src/modules/loyalty/bulk/bulk.worker';
 import { LOYALTY_QUEUE_NAMES } from '../../../../src/modules/loyalty/bulk/loyalty-queues';
 import type { CoreLoyaltyClient } from '../../../../src/modules/loyalty/core-client/core-loyalty.client';
 import { CoreLoyaltyError } from '../../../../src/modules/loyalty/core-client/core-loyalty.client';
+import { CustomerMirrorService } from '../../../../src/modules/loyalty/mirror/customer-mirror.service';
 import { type FakeLoyaltyDb, makeFakeLoyaltyHandle } from './helpers/fake-loyalty-db';
 import { FakeCoreLoyalty, FakeQueue, MERCHANT_ID } from './helpers/fakes';
 
@@ -79,6 +80,7 @@ describe('BulkWorker', () => {
       made.handle,
       queue as unknown as QueueService,
       core as unknown as CoreLoyaltyClient,
+      new CustomerMirrorService(),
     );
   });
 
@@ -130,6 +132,52 @@ describe('BulkWorker', () => {
     const op = fake.table('loyalty_bulk_operations')[0];
     expect(op).toMatchObject({ processedRows: 2, successCount: 2, failureCount: 0 });
     expect(queue.acked.get(LOYALTY_QUEUE_NAMES.bulkOps)).toHaveLength(1);
+  });
+
+  it('#mirrors-credited-phones: a bulk-credited phone becomes a visible customer', async () => {
+    // Without the mirror row the phone holds coins in Core but is absent from
+    // the Customers screen, the leaderboard, exports and segment rules — which
+    // reads as "the bulk credit did nothing".
+    seed(fake, {
+      rows: [{ id: 1, rowNumber: 1, phone: '+919876543210', points: 100 }],
+    });
+    enqueue(queue, [1]);
+
+    await worker.drainOnce();
+
+    const customers = fake.table('loyalty_customers');
+    expect(customers).toHaveLength(1);
+    expect(customers[0]).toMatchObject({
+      merchantId: MERCHANT_ID,
+      phone: '+919876543210',
+      firstSeenSource: 'bulk',
+      pointsBalance: 100,
+    });
+    expect(customers[0].balanceSyncedAt).toBeInstanceOf(Date);
+  });
+
+  it('#mirror-preserves-existing-customers: no duplicate row, original source kept', async () => {
+    fake.table('loyalty_customers').push({
+      merchantId: MERCHANT_ID,
+      phone: '+919876543210',
+      firstSeenSource: 'order',
+      pointsBalance: 40,
+      lifetimeOrders: 3,
+    });
+    core.setBalance('+919876543210', 40);
+    seed(fake, { rows: [{ id: 1, rowNumber: 1, phone: '+919876543210', points: 100 }] });
+    enqueue(queue, [1]);
+
+    await worker.drainOnce();
+
+    const customers = fake.table('loyalty_customers');
+    expect(customers).toHaveLength(1);
+    // INSERT IGNORE: the order-derived history survives, only the balance moves.
+    expect(customers[0]).toMatchObject({
+      firstSeenSource: 'order',
+      lifetimeOrders: 3,
+      pointsBalance: 140,
+    });
   });
 
   it('#rerun-same-op-is-noop: the Core ledger dedupes by idempotency key', async () => {

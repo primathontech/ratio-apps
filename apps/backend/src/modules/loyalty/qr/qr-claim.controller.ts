@@ -16,6 +16,7 @@ import {
   type LoyaltyQrStatus,
   loyaltyClaimRequestSchema,
 } from '@ratio-app/shared/schemas/loyalty-claim';
+import { LOYALTY_PROGRAM_NAME } from '@ratio-app/shared/schemas/loyalty-config';
 import type { FastifyRequest } from 'fastify';
 import type { ZodType } from 'zod';
 import { RedisService } from '../../../core/cache/redis.service';
@@ -65,7 +66,7 @@ export class QrClaimController {
       state: qrStateFor(qr),
       eventName: qr.eventName,
       points: qr.pointsPerScan,
-      programName: await this.programName(qr.merchantId),
+      programName: LOYALTY_PROGRAM_NAME,
       ...(qr.claimMessage ? { claimMessage: qr.claimMessage } : {}),
     };
   }
@@ -108,7 +109,7 @@ export class QrClaimController {
     if (verdict !== 'ok') return { status: 'invalid_signature' };
 
     const phone = body.phone;
-    const programName = await this.programName(qr.merchantId);
+    const programName = LOYALTY_PROGRAM_NAME;
     const db = this.handle.db;
 
     // New-to-loyalty mirror row (INSERT IGNORE keeps an existing row intact).
@@ -219,14 +220,6 @@ export class QrClaimController {
       throw new NotFoundException({ message: 'QR code not found', error_code: 'QR_NOT_FOUND' });
     }
     return row;
-  }
-
-  private async programName(merchantId: string): Promise<string> {
-    try {
-      return (await this.config.getByMerchantId(merchantId)).programName;
-    } catch {
-      return 'Coins';
-    }
   }
 
   /** Undo an admitted-then-rejected scan: delete the row, restore counters. */

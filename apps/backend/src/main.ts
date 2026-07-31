@@ -17,8 +17,8 @@ import { AppModule } from './app.module';
 import { configureApp } from './config/configure-app';
 import { resolveEnabledModules } from './config/enabled-modules';
 import { loadEnv } from './config/env.schema';
-import { HealthRegistry } from './core/health/health-registry.service';
 import { buildCorsOriginChecker } from './core/common/cors';
+import { HealthRegistry } from './core/health/health-registry.service';
 
 // CORS origin allowlist logic lives in core/common/cors.ts so the forms CSV
 // export (which hijacks the raw response and must reapply CORS itself) shares
@@ -87,6 +87,13 @@ async function bootstrap(): Promise<void> {
   //                                         above the app-level 5-per-10-min
   //                                         business limiter; GET schema
   //                                         reads stay in the default bucket)
+  //   /<app>/api/…/bulk-operations/:id/rows — 300/min per IP (chunked CSV row
+  //                                         ingest: ONE user action fans out
+  //                                         into ceil(rows/500) POSTs, so the
+  //                                         20/min write bucket below made any
+  //                                         upload past ~9,500 rows 429 in the
+  //                                         middle — see the note above
+  //                                         BULK_INGEST_RE)
   //   /<app>/api/  writes (PUT/POST/...)  — 20/min per IP (was per IP+merchantId;
   //                                         the merchantId came from the
   //                                         Authorization header, which an
@@ -109,6 +116,22 @@ async function bootstrap(): Promise<void> {
   const OAUTH_WEBHOOK_RE = new RegExp(`^/(${slugAlt})/api/v1/oauth/webhook(?:\\?|$)`);
   const PUBLIC_SUBMIT_RE = new RegExp(`^/(${slugAlt})/public/v1/`);
   const API_WRITE_RE = new RegExp(`^/(${slugAlt})/api/`);
+  /**
+   * Chunked bulk-CSV row ingest. Unlike every other write route, a SINGLE user
+   * action (one CSV upload) deliberately fans out into many POSTs — one per
+   * 500-row chunk — so the shared 20/min write bucket cut uploads off partway
+   * through and left the operation stranded mid-ingest. 300/min covers the
+   * 50,000-row ceiling the app advertises (100 chunks) with headroom.
+   *
+   * Safe to raise here specifically: the route sits behind the per-module
+   * merchant-token guard, so it is not an anonymous surface, and each chunk is
+   * capped at 2,000 rows server-side and bounded by `bodyLimit`. It stays
+   * IP-keyed (never merchantId-keyed) so the S1 header-rotation bypass that
+   * motivated the IP-only rule still cannot apply.
+   */
+  const BULK_INGEST_RE = new RegExp(
+    `^/(${slugAlt})/api/bulk-operations/[A-Za-z0-9_-]{1,64}/rows(?:\\?|$)`,
+  );
 
   function classify(url: string, method: string): { max: number; kind: 'ip' | 'sdk' } {
     // The SDK bucket is the only one that may key on a non-IP component —
@@ -128,6 +151,9 @@ async function bootstrap(): Promise<void> {
       // Public storefront writes (form submissions, presigned uploads): the
       // edge DoS floor. Schema GETs fall through to the default bucket.
       return { max: 10, kind: 'ip' };
+    }
+    if (BULK_INGEST_RE.test(url) && method === 'POST') {
+      return { max: 300, kind: 'ip' };
     }
     if (API_WRITE_RE.test(url) && method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
       return { max: 20, kind: 'ip' };
@@ -228,11 +254,14 @@ async function bootstrap(): Promise<void> {
   // own static hosting.
   if (process.env.SERVE_FORMS_ADMIN_DIST) {
     const { default: fastifyStatic } = await import('@fastify/static');
-    await app.register(fastifyStatic as never, {
-      root: process.env.SERVE_FORMS_ADMIN_DIST,
-      prefix: '/admin-forms/',
-      decorateReply: false,
-    } as never);
+    await app.register(
+      fastifyStatic as never,
+      {
+        root: process.env.SERVE_FORMS_ADMIN_DIST,
+        prefix: '/admin-forms/',
+        decorateReply: false,
+      } as never,
+    );
   }
 
   await app.listen({ port: env.PORT, host: '0.0.0.0' });

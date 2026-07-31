@@ -14,9 +14,6 @@ const fakeStorefrontConfig: any = { invalidate: async () => {} };
 function makeRow(overrides: Partial<LoyaltyConfigRow> = {}): LoyaltyConfigRow {
   return {
     merchantId: MERCHANT_ID,
-    programName: 'Coins',
-    baseEarnRate: '1' as unknown as number, // DECIMAL comes back as a string from mysql2.
-    coinValueInr: '0.1' as unknown as number,
     storefrontBaseUrl: null,
     exportEmail: null,
     claimSigningSecret: 'existing-secret',

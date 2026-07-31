@@ -3,6 +3,7 @@ import {
   type LoyaltyPublicConfig,
   loyaltyPublicConfigSchema,
 } from '@ratio-app/shared/schemas/loyalty-claim';
+import { LOYALTY_PROGRAM_NAME } from '@ratio-app/shared/schemas/loyalty-config';
 import type { Selectable } from 'kysely';
 import { RedisService } from '../../../core/cache/redis.service';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
@@ -21,11 +22,9 @@ const configCacheKey = (merchantId: string) => `loyalty:cfg:${merchantId}`;
 // full row. `loyalty_configs` carries `claimSigningSecret`, so a `selectAll()`
 // here would sweep the raw signing secret into Redis (a lower-trust store); we
 // deliberately allow-list the columns instead. `merchantId` proves existence
-// (drives `enabled`); `programName` is the only value read out.
-type CachedConfigRow = Pick<
-  Selectable<LoyaltyDatabase['loyalty_configs']>,
-  'merchantId' | 'programName'
->;
+// (drives `enabled`) and is now the ONLY column needed — the program label is
+// the `LOYALTY_PROGRAM_NAME` constant since Core Loyalty owns naming.
+type CachedConfigRow = Pick<Selectable<LoyaltyDatabase['loyalty_configs']>, 'merchantId'>;
 
 /**
  * Builds the PUBLIC, redacted storefront config served to the browser SDK.
@@ -51,7 +50,7 @@ export class StorefrontConfigService {
     if (cached) return cached;
     const row = await this.handle.db
       .selectFrom('loyalty_configs')
-      .select(['merchantId', 'programName'])
+      .select(['merchantId'])
       .where('merchantId', '=', merchantId)
       .limit(1)
       .executeTakeFirst();
@@ -73,7 +72,9 @@ export class StorefrontConfigService {
   async publicConfig(merchantId: string): Promise<LoyaltyPublicConfig> {
     const row = await this.configRow(merchantId);
     return loyaltyPublicConfigSchema.parse({
-      programName: row?.programName ?? 'Coins',
+      // Constant, not per-merchant: the field stays on the wire because the
+      // deployed claim widget renders it (see LOYALTY_PROGRAM_NAME).
+      programName: LOYALTY_PROGRAM_NAME,
       enabled: Boolean(row),
       version: SDK_VERSION,
     });

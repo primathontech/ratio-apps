@@ -10,12 +10,17 @@ import { mkCustomer } from './helpers/fakes';
 const PHONE = '+919876543210';
 const NOW = new Date('2026-06-01T00:00:00.000Z');
 
+/**
+ * Rules grant flat BONUS coins. MULTIPLIER was retired 2026-07-31 — its extra
+ * was `(m − 1) × orderTotal × baseEarnRate`, and Core Loyalty owns that rate
+ * (it is no longer stored, and Core exposes no endpoint to read it back).
+ */
 function mkCachedRule(over: Partial<CachedRule> = {}): CachedRule {
   return {
     id: 'rule-1',
-    name: 'Triple points',
-    ruleType: 'MULTIPLIER',
-    value: 3,
+    name: 'Flat 100',
+    ruleType: 'BONUS',
+    value: 100,
     targetType: 'SEGMENT',
     conditions: { field: 'order_total', operator: 'gt', value: 0 },
     startsAt: '2026-01-01T00:00:00.000Z',
@@ -33,7 +38,6 @@ function run(
   over: Partial<{
     listMembership: CachedRuleSet['listMembership'];
     orderFacts: OrderFacts;
-    baseEarnRate: number;
     now: Date;
   }> = {},
 ) {
@@ -44,19 +48,18 @@ function run(
     orderFacts: over.orderFacts ?? facts,
     phone: PHONE,
     now: over.now ?? NOW,
-    baseEarnRate: over.baseEarnRate ?? 1,
   });
 }
 
 describe('RuleEvaluatorService.selectWinners', () => {
-  it('#priority-wins-per-type — higher-priority MULTIPLIER beats the rest', () => {
+  it('#priority-wins — the higher-priority BONUS beats the rest', () => {
     const winners = run([
-      mkCachedRule({ id: 'lo', name: 'Lo', value: 5, priority: 5 }),
-      mkCachedRule({ id: 'hi', name: 'Hi', value: 2, priority: 10 }),
+      mkCachedRule({ id: 'lo', name: 'Lo', value: 500, priority: 5 }),
+      mkCachedRule({ id: 'hi', name: 'Hi', value: 20, priority: 10 }),
     ]);
     expect(winners).toHaveLength(1);
     expect(winners[0].rule.id).toBe('hi');
-    expect(winners[0].extraPoints).toBe(1000); // (2-1) × 1000 × 1
+    expect(winners[0].extraPoints).toBe(20);
   });
 
   it('equal priority ties break by name for determinism', () => {
@@ -68,30 +71,50 @@ describe('RuleEvaluatorService.selectWinners', () => {
     expect(winners[0].rule.id).toBe('a');
   });
 
-  it('#multiplier-and-bonus-stack — one winner per type, both returned', () => {
-    const winners = run([
-      mkCachedRule({ id: 'mult', value: 2 }),
-      mkCachedRule({ id: 'bonus', name: 'Flat 50', ruleType: 'BONUS', value: 50 }),
-    ]);
-    expect(winners).toHaveLength(2);
-    const byId = Object.fromEntries(winners.map((w) => [w.rule.id, w.extraPoints]));
-    expect(byId.mult).toBe(1000); // (2-1) × 1000 × 1
-    expect(byId.bonus).toBe(50);
-  });
-
-  it('rounds multiplier extras with Math.round at .5', () => {
-    // (1.5 - 1) × 5 × 1 = 2.5 → 3
-    const winners = run([mkCachedRule({ value: 1.5 })], {
+  it('grants the flat value regardless of order total', () => {
+    const small = run([mkCachedRule({ value: 75 })], {
       orderFacts: { orderTotal: 5, itemCount: 1, isFirstOrder: false },
     });
-    expect(winners[0].extraPoints).toBe(3);
+    const large = run([mkCachedRule({ value: 75 })], {
+      orderFacts: { orderTotal: 50_000, itemCount: 1, isFirstOrder: false },
+    });
+    expect(small[0].extraPoints).toBe(75);
+    expect(large[0].extraPoints).toBe(75);
   });
 
-  it('applies baseEarnRate to multiplier extras', () => {
-    // (3 - 1) × 1000 × 0.5 = 1000
-    const winners = run([mkCachedRule()], { baseEarnRate: 0.5 });
-    expect(winners[0].extraPoints).toBe(1000);
+  it('rounds a fractional bonus value', () => {
+    expect(run([mkCachedRule({ value: 2.5 })])[0].extraPoints).toBe(3);
   });
+
+  it('returns at most ONE winner — bonuses no longer stack with a multiplier', () => {
+    const winners = run([
+      mkCachedRule({ id: 'bonus', name: 'Flat 50', value: 50, priority: 1 }),
+      mkCachedRule({ id: 'mult', name: 'Old 2x', ruleType: 'MULTIPLIER', value: 2, priority: 99 }),
+    ]);
+    expect(winners).toHaveLength(1);
+    expect(winners[0].rule.id).toBe('bonus');
+  });
+
+  // ── retired MULTIPLIER handling ───────────────────────────────────────────
+
+  it('#skips-retired-multipliers — a legacy MULTIPLIER grants nothing', () => {
+    // Awarding a guessed amount would be worse than awarding none: the rate is
+    // Core's and unknowable here. The service logs a warning instead.
+    const winners = run([mkCachedRule({ id: 'mult', ruleType: 'MULTIPLIER', value: 3 })]);
+    expect(winners).toEqual([]);
+  });
+
+  it('a matching BONUS still wins when a retired MULTIPLIER is present', () => {
+    const winners = run([
+      mkCachedRule({ id: 'mult', name: 'Old 3x', ruleType: 'MULTIPLIER', value: 3, priority: 50 }),
+      mkCachedRule({ id: 'bonus', name: 'Flat 60', value: 60, priority: 1 }),
+    ]);
+    expect(winners).toHaveLength(1);
+    expect(winners[0].rule.id).toBe('bonus');
+    expect(winners[0].extraPoints).toBe(60);
+  });
+
+  // ── matching semantics (unchanged) ────────────────────────────────────────
 
   it('excludes inactive rules', () => {
     expect(run([mkCachedRule({ active: false })])).toHaveLength(0);
@@ -116,7 +139,7 @@ describe('RuleEvaluatorService.selectWinners', () => {
     expect(run([listRule], { listMembership: { list: null } })).toHaveLength(0);
   });
 
-  it('list AND segment both matching → one winner per type by priority', () => {
+  it('list AND segment both matching → the higher-priority one wins', () => {
     const winners = run(
       [
         mkCachedRule({
@@ -125,7 +148,7 @@ describe('RuleEvaluatorService.selectWinners', () => {
           conditions: null,
           priority: 5,
         }),
-        mkCachedRule({ id: 'seg', priority: 10, value: 2 }),
+        mkCachedRule({ id: 'seg', priority: 10, value: 20 }),
       ],
       { listMembership: { list: [PHONE] } },
     );
@@ -142,7 +165,7 @@ describe('RuleEvaluatorService.selectWinners', () => {
 
   it('winners with extraPoints ≤ 0 are excluded', () => {
     const winners = run([
-      mkCachedRule({ id: 'tiny-bonus', ruleType: 'BONUS', value: 0.4 }), // round → 0
+      mkCachedRule({ id: 'tiny-bonus', value: 0.4 }), // round → 0
     ]);
     expect(winners).toEqual([]);
   });

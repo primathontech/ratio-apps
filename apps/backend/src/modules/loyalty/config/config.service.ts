@@ -39,10 +39,6 @@ export class LoyaltyConfigService {
       });
     }
     return {
-      programName: row.programName,
-      // DECIMAL columns come back from mysql2 as strings — coerce.
-      baseEarnRate: Number(row.baseEarnRate),
-      coinValueInr: Number(row.coinValueInr),
       ...(row.storefrontBaseUrl ? { storefrontBaseUrl: row.storefrontBaseUrl } : {}),
       ...(row.exportEmail ? { exportEmail: row.exportEmail } : {}),
       // Presence flag only — the raw claimSigningSecret is NEVER returned here.
@@ -57,16 +53,10 @@ export class LoyaltyConfigService {
       .insertInto('loyalty_configs')
       .values({
         merchantId,
-        programName: cfg.programName,
-        baseEarnRate: cfg.baseEarnRate,
-        coinValueInr: cfg.coinValueInr,
         storefrontBaseUrl: cfg.storefrontBaseUrl ?? null,
         exportEmail: cfg.exportEmail ?? null,
       })
       .onDuplicateKeyUpdate({
-        programName: cfg.programName,
-        baseEarnRate: cfg.baseEarnRate,
-        coinValueInr: cfg.coinValueInr,
         storefrontBaseUrl: cfg.storefrontBaseUrl ?? null,
         exportEmail: cfg.exportEmail ?? null,
         updatedAt: sql`CURRENT_TIMESTAMP(3)`,

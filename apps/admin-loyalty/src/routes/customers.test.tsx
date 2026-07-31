@@ -40,10 +40,18 @@ const profile = {
   history: { items: [{ type: 'earn', points: 100 }], pagination: {} },
 };
 
-function routeApi(opts: { onAdjust?: () => Promise<unknown> } = {}) {
+/**
+ * The profile path the SPA now requests. The search box normalizes to E.164
+ * before calling, so the phone arrives URL-encoded as `%2B919876543210` — that
+ * is what makes `9876543210`, `+91 98765 43210` and `09876543210` all resolve
+ * to the single customer the backend stores.
+ */
+const PROFILE_PATH_RE = /\/api\/customers\/%2B919876543210$/;
+
+function routeApi(opts: { onAdjust?: () => Promise<unknown>; profileError?: ApiException } = {}) {
   mockedApi.mockImplementation((method: string, path: string) => {
-    if (method === 'GET' && /\/api\/customers\/9876543210$/.test(path)) {
-      return Promise.resolve(profile);
+    if (method === 'GET' && PROFILE_PATH_RE.test(path)) {
+      return opts.profileError ? Promise.reject(opts.profileError) : Promise.resolve(profile);
     }
     if (method === 'POST' && /\/adjust$/.test(path)) {
       return opts.onAdjust
@@ -84,8 +92,8 @@ beforeEach(() => {
 
 afterEach(() => vi.clearAllMocks());
 
-async function search() {
-  fireEvent.change(screen.getByLabelText('Search phone'), { target: { value: '9876543210' } });
+async function search(value = '9876543210') {
+  fireEvent.change(screen.getByLabelText('Search phone'), { target: { value } });
   fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 }
 
@@ -99,17 +107,79 @@ describe('CustomersPage — search', () => {
     expect(screen.getByText('505')).toBeInTheDocument(); // live Core balance
   });
 
-  it('validates that the adjustment amount is positive', async () => {
+  it('normalizes any accepted phone format to the one stored customer', async () => {
+    routeApi();
+    renderWithProviders(<CustomersPage />);
+    await search('+91 98765-43210');
+    await waitFor(() => expect(screen.getByText('Asha Rao')).toBeInTheDocument());
+  });
+
+  it('rejects an invalid phone against the search field without calling the API', async () => {
+    routeApi();
+    renderWithProviders(<CustomersPage />);
+    await search('1234567890');
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(/valid Indian mobile number/),
+    );
+    expect(mockedApi.mock.calls.filter((c) => String(c[1]).includes('/api/customers/'))).toEqual(
+      [],
+    );
+  });
+
+  it('requires a phone before searching', async () => {
+    routeApi();
+    renderWithProviders(<CustomersPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent('Enter a phone number to search.'),
+    );
+  });
+
+  it('offers to credit a phone that is not in the mirror yet', async () => {
+    // Pre-fix this was a dead end: a bare "customer not found" error with no
+    // way to give a never-ordered customer coins.
+    routeApi({
+      profileError: new ApiException('customer not found', 404, 'CUSTOMER_NOT_FOUND'),
+    });
+    renderWithProviders(<CustomersPage />);
+    await search();
+
+    const openBtn = await screen.findByRole('button', { name: 'Credit or debit coins' });
+    expect(screen.getByText(/Not in your loyalty program yet/)).toBeInTheDocument();
+
+    fireEvent.click(openBtn);
+    fireEvent.change(screen.getByLabelText('Adjustment points'), { target: { value: '250' } });
+    fireEvent.change(screen.getByLabelText('Adjustment reason'), {
+      target: { value: 'Event giveaway' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+
+    await waitFor(() => {
+      const call = mockedApi.mock.calls.find((c) => String(c[1]).includes('/adjust'));
+      expect(call).toBeDefined();
+      expect(String(call?.[1])).toContain('%2B919876543210');
+      expect(call?.[2]).toEqual({
+        direction: 'credit',
+        points: 250,
+        reason: 'Event giveaway',
+      });
+    });
+  });
+
+  it('reports each invalid adjustment field against that field', async () => {
     routeApi();
     renderWithProviders(<CustomersPage />);
     await search();
     fireEvent.click(await screen.findByRole('button', { name: 'Adjust coins' }));
     fireEvent.change(screen.getByLabelText('Adjustment points'), { target: { value: '0' } });
-    fireEvent.change(screen.getByLabelText('Adjustment reason'), { target: { value: 'x' } });
+    fireEvent.change(screen.getByLabelText('Adjustment reason'), { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
-    await waitFor(() =>
-      expect(screen.getByText('Points must be a positive number.')).toBeInTheDocument(),
-    );
+
+    // Both problems are reported at once, each next to its own input.
+    await waitFor(() => expect(screen.getAllByRole('alert')).toHaveLength(2));
+    expect(screen.getByText(/Points must be between 1 and/)).toBeInTheDocument();
+    expect(screen.getByText('A reason is required.')).toBeInTheDocument();
+    expect(mockedApi.mock.calls.filter((c) => String(c[1]).includes('/adjust'))).toEqual([]);
   });
 
   it('surfaces INSUFFICIENT_BALANCE on a debit', async () => {

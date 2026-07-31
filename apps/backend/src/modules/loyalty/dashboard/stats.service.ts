@@ -2,7 +2,6 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { LoyaltyQrState } from '@ratio-app/shared/schemas/loyalty-claim';
 import { sql } from 'kysely';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
-import { LoyaltyConfigService } from '../config/config.service';
 import type { LoyaltyDailyStatsRow, LoyaltyDatabase } from '../db/types';
 import { LOYALTY_DB_TOKEN } from '../kysely.module';
 import { qrStateFor } from '../qr/qr.service';
@@ -22,8 +21,6 @@ export interface StatsSummary {
   redemptionRate: number;
   customersWithBalance: number;
   outstandingPoints: number;
-  /** outstanding × coinValueInr, two decimals. */
-  liabilityInr: number;
 }
 
 export interface TrendPoint {
@@ -34,8 +31,6 @@ export interface TrendPoint {
 }
 
 const DAY_MS = 24 * 3600 * 1000;
-/** Fallback coin value when the merchant has no config row (schema default). */
-const DEFAULT_COIN_VALUE_INR = 0.1;
 
 function dateKey(value: Date | string): string {
   if (value instanceof Date) {
@@ -55,10 +50,7 @@ function pct(numerator: number, denominator: number): number {
 
 @Injectable()
 export class StatsService {
-  constructor(
-    @Inject(LOYALTY_DB_TOKEN) private readonly handle: KyselyClient<LoyaltyDatabase>,
-    private readonly config: LoyaltyConfigService,
-  ) {}
+  constructor(@Inject(LOYALTY_DB_TOKEN) private readonly handle: KyselyClient<LoyaltyDatabase>) {}
 
   async summary(merchantId: string, from: string, to: string): Promise<StatsSummary> {
     const rows = await this.statsRows(merchantId, from, to);
@@ -68,13 +60,6 @@ export class StatsService {
     const latest = rows.at(-1); // range-ordered asc → last = latest snapshot
     const outstanding = latest ? Number(latest.outstandingPoints) : 0;
 
-    let coinValue = DEFAULT_COIN_VALUE_INR;
-    try {
-      coinValue = (await this.config.getByMerchantId(merchantId)).coinValueInr;
-    } catch {
-      /* no config row yet — schema default */
-    }
-
     return {
       pointsIssued: issued,
       pointsRedeemed: redeemed,
@@ -82,7 +67,6 @@ export class StatsService {
       redemptionRate: pct(redeemed, issued),
       customersWithBalance: latest ? Number(latest.customersWithBalance) : 0,
       outstandingPoints: outstanding,
-      liabilityInr: Math.round(outstanding * coinValue * 100) / 100,
     };
   }
 

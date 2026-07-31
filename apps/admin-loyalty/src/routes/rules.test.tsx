@@ -16,9 +16,9 @@ const mockedApi = vi.mocked(api);
 function makeRule(overrides: Record<string, unknown> = {}) {
   return {
     id: 'r1',
-    name: 'VIP multiplier',
-    ruleType: 'MULTIPLIER',
-    value: 2,
+    name: 'VIP bonus',
+    ruleType: 'BONUS',
+    value: 50,
     targetType: 'SEGMENT',
     conditions: { op: 'AND', children: [{ field: 'lifetime_spend', operator: 'gt', value: 0 }] },
     startsAt: '2026-01-01T00:00:00.000Z',
@@ -49,23 +49,36 @@ beforeEach(() => {
 afterEach(() => vi.clearAllMocks());
 
 describe('RulesPage', () => {
-  it('renders MULTIPLIER and BONUS value labels distinctly', async () => {
+  it('renders bonus coins, and flags a legacy multiplier as retired', async () => {
     routeApi([
       makeRule(),
-      makeRule({ id: 'r2', name: 'Diwali bonus', ruleType: 'BONUS', value: 50 }),
+      makeRule({ id: 'r2', name: 'Old 2x', ruleType: 'MULTIPLIER', value: 2 }),
     ]);
     renderWithProviders(<RulesPage />);
-    await waitFor(() => expect(screen.getByText('2×')).toBeInTheDocument());
-    expect(screen.getByText('+50 coins')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('+50 coins')).toBeInTheDocument());
+    // A retired multiplier grants nothing — say so instead of rendering `2×`
+    // as though it were still applied.
+    expect(screen.getByText('2×')).toBeInTheDocument();
+    expect(screen.getByText('retired')).toBeInTheDocument();
   });
 
-  it('swaps the value label between Multiplier and Bonus in the form', async () => {
+  it('offers only flat bonus coins when creating a rule', async () => {
     routeApi([]);
     renderWithProviders(<RulesPage />);
     fireEvent.click(await screen.findByRole('button', { name: 'New rule' }));
-    expect(screen.getByText('Multiplier (× base earn)')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('radio', { name: 'Bonus' }));
-    expect(screen.getByText('Bonus coins per order')).toBeInTheDocument();
+    expect(screen.getByText(/^Bonus coins per order/)).toBeInTheDocument();
+    // The rule-type choice is gone: MULTIPLIER can't be priced without the
+    // Core-owned earn rate.
+    expect(screen.queryByRole('radio', { name: 'Multiplier' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Multiplier \(× base earn\)/)).not.toBeInTheDocument();
+  });
+
+  it('warns when editing a legacy multiplier rule', async () => {
+    routeApi([makeRule({ ruleType: 'MULTIPLIER', value: 3 })]);
+    renderWithProviders(<RulesPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    expect(screen.getByText('This is a retired multiplier rule')).toBeInTheDocument();
+    expect(screen.getByText(/converts this rule to a flat bonus/)).toBeInTheDocument();
   });
 
   it('POSTs a schema-valid SEGMENT rule (conditions tree included)', async () => {
@@ -85,8 +98,8 @@ describe('RulesPage', () => {
         ruleType: string;
         value: number;
       };
-      expect(body.ruleType).toBe('MULTIPLIER');
-      expect(body.value).toBe(2);
+      expect(body.ruleType).toBe('BONUS');
+      expect(body.value).toBe(50);
       expect(loyaltyRuleConditionSchema.safeParse(body.conditions).success).toBe(true);
     });
   });
@@ -104,7 +117,7 @@ describe('RulesPage', () => {
   it('toggles a rule active state via the switch', async () => {
     routeApi([makeRule()]);
     renderWithProviders(<RulesPage />);
-    const toggle = await screen.findByLabelText('Toggle VIP multiplier');
+    const toggle = await screen.findByLabelText('Toggle VIP bonus');
     fireEvent.click(toggle);
     await waitFor(() => {
       const statusCall = mockedApi.mock.calls.find(
@@ -112,5 +125,66 @@ describe('RulesPage', () => {
       );
       expect(statusCall).toBeDefined();
     });
+  });
+});
+
+describe('RulesPage — validation', () => {
+  async function openNewRuleForm() {
+    routeApi([]);
+    renderWithProviders(<RulesPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'New rule' }));
+  }
+
+  it('marks every mandatory field with an asterisk', async () => {
+    await openNewRuleForm();
+    // `Target` also appears as a table column header, so assert that at least
+    // one element with each label carries the required marker.
+    for (const label of [
+      'Rule name',
+      'Bonus coins per order',
+      'Target',
+      'Segment conditions',
+      'Starts at',
+    ]) {
+      const marked = screen
+        .getAllByText(new RegExp(`^${label.replace(/[()×]/g, '\\$&')}`))
+        .some((el) => /\*/.test(el.textContent ?? '') && /\(required\)/.test(el.textContent ?? ''));
+      expect(marked, `${label} should be marked required`).toBe(true);
+    }
+    // Genuinely optional fields carry no marker.
+    expect(screen.getByText(/^Ends at/)).not.toHaveTextContent('*');
+  });
+
+  it('reports a missing name against the name field, not in one lumped alert', async () => {
+    await openNewRuleForm();
+    // Name left blank; the segment tree is empty too.
+    fireEvent.click(screen.getByRole('button', { name: 'Create rule' }));
+
+    await waitFor(() => expect(screen.getAllByRole('alert').length).toBeGreaterThan(0));
+    const messages = screen.getAllByRole('alert').map((el) => el.textContent ?? '');
+    // Both problems surface, each as its own field-level message…
+    expect(messages.some((m) => /too small|at least 1|required/i.test(m))).toBe(true);
+    // …and no "Rule is invalid" bullet-list banner is rendered.
+    expect(screen.queryByText('Rule is invalid')).not.toBeInTheDocument();
+    expect(mockedApi.mock.calls.filter((c) => c[0] === 'POST' && c[1] === '/api/rules')).toEqual(
+      [],
+    );
+  });
+
+  it('blames the value field when the bonus is not positive', async () => {
+    await openNewRuleForm();
+    fireEvent.change(screen.getByPlaceholderText('VIP 3x multiplier'), {
+      target: { value: 'Zero bonus' },
+    });
+    fireEvent.change(screen.getByLabelText('Rule value'), { target: { value: '0' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create rule' }));
+
+    await waitFor(() => {
+      const messages = screen.getAllByRole('alert').map((el) => el.textContent ?? '');
+      expect(messages.some((m) => /greater than 0|too small|positive/i.test(m))).toBe(true);
+    });
+    expect(mockedApi.mock.calls.filter((c) => c[0] === 'POST' && c[1] === '/api/rules')).toEqual(
+      [],
+    );
   });
 });

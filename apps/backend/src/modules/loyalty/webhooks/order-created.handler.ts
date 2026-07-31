@@ -78,15 +78,6 @@ export class LoyaltyOrderCreatedHandler implements WebhookHandler {
     // same schema as merchants/webhook_log (per-module DB isolation).
     const ltrx = trx as unknown as Transaction<LoyaltyDatabase>;
 
-    // Config read through the trx; a merchant without a config row earns at 1.
-    const configRow = await ltrx
-      .selectFrom('loyalty_configs')
-      .selectAll()
-      .where('merchantId', '=', merchantId)
-      .limit(1)
-      .executeTakeFirst();
-    const baseEarnRate = toNumber(configRow?.baseEarnRate) ?? 1;
-
     // Pre-upsert mirror read: first-order fact + condition-tree customer scope.
     const customerRow =
       ((await ltrx
@@ -115,10 +106,8 @@ export class LoyaltyOrderCreatedHandler implements WebhookHandler {
       orderFacts,
       phone,
       now,
-      baseEarnRate,
     });
 
-    const basePoints = Math.round(orderTotal * baseEarnRate);
     for (const winner of winners) {
       // INSERT IGNORE on uq(rule_id, order_id): 0 affected rows means this
       // rule already credited this order (webhook redelivery) — skip Core.
@@ -130,7 +119,10 @@ export class LoyaltyOrderCreatedHandler implements WebhookHandler {
           ruleId: winner.rule.id,
           orderId,
           phone,
-          basePoints,
+          // Legacy reporting column, never read. Core Loyalty owns order
+          // earning and the app no longer mirrors its rate, so the base award
+          // is not knowable here — only the rule's own extra is.
+          basePoints: 0,
           extraPoints: winner.extraPoints,
         })
         .executeTakeFirst();

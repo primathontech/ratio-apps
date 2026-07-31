@@ -17,6 +17,7 @@ import { type LoyaltyConditionGroup, loyaltyRuleInputSchema } from '@shared/sche
 import { createFileRoute } from '@tanstack/react-router';
 import { useState } from 'react';
 import { ConditionTreeBuilder, isGroup, makeGroup } from '@/components/ConditionTreeBuilder';
+import { FieldRow } from '@/components/FieldRow';
 import {
   type LoyaltyRule,
   type LoyaltyRulePayload,
@@ -35,7 +36,13 @@ export const Route = createFileRoute('/rules')({ component: RulesPage });
 
 interface RuleFormState {
   name: string;
-  ruleType: 'MULTIPLIER' | 'BONUS';
+  /**
+   * Always 'BONUS'. MULTIPLIER rules were retired 2026-07-31 — their extra was
+   * `(m − 1) × orderTotal × baseEarnRate`, and the base earn rate is owned by
+   * Core Loyalty and no longer stored (Core exposes no endpoint to read it
+   * back). Legacy MULTIPLIER rows stay readable and are flagged in the table.
+   */
+  ruleType: 'BONUS';
   value: string;
   targetType: 'SEGMENT' | 'CUSTOMER_LIST';
   conditions: LoyaltyConditionGroup;
@@ -45,11 +52,38 @@ interface RuleFormState {
   active: boolean;
 }
 
+/** Validation messages keyed by the field they belong to. */
+type RuleFieldErrors = Partial<Record<keyof RuleFormState, string>>;
+
+/**
+ * Turn zod issues into per-field messages. The shared rule schema already
+ * tags its cross-field refinements with an explicit `path` (`conditions`,
+ * `value`, `endsAt`), so the first path segment is the field to blame. The
+ * first message per field wins — piling three messages onto one input is
+ * noise, not detail.
+ */
+function toFieldErrors(issues: readonly { path: PropertyKey[]; message: string }[]): {
+  fields: RuleFieldErrors;
+  formLevel: string[];
+} {
+  const fields: RuleFieldErrors = {};
+  const formLevel: string[] = [];
+  for (const issue of issues) {
+    const key = issue.path[0] as keyof RuleFormState | undefined;
+    if (key && key in emptyForm()) {
+      if (!fields[key]) fields[key] = issue.message;
+    } else {
+      formLevel.push(issue.message);
+    }
+  }
+  return { fields, formLevel };
+}
+
 function emptyForm(): RuleFormState {
   return {
     name: '',
-    ruleType: 'MULTIPLIER',
-    value: '2',
+    ruleType: 'BONUS',
+    value: '50',
     targetType: 'SEGMENT',
     conditions: makeGroup('AND'),
     startsAt: new Date().toISOString().slice(0, 16),
@@ -72,7 +106,8 @@ function toLocalInput(iso: string | null): string {
 function formFromRule(rule: LoyaltyRule): RuleFormState {
   return {
     name: rule.name,
-    ruleType: rule.ruleType,
+    // A legacy MULTIPLIER row edits as a flat bonus — the form warns about it.
+    ruleType: 'BONUS',
     value: String(rule.value),
     targetType: rule.targetType,
     conditions:
@@ -98,18 +133,24 @@ export function RulesPage() {
   const [editing, setEditing] = useState<LoyaltyRule | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState<RuleFormState>(emptyForm());
-  const [errors, setErrors] = useState<string[]>([]);
+  const [errors, setErrors] = useState<RuleFieldErrors>({});
+  const [formErrors, setFormErrors] = useState<string[]>([]);
+
+  const resetErrors = () => {
+    setErrors({});
+    setFormErrors([]);
+  };
 
   const openCreate = () => {
     setEditing(null);
     setForm(emptyForm());
-    setErrors([]);
+    resetErrors();
     setFormOpen(true);
   };
   const openEdit = (rule: LoyaltyRule) => {
     setEditing(rule);
     setForm(formFromRule(rule));
-    setErrors([]);
+    resetErrors();
     setFormOpen(true);
   };
 
@@ -127,14 +168,12 @@ export function RulesPage() {
     };
     const parsed = loyaltyRuleInputSchema.safeParse(candidate);
     if (!parsed.success) {
-      setErrors(
-        parsed.error.issues.map((issue) =>
-          issue.path.length ? `${issue.path.join('.')}: ${issue.message}` : issue.message,
-        ),
-      );
+      const { fields, formLevel } = toFieldErrors(parsed.error.issues);
+      setErrors(fields);
+      setFormErrors(formLevel);
       return;
     }
-    setErrors([]);
+    resetErrors();
     const payload: LoyaltyRulePayload = {
       name: parsed.data.name,
       ruleType: parsed.data.ruleType,
@@ -155,13 +194,18 @@ export function RulesPage() {
       setFormOpen(false);
       setEditing(null);
     } catch (err) {
-      setErrors([err instanceof Error ? err.message : 'Save failed']);
+      setFormErrors([err instanceof Error ? err.message : 'Save failed']);
     }
   };
 
   const columns = [
     { title: 'Name', dataIndex: 'name', key: 'name' },
-    { title: 'Type', dataIndex: 'ruleType', key: 'ruleType' },
+    {
+      title: 'Type',
+      dataIndex: 'ruleType',
+      key: 'ruleType',
+      render: (value: unknown) => (value === 'MULTIPLIER' ? 'MULTIPLIER' : 'BONUS'),
+    },
     {
       title: 'Target',
       dataIndex: 'targetType',
@@ -174,7 +218,15 @@ export function RulesPage() {
       key: 'value',
       render: (_value: unknown, record: unknown) => {
         const rule = record as LoyaltyRule;
-        return rule.ruleType === 'MULTIPLIER' ? `${rule.value}×` : `+${rule.value} coins`;
+        if (rule.ruleType !== 'MULTIPLIER') return `+${rule.value} coins`;
+        // Retired type — it no longer grants anything; say so rather than
+        // rendering `3×` as though it were still being applied.
+        return (
+          <Space size="small">
+            <span>{rule.value}×</span>
+            <Tag color="red">retired</Tag>
+          </Space>
+        );
       },
     },
     { title: 'Priority', dataIndex: 'priority', key: 'priority' },
@@ -251,33 +303,29 @@ export function RulesPage() {
       {formOpen && (
         <Card title={editing ? `Edit rule — ${editing.name}` : 'New rule'}>
           <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
-            <FieldRow label="Rule name">
+            {editing?.ruleType === 'MULTIPLIER' && (
+              <Alert
+                type="warning"
+                showIcon
+                message="This is a retired multiplier rule"
+                description="Multiplier rules are no longer applied — Core Loyalty owns the order earn rate, so the extra can't be calculated. Saving converts this rule to a flat bonus of the coins you enter below."
+              />
+            )}
+
+            <FieldRow label="Rule name" required error={errors.name}>
               <Input
                 placeholder="VIP 3x multiplier"
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
-              />
-            </FieldRow>
-
-            <FieldRow label="Rule type">
-              <RadioGroup
-                value={form.ruleType}
-                onChange={(e) =>
-                  setForm({ ...form, ruleType: e.target.value as 'MULTIPLIER' | 'BONUS' })
-                }
-                options={[
-                  { label: 'Multiplier', value: 'MULTIPLIER' },
-                  { label: 'Bonus', value: 'BONUS' },
-                ]}
+                {...(errors.name ? { status: 'error' as const } : {})}
               />
             </FieldRow>
 
             <FieldRow
-              label={
-                form.ruleType === 'MULTIPLIER'
-                  ? 'Multiplier (× base earn)'
-                  : 'Bonus coins per order'
-              }
+              label="Bonus coins per order"
+              required
+              error={errors.value}
+              hint="Flat coins granted on top of what Core Loyalty already awards for the order"
             >
               <input
                 type="number"
@@ -290,7 +338,7 @@ export function RulesPage() {
               />
             </FieldRow>
 
-            <FieldRow label="Target">
+            <FieldRow label="Target" required error={errors.targetType}>
               <RadioGroup
                 value={form.targetType}
                 onChange={(e) =>
@@ -304,7 +352,7 @@ export function RulesPage() {
             </FieldRow>
 
             {form.targetType === 'SEGMENT' ? (
-              <FieldRow label="Segment conditions">
+              <FieldRow label="Segment conditions" required error={errors.conditions}>
                 <ConditionTreeBuilder
                   value={form.conditions}
                   onChange={(conditions) => setForm({ ...form, conditions })}
@@ -322,8 +370,8 @@ export function RulesPage() {
               />
             )}
 
-            <Space wrap size="large">
-              <FieldRow label="Starts at">
+            <Space wrap size="large" align="start">
+              <FieldRow label="Starts at" required error={errors.startsAt}>
                 <input
                   type="datetime-local"
                   aria-label="Starts at"
@@ -332,7 +380,7 @@ export function RulesPage() {
                   style={{ padding: '4px 8px' }}
                 />
               </FieldRow>
-              <FieldRow label="Ends at (optional)">
+              <FieldRow label="Ends at (optional)" error={errors.endsAt}>
                 <input
                   type="datetime-local"
                   aria-label="Ends at"
@@ -341,7 +389,7 @@ export function RulesPage() {
                   style={{ padding: '4px 8px' }}
                 />
               </FieldRow>
-              <FieldRow label="Priority (higher wins)">
+              <FieldRow label="Priority (higher wins)" error={errors.priority}>
                 <input
                   type="number"
                   aria-label="Priority"
@@ -353,14 +401,16 @@ export function RulesPage() {
               </FieldRow>
             </Space>
 
-            {errors.length > 0 && (
+            {/* Only whole-form problems land here now — anything attributable to
+                a field is rendered against that field above. */}
+            {formErrors.length > 0 && (
               <Alert
                 type="error"
                 showIcon
-                message="Rule is invalid"
+                message="Rule could not be saved"
                 description={
                   <ul style={{ margin: 0, paddingLeft: 16 }}>
-                    {errors.map((error) => (
+                    {formErrors.map((error) => (
                       <li key={error}>{error}</li>
                     ))}
                   </ul>
@@ -516,16 +566,5 @@ function RuleCustomerList({ ruleId }: { ruleId: string }) {
         />
       </Space>
     </Card>
-  );
-}
-
-function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <Typography.Text strong style={{ display: 'block', marginBottom: 4 }}>
-        {label}
-      </Typography.Text>
-      {children}
-    </div>
   );
 }

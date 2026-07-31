@@ -1,5 +1,6 @@
 import { HttpException, NotFoundException } from '@nestjs/common';
 import { loyaltyClaimRequestSchema } from '@ratio-app/shared/schemas/loyalty-claim';
+import { LOYALTY_PROGRAM_NAME } from '@ratio-app/shared/schemas/loyalty-config';
 import type { FastifyRequest } from 'fastify';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { RedisService } from '../../../../src/core/cache/redis.service';
@@ -71,9 +72,10 @@ describe('QrClaimController', () => {
     core = new FakeCoreLoyalty();
     redis = new FakeRedis();
     sig = new ClaimSignatureService();
+    // The controller no longer reads the program label from config — it serves
+    // the LOYALTY_PROGRAM_NAME constant (Core Loyalty owns program naming).
     const config = {
-      getByMerchantId: () =>
-        Promise.resolve({ programName: 'Wellversed Coins', baseEarnRate: 1, coinValueInr: 0.1 }),
+      getByMerchantId: () => Promise.resolve({ claimSecretSet: true }),
     } as unknown as LoyaltyConfigService;
     controller = new QrClaimController(
       made.handle,
@@ -92,7 +94,7 @@ describe('QrClaimController', () => {
         state: 'active',
         eventName: 'Launch Party',
         points: 50,
-        programName: 'Wellversed Coins',
+        programName: LOYALTY_PROGRAM_NAME,
         claimMessage: 'See you there!',
       });
     });
@@ -112,9 +114,9 @@ describe('QrClaimController', () => {
 
   describe('POST :code/claim', () => {
     it('#rejects-old-shape — strict schema refuses the retired gkAccessToken body', () => {
-      expect(loyaltyClaimRequestSchema.safeParse({ gkAccessToken: 't', phone: '123' }).success).toBe(
-        false,
-      );
+      expect(
+        loyaltyClaimRequestSchema.safeParse({ gkAccessToken: 't', phone: '123' }).success,
+      ).toBe(false);
       expect(
         loyaltyClaimRequestSchema.safeParse(signedBody(MERCHANT_ID, CODE, PHONE)).success,
       ).toBe(true);
@@ -129,7 +131,7 @@ describe('QrClaimController', () => {
         status: 'credited',
         points: 50,
         newBalance: 50,
-        programName: 'Wellversed Coins',
+        programName: LOYALTY_PROGRAM_NAME,
       });
       expect(core.calls).toHaveLength(1);
       expect(core.calls[0]).toMatchObject({
@@ -156,7 +158,7 @@ describe('QrClaimController', () => {
       expect(res).toEqual({
         status: 'already_claimed',
         balance: 50,
-        programName: 'Wellversed Coins',
+        programName: LOYALTY_PROGRAM_NAME,
       });
       expect(core.calls.filter((c) => c.op === 'credit')).toHaveLength(1);
       expect(fake.table('loyalty_qr_scans')).toHaveLength(1);
@@ -168,7 +170,11 @@ describe('QrClaimController', () => {
       seedConfig(fake);
       const body = signedBody(MERCHANT_ID, CODE, PHONE);
       const flipped = body.sig.endsWith('0') ? '1' : '0';
-      const res = await controller.claim(CODE, { ...body, sig: `${body.sig.slice(0, -1)}${flipped}` }, req);
+      const res = await controller.claim(
+        CODE,
+        { ...body, sig: `${body.sig.slice(0, -1)}${flipped}` },
+        req,
+      );
       expect(res).toEqual({ status: 'invalid_signature' });
       expect(core.calls).toHaveLength(0);
     });

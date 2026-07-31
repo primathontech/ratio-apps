@@ -1,4 +1,5 @@
 import { loyaltyPublicConfigSchema } from '@ratio-app/shared/schemas/loyalty-claim';
+import { LOYALTY_PROGRAM_NAME } from '@ratio-app/shared/schemas/loyalty-config';
 import type { Selectable } from 'kysely';
 import { describe, expect, it, vi } from 'vitest';
 import type { KyselyClient } from '../../../../src/core/db/kysely-factory';
@@ -72,7 +73,9 @@ describe('loyalty StorefrontConfigService', () => {
 
     const result = await service.publicConfig(MERCHANT_ID);
 
-    expect(result.programName).toBe('Wellversed Coins');
+    // The field stays on the wire for the deployed claim widget, but it is the
+    // LOYALTY_PROGRAM_NAME constant now — Core Loyalty owns program naming.
+    expect(result.programName).toBe(LOYALTY_PROGRAM_NAME);
     expect(result.enabled).toBe(true);
     expect(typeof result.version).toBe('string');
     expect(result.version.length).toBeGreaterThan(0);
@@ -98,7 +101,7 @@ describe('loyalty StorefrontConfigService', () => {
     const result = await service.publicConfig(MERCHANT_ID);
 
     expect(result.enabled).toBe(false);
-    expect(result.programName).toBe('Coins');
+    expect(result.programName).toBe(LOYALTY_PROGRAM_NAME);
     expect(() => loyaltyPublicConfigSchema.parse(result)).not.toThrow();
   });
 });

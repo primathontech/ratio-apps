@@ -140,8 +140,8 @@ export function DashboardPage() {
         />
         <StatTile title="Coins expired" value={s?.pointsExpired} loading={summary.isLoading} />
         <StatTile
-          title="Outstanding liability"
-          value={s ? `₹${s.liabilityInr.toLocaleString('en-IN')}` : undefined}
+          title="Outstanding coins"
+          value={s?.outstandingPoints}
           loading={summary.isLoading}
         />
         <StatTile

@@ -12,6 +12,7 @@ import {
 } from '@primathonos/orion';
 import { createFileRoute } from '@tanstack/react-router';
 import { useState } from 'react';
+import { FieldRow } from '@/components/FieldRow';
 import {
   type QrCode,
   type QrDetail,
@@ -88,17 +89,34 @@ export function maskPhone(phone: string): string {
   return '*'.repeat(phone.length - 4) + phone.slice(-4);
 }
 
-function validate(form: QrFormState): string[] {
-  const errors: string[] = [];
-  if (!form.eventName.trim()) errors.push('Event name is required.');
+/** Validation messages keyed by the field they belong to. */
+export type QrFieldErrors = Partial<Record<keyof QrFormState, string>>;
+
+/**
+ * Validate the QR form, attributing every message to its own field so it can
+ * render against that input instead of in one lumped-together Alert.
+ */
+export function validate(form: QrFormState): QrFieldErrors {
+  const errors: QrFieldErrors = {};
+  if (!form.eventName.trim()) errors.eventName = 'Event name is required.';
+
   const points = Number(form.pointsPerScan);
-  if (!Number.isFinite(points) || points < 1) errors.push('Coins per scan must be at least 1.');
+  if (!form.pointsPerScan.trim()) errors.pointsPerScan = 'Coins per scan is required.';
+  else if (!Number.isFinite(points) || points < 1) {
+    errors.pointsPerScan = 'Coins per scan must be at least 1.';
+  }
+
   const max = Number(form.maxScans);
-  if (!Number.isInteger(max) || max < 0) errors.push('Max scans must be 0 (unlimited) or more.');
-  if (!form.startsAt) errors.push('Start date is required.');
-  if (!form.expiresAt) errors.push('Expiry date is required.');
-  if (form.startsAt && form.expiresAt && form.startsAt >= form.expiresAt) {
-    errors.push('Expiry must be after the start date.');
+  if (!form.maxScans.trim()) errors.maxScans = 'Max scans is required (use 0 for unlimited).';
+  else if (!Number.isInteger(max) || max < 0) {
+    errors.maxScans = 'Max scans must be 0 (unlimited) or more.';
+  }
+
+  if (!form.startsAt) errors.startsAt = 'Start date is required.';
+  if (!form.expiresAt) errors.expiresAt = 'Expiry date is required.';
+  // Cross-field: blame the expiry, since that is the one the merchant fixes.
+  else if (form.startsAt && form.startsAt >= form.expiresAt) {
+    errors.expiresAt = 'Expiry must be after the start date.';
   }
   return errors;
 }
@@ -113,28 +131,35 @@ export function QrPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState<QrFormState>(emptyForm());
-  const [errors, setErrors] = useState<string[]>([]);
+  const [errors, setErrors] = useState<QrFieldErrors>({});
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const resetErrors = () => {
+    setErrors({});
+    setSaveError(null);
+  };
 
   const openCreate = () => {
     setEditingId(null);
     setForm(emptyForm());
-    setErrors([]);
+    resetErrors();
     setFormOpen(true);
   };
   const openEdit = (qr: QrCode) => {
     setEditingId(qr.id);
     setForm(formFromQr(qr));
-    setErrors([]);
+    resetErrors();
     setFormOpen(true);
   };
 
   const submit = async () => {
     const found = validate(form);
-    if (found.length > 0) {
+    if (Object.keys(found).length > 0) {
       setErrors(found);
+      setSaveError(null);
       return;
     }
-    setErrors([]);
+    resetErrors();
     const payload: QrPayload = {
       eventName: form.eventName.trim(),
       pointsPerScan: Number(form.pointsPerScan),
@@ -154,7 +179,7 @@ export function QrPage() {
       setFormOpen(false);
       setEditingId(null);
     } catch (err) {
-      setErrors([err instanceof Error ? err.message : 'Save failed']);
+      setSaveError(err instanceof Error ? err.message : 'Save failed');
     }
   };
 
@@ -267,16 +292,17 @@ export function QrPage() {
       {formOpen && (
         <Card title={editingId ? 'Edit QR code' : 'New QR code'}>
           <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
-            <FieldRow label="Event name">
+            <FieldRow label="Event name" required error={errors.eventName}>
               <Input
                 placeholder="Diwali Expo 2026"
                 value={form.eventName}
                 onChange={(e) => setForm({ ...form, eventName: e.target.value })}
+                {...(errors.eventName ? { status: 'error' as const } : {})}
               />
             </FieldRow>
 
-            <Space wrap size="large">
-              <FieldRow label="Coins per scan">
+            <Space wrap size="large" align="start">
+              <FieldRow label="Coins per scan" required error={errors.pointsPerScan}>
                 <input
                   type="number"
                   aria-label="Coins per scan"
@@ -286,7 +312,7 @@ export function QrPage() {
                   style={{ padding: '4px 8px', width: 140 }}
                 />
               </FieldRow>
-              <FieldRow label="Max scans (0 = unlimited)">
+              <FieldRow label="Max scans (0 = unlimited)" required error={errors.maxScans}>
                 <input
                   type="number"
                   aria-label="Max scans"
@@ -298,8 +324,8 @@ export function QrPage() {
               </FieldRow>
             </Space>
 
-            <Space wrap size="large">
-              <FieldRow label="Starts at">
+            <Space wrap size="large" align="start">
+              <FieldRow label="Starts at" required error={errors.startsAt}>
                 <input
                   type="datetime-local"
                   aria-label="Starts at"
@@ -308,7 +334,7 @@ export function QrPage() {
                   style={{ padding: '4px 8px' }}
                 />
               </FieldRow>
-              <FieldRow label="Expires at">
+              <FieldRow label="Expires at" required error={errors.expiresAt}>
                 <input
                   type="datetime-local"
                   aria-label="Expires at"
@@ -327,20 +353,9 @@ export function QrPage() {
               />
             </FieldRow>
 
-            {errors.length > 0 && (
-              <Alert
-                type="error"
-                showIcon
-                message="QR code is invalid"
-                description={
-                  <ul style={{ margin: 0, paddingLeft: 16 }}>
-                    {errors.map((error) => (
-                      <li key={error}>{error}</li>
-                    ))}
-                  </ul>
-                }
-              />
-            )}
+            {/* Field-attributable problems render against their input above; only
+                a failed save reaches this banner. */}
+            {saveError && <Alert type="error" showIcon message={saveError} />}
 
             <Space>
               <PrimaryButton
@@ -526,17 +541,6 @@ function Stat({ title, value }: { title: string; value: number | string | undefi
             ? value.toLocaleString('en-IN')
             : value}
       </Typography.Text>
-    </div>
-  );
-}
-
-function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <Typography.Text strong style={{ display: 'block', marginBottom: 4 }}>
-        {label}
-      </Typography.Text>
-      {children}
     </div>
   );
 }

@@ -84,6 +84,32 @@ export class CustomerMirrorService {
     return { isNew: Number(res.numInsertedOrUpdatedRows ?? 0) > 0 };
   }
 
+  /**
+   * Set just the cached balance after a credit/debit we performed ourselves.
+   *
+   * Credit/debit responses carry only `new_balance`, not the full lifetime
+   * breakdown, so this writes the one column we actually know. The remaining
+   * lifetime counters resync on the next {@link applyCoreBalance} (any profile
+   * view or balance refresh).
+   */
+  async applyAdjustedBalance(
+    exec: LoyaltyExecutor,
+    merchantId: string,
+    phone: string,
+    pointsBalance: number,
+  ): Promise<void> {
+    await exec
+      .updateTable('loyalty_customers')
+      .set({
+        pointsBalance,
+        balanceSyncedAt: new Date(),
+        updatedAt: sql<Date>`CURRENT_TIMESTAMP(3)`,
+      })
+      .where('merchantId', '=', merchantId)
+      .where('phone', '=', phone)
+      .execute();
+  }
+
   /** Refresh the cached Core balance columns from a live balance response. */
   async applyCoreBalance(
     exec: LoyaltyExecutor,

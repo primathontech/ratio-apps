@@ -14,6 +14,7 @@ export const queryKeys = {
 
   bulkOps: (page: number, limit: number) => ['loyalty', 'bulk-ops', page, limit] as const,
   bulkOp: (id: string) => ['loyalty', 'bulk-op', id] as const,
+  bulkOpRows: (id: string, page: number) => ['loyalty', 'bulk-op-rows', id, page] as const,
 
   rules: () => ['loyalty', 'rules'] as const,
   rule: (id: string) => ['loyalty', 'rule', id] as const,

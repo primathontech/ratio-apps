@@ -6,7 +6,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import type { LoyaltyQrState } from '@ratio-app/shared/schemas/loyalty-claim';
-import type { LoyaltyConfig } from '@ratio-app/shared/schemas/loyalty-config';
+import { LOYALTY_PROGRAM_NAME, type LoyaltyConfig } from '@ratio-app/shared/schemas/loyalty-config';
 import { sql } from 'kysely';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { toBuffer } from 'qrcode';
@@ -320,7 +320,7 @@ export class QrService {
       height: imageSize,
     });
 
-    const caption = `Scan to earn ${row.pointsPerScan} ${cfg.programName}`;
+    const caption = `Scan to earn ${row.pointsPerScan} ${LOYALTY_PROGRAM_NAME}`;
     const captionSize = 18;
     const captionWidth = regular.widthOfTextAtSize(caption, captionSize);
     page.drawText(caption, {

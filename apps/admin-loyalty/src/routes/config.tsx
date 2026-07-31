@@ -5,6 +5,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useEffect } from 'react';
 import { Controller, FormProvider, useForm } from 'react-hook-form';
 import type { z } from 'zod';
+import { FieldRow } from '@/components/FieldRow';
 import {
   useClaimSecret,
   useConfig,
@@ -29,9 +30,6 @@ export function ConfigPage() {
   const form = useForm<ConfigInput, unknown, ConfigOutput>({
     resolver: zodResolver(loyaltyConfigInputSchema),
     defaultValues: {
-      programName: 'Coins',
-      baseEarnRate: 1,
-      coinValueInr: 0.1,
       storefrontBaseUrl: '',
       exportEmail: '',
     },
@@ -40,9 +38,6 @@ export function ConfigPage() {
   useEffect(() => {
     if (!data) return;
     form.reset({
-      programName: data.programName,
-      baseEarnRate: data.baseEarnRate,
-      coinValueInr: data.coinValueInr,
       storefrontBaseUrl: data.storefrontBaseUrl ?? '',
       exportEmail: data.exportEmail ?? '',
     });
@@ -74,62 +69,6 @@ export function ConfigPage() {
             )}
           >
             <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
-              <FieldRow
-                label="Program name"
-                error={form.formState.errors.programName?.message}
-                hint='What your customers call points — e.g. "Wellversed Coins"'
-              >
-                <Controller
-                  control={form.control}
-                  name="programName"
-                  render={({ field, fieldState }) => (
-                    <Input
-                      {...field}
-                      placeholder="Coins"
-                      {...(fieldState.invalid ? { status: 'error' as const } : {})}
-                    />
-                  )}
-                />
-              </FieldRow>
-
-              <FieldRow
-                label="Base earn rate (coins per ₹1)"
-                error={form.formState.errors.baseEarnRate?.message as string | undefined}
-                hint="Must match the earning rate configured in Core Loyalty — the rule engine multiplies this base"
-              >
-                <Controller
-                  control={form.control}
-                  name="baseEarnRate"
-                  render={({ field, fieldState }) => (
-                    <Input
-                      {...field}
-                      value={field.value === undefined ? '' : String(field.value)}
-                      placeholder="1"
-                      {...(fieldState.invalid ? { status: 'error' as const } : {})}
-                    />
-                  )}
-                />
-              </FieldRow>
-
-              <FieldRow
-                label="Coin value (₹ per coin)"
-                error={form.formState.errors.coinValueInr?.message as string | undefined}
-                hint="Drives the outstanding-liability dashboard tile"
-              >
-                <Controller
-                  control={form.control}
-                  name="coinValueInr"
-                  render={({ field, fieldState }) => (
-                    <Input
-                      {...field}
-                      value={field.value === undefined ? '' : String(field.value)}
-                      placeholder="0.10"
-                      {...(fieldState.invalid ? { status: 'error' as const } : {})}
-                    />
-                  )}
-                />
-              </FieldRow>
-
               <FieldRow
                 label="Storefront base URL"
                 error={form.formState.errors.storefrontBaseUrl?.message}
@@ -246,36 +185,5 @@ function ClaimSecretCard() {
         )}
       </Space>
     </Card>
-  );
-}
-
-function FieldRow({
-  label,
-  hint,
-  error,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  error?: string | undefined;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <Typography.Text strong style={{ display: 'block', marginBottom: 4 }}>
-        {label}
-      </Typography.Text>
-      {children}
-      {error && (
-        <Typography.Text type="danger" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
-          {error}
-        </Typography.Text>
-      )}
-      {hint && !error && (
-        <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
-          {hint}
-        </Typography.Text>
-      )}
-    </div>
   );
 }

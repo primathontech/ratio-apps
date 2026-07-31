@@ -20,6 +20,7 @@ import {
 } from '@shared/schemas/loyalty-export';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMemo, useState } from 'react';
+import { FieldRow } from '@/components/FieldRow';
 import { useConfig } from '@/hooks/useConfig';
 import { type ExportJob, useCreateExport, useCustomers, useExports } from '@/hooks/useLoyalty';
 import { ApiException } from '@/lib/api';
@@ -332,10 +333,12 @@ export function ExportPage() {
           />
 
           {emailRequired && (
-            <div>
-              <Typography.Text strong style={{ display: 'block', marginBottom: 4 }}>
-                Email (required for exports over 10,000 rows)
-              </Typography.Text>
+            <FieldRow
+              label="Email"
+              required
+              error={fieldError ?? undefined}
+              hint="Exports over 10,000 rows are emailed a download link instead of streamed"
+            >
               <Input
                 aria-label="Export email"
                 placeholder="ops@example.com"
@@ -348,10 +351,11 @@ export function ExportPage() {
                   ? { status: 'error' as const }
                   : {})}
               />
-            </div>
+            </FieldRow>
           )}
 
-          {fieldError && <Alert type="error" showIcon message={fieldError} />}
+          {/* Only shown standalone when there is no email field to attach it to. */}
+          {fieldError && !emailRequired && <Alert type="error" showIcon message={fieldError} />}
 
           <div>
             <PrimaryButton onClick={() => void submit()} loading={createExport.isPending}>
