@@ -45,7 +45,14 @@ export class RpOrderSyncService implements OnModuleDestroy {
     try {
       await db.collection('orders').updateOne(
         { id: numericId, store: storeDomain },
-        { $set: { ...normalized, store: storeDomain, updated_at: new Date() } },
+        {
+          // Every order this service ever upserts came from an OS order-service webhook —
+          // there's no Shopify-side path through here. RP's resolveStoreUrl reads this on a
+          // dual-platform store (one StoreDetail, two domains) to know which of the two
+          // client APIs (createStoreApi.js) a given order actually belongs to; without it,
+          // an OS-originated order looks identical to a Shopify one and gets routed wrong.
+          $set: { ...normalized, store: storeDomain, order_platform: 'os', updated_at: new Date() },
+        },
         { upsert: true },
       );
       this.logger.log({ id: numericId, store: storeDomain }, 'order upserted into RP MongoDB');

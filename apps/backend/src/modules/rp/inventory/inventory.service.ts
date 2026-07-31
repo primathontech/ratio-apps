@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { RpRatioClientService } from '../ratio-client/ratio-client.service';
+import { RpRatioTokenProvider } from '../oauth/ratio-token.provider';
 import { RpIdMappingService } from '../id-mapping/id-mapping.service';
 
 @Injectable()
@@ -8,6 +9,7 @@ export class RpInventoryService {
 
   constructor(
     private readonly ratioClient: RpRatioClientService,
+    private readonly tokenProvider: RpRatioTokenProvider,
     private readonly idMapping: RpIdMappingService,
   ) {}
 
@@ -27,8 +29,9 @@ export class RpInventoryService {
     const delta = Number(available_adjustment ?? 0);
     const hashedId = String(inventory_item_id);
     const realVariantId = (await this.idMapping.resolveRealId('variant', hashedId)) ?? hashedId;
+    const token = await this.tokenProvider.getAccessToken(merchantId);
 
-    const variant = await this.ratioClient.getVariant(merchantId, realVariantId);
+    const variant = await this.ratioClient.getVariant(token, realVariantId);
     const current = Number(variant?.inventory_quantity ?? (variant?.inventory as Record<string, unknown> | undefined)?.quantity ?? 0);
     const next = current + delta;
 
@@ -36,7 +39,7 @@ export class RpInventoryService {
       { merchantId, hashedId, realVariantId, current, delta, next },
       'adjusting OS variant inventory',
     );
-    await this.ratioClient.setVariantInventory(merchantId, realVariantId, next);
+    await this.ratioClient.setVariantInventory(token, realVariantId, next);
 
     return {
       inventory_level: {

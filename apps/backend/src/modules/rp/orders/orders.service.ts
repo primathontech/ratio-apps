@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { RpRatioClientService } from '../ratio-client/ratio-client.service';
+import { RpRatioTokenProvider } from '../oauth/ratio-token.provider';
 import { RpTransformerService } from '../transformer/transformer.service';
 import { RpIdMappingService } from '../id-mapping/id-mapping.service';
 import { normalizeOrder } from './normalize-order';
@@ -8,26 +9,28 @@ import { normalizeOrder } from './normalize-order';
 export class RpOrdersService {
   constructor(
     private readonly ratioClient: RpRatioClientService,
+    private readonly tokenProvider: RpRatioTokenProvider,
     private readonly transformer: RpTransformerService,
     private readonly idMapping: RpIdMappingService,
   ) {}
 
   /**
-   * Create an order in OS (used by RP's exchange-order flow, which POSTs a Shopify
-   * REST order body). Maps to the OS CreateOrderDto, then normalizes the OS response
-   * back into the Shopify REST order shape RP persists.
+   * Create an order via Ratio (used by RP's exchange-order flow, which POSTs a Shopify
+   * REST order body). Maps to Ratio's CreateOrderDto, then normalizes the response back
+   * into the Shopify REST order shape RP persists.
    */
   async createOrder(merchantId: string, body: unknown): Promise<unknown> {
     const dto = this.transformer.mapCreateOrder(body as Record<string, unknown>);
-    const raw = (await this.ratioClient.createOrder(merchantId, dto)) as Record<string, unknown>;
+    const token = await this.tokenProvider.getAccessToken(merchantId);
+    const raw = (await this.ratioClient.createOrder(token, merchantId, dto)) as Record<string, unknown>;
     const envelope = raw as Record<string, Record<string, unknown>>;
     const order = (envelope.data?.order ?? envelope.order ?? raw) as Record<string, unknown>;
-    // RP's ShopifyAxios.createOrder returns the bare order object (result.data.order).
     return { order: normalizeOrder(order) };
   }
 
   async getOrders(merchantId: string, params: Record<string, string>): Promise<unknown> {
-    const raw = await this.ratioClient.getOrders(merchantId, params) as Record<string, unknown>;
+    const token = await this.tokenProvider.getAccessToken(merchantId);
+    const raw = await this.ratioClient.getOrders(token, params) as Record<string, unknown>;
     // Normalize orders list — same as single-order normalization so RP's Mongoose Number
     // fields and id comparisons work without any OS-awareness in the RP codebase.
     const orders = Array.isArray(raw.orders)
@@ -40,9 +43,9 @@ export class RpOrdersService {
   }
 
   async getOrder(merchantId: string, orderId: string): Promise<unknown> {
-    const raw = await this.ratioClient.getOrder(merchantId, orderId) as Record<string, unknown>;
-    // OS wraps responses as { status_code, data: { order: {...} } }; fall back through
-    // legacy { order: {...} } and bare-order shapes for safety.
+    const token = await this.tokenProvider.getAccessToken(merchantId);
+    const raw = await this.ratioClient.getOrder(token, orderId) as Record<string, unknown>;
+    // Fall back through legacy { data: { order } } and bare-order shapes for safety.
     const envelope = raw as Record<string, Record<string, unknown>>;
     const order = (envelope.data?.order ?? (raw as Record<string, unknown>).order ?? raw) as Record<string, unknown>;
     const normalized = normalizeOrder(order);
@@ -51,19 +54,21 @@ export class RpOrdersService {
   }
 
   async patchOrder(merchantId: string, orderId: string, body: unknown): Promise<unknown> {
-    const raw = await this.ratioClient.patchOrder(merchantId, orderId, body) as Record<string, unknown>;
+    const token = await this.tokenProvider.getAccessToken(merchantId);
+    const raw = await this.ratioClient.patchOrder(token, merchantId, orderId, body) as Record<string, unknown>;
     return { order: raw.order ?? raw };
   }
 
   /**
-   * OS has no Shopify-style Transactions API — its orders never populate a real
+   * Ratio's orders have no Shopify-style Transactions API — orders never populate a real
    * `transactions` array. Synthesize a single Shopify-shaped transaction from the
    * order's own financial_status/payment_details instead, since that's what RP's
    * COD-detection (checkOrderIsCode) actually keys off of. financial_status 'pending'
    * means uncaptured/COD, matching Shopify's "no transaction yet" semantics.
    */
   async getTransactions(merchantId: string, orderId: string): Promise<unknown> {
-    const raw = await this.ratioClient.getOrder(merchantId, orderId) as Record<string, unknown>;
+    const token = await this.tokenProvider.getAccessToken(merchantId);
+    const raw = await this.ratioClient.getOrder(token, orderId) as Record<string, unknown>;
     const envelope = raw as Record<string, Record<string, unknown>>;
     const order = (envelope.data?.order ?? (raw as Record<string, unknown>).order ?? raw) as Record<string, unknown>;
 

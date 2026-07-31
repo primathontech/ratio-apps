@@ -2,10 +2,11 @@ import { describe, it, expect, vi } from 'vitest';
 import { BadRequestException } from '@nestjs/common';
 import { RpInventoryService } from './inventory.service';
 import type { RpRatioClientService } from '../ratio-client/ratio-client.service';
+import type { RpRatioTokenProvider } from '../oauth/ratio-token.provider';
 import type { RpIdMappingService } from '../id-mapping/id-mapping.service';
 
 /**
- * Shopify's inventory_levels/adjust takes a DELTA; OS's own variant inventory endpoint
+ * Shopify's inventory_levels/adjust takes a DELTA; Ratio's own variant inventory endpoint
  * sets an ABSOLUTE quantity. This service must read the variant's current quantity,
  * add the delta, then write the sum back — never pass the delta straight through.
  */
@@ -18,14 +19,17 @@ function makeService(opts: {
   const getVariant = opts.getVariant ?? vi.fn().mockResolvedValue({ inventory_quantity: 10 });
   const setVariantInventory = opts.setVariantInventory ?? vi.fn().mockResolvedValue({});
   const ratioClient = { getVariant, setVariantInventory } as unknown as RpRatioClientService;
+  const tokenProvider = {
+    getAccessToken: vi.fn().mockResolvedValue('access-tok-1'),
+  } as unknown as RpRatioTokenProvider;
   const idMapping = { resolveRealId } as unknown as RpIdMappingService;
 
-  const service = new RpInventoryService(ratioClient, idMapping);
+  const service = new RpInventoryService(ratioClient, tokenProvider, idMapping);
   return { service, ratioClient, idMapping, resolveRealId, getVariant, setVariantInventory };
 }
 
 describe('RpInventoryService.adjustInventoryLevel', () => {
-  it('resolves the hashed inventory_item_id via id-mapping before reading/writing OS', async () => {
+  it('resolves the hashed inventory_item_id via id-mapping before reading/writing', async () => {
     const { service, resolveRealId, getVariant } = makeService({ resolvedRealId: 'real-variant-1' });
 
     await service.adjustInventoryLevel('m1', {
@@ -35,7 +39,7 @@ describe('RpInventoryService.adjustInventoryLevel', () => {
     });
 
     expect(resolveRealId).toHaveBeenCalledWith('variant', '42020556374094');
-    expect(getVariant).toHaveBeenCalledWith('m1', 'real-variant-1');
+    expect(getVariant).toHaveBeenCalledWith('access-tok-1', 'real-variant-1');
   });
 
   it('falls back to the raw inventory_item_id when no mapping is found', async () => {
@@ -43,7 +47,7 @@ describe('RpInventoryService.adjustInventoryLevel', () => {
 
     await service.adjustInventoryLevel('m1', { inventory_item_id: 42, available_adjustment: 1 });
 
-    expect(getVariant).toHaveBeenCalledWith('m1', '42');
+    expect(getVariant).toHaveBeenCalledWith('access-tok-1', '42');
   });
 
   it('adds the delta to the current quantity and writes the sum (not the delta) back', async () => {
@@ -54,7 +58,7 @@ describe('RpInventoryService.adjustInventoryLevel', () => {
 
     await service.adjustInventoryLevel('m1', { inventory_item_id: 1, available_adjustment: 3 });
 
-    expect(setVariantInventory).toHaveBeenCalledWith('m1', 'real-variant-1', 13);
+    expect(setVariantInventory).toHaveBeenCalledWith('access-tok-1', 'real-variant-1', 13);
   });
 
   it('supports a negative delta (exchange-reserve decrementing stock)', async () => {
@@ -65,7 +69,7 @@ describe('RpInventoryService.adjustInventoryLevel', () => {
 
     await service.adjustInventoryLevel('m1', { inventory_item_id: 1, available_adjustment: -4 });
 
-    expect(setVariantInventory).toHaveBeenCalledWith('m1', 'real-variant-1', 6);
+    expect(setVariantInventory).toHaveBeenCalledWith('access-tok-1', 'real-variant-1', 6);
   });
 
   it('falls back to inventory.quantity when inventory_quantity is absent (canonical Variant schema shape)', async () => {
@@ -76,7 +80,7 @@ describe('RpInventoryService.adjustInventoryLevel', () => {
 
     await service.adjustInventoryLevel('m1', { inventory_item_id: 1, available_adjustment: 2 });
 
-    expect(setVariantInventory).toHaveBeenCalledWith('m1', 'real-variant-1', 7);
+    expect(setVariantInventory).toHaveBeenCalledWith('access-tok-1', 'real-variant-1', 7);
   });
 
   it('returns a Shopify-shape inventory_level object', async () => {

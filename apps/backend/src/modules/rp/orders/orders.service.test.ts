@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { RpOrdersService } from './orders.service';
 import type { RpRatioClientService } from '../ratio-client/ratio-client.service';
+import type { RpRatioTokenProvider } from '../oauth/ratio-token.provider';
 import type { RpTransformerService } from '../transformer/transformer.service';
 import type { RpIdMappingService } from '../id-mapping/id-mapping.service';
 
@@ -17,10 +18,13 @@ function makeService(opts: { getOrderResult?: unknown; getOrdersResult?: unknown
     getOrder: vi.fn().mockResolvedValue(opts.getOrderResult),
     getOrders: vi.fn().mockResolvedValue(opts.getOrdersResult),
   } as unknown as RpRatioClientService;
+  const tokenProvider = {
+    getAccessToken: vi.fn().mockResolvedValue('access-tok-1'),
+  } as unknown as RpRatioTokenProvider;
   const transformer = {} as unknown as RpTransformerService;
   const idMapping = { hashAndPersist } as unknown as RpIdMappingService;
 
-  const service = new RpOrdersService(ratioClient, transformer, idMapping);
+  const service = new RpOrdersService(ratioClient, tokenProvider, transformer, idMapping);
   return { service, hashAndPersist };
 }
 

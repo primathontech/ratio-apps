@@ -27,6 +27,7 @@ export const ratioOauthTokenResponseSchema = z.object({
   refresh_token: z.string().min(1),
   scope: z.string().min(1),
   merchant_id: z.string().min(1),
+  merchantStoreId: z.string().min(1).optional(),
 });
 
 export type RatioOauthTokenResponse = z.infer<typeof ratioOauthTokenResponseSchema>;

@@ -98,6 +98,23 @@ export class RpMerchantsService {
       .execute();
   }
 
+  /**
+   * Persists (or, passing `null`, purges) the pre-link plan snapshot RP's os-install
+   * hands back on a genuine dual-platform link. Purged on a real uninstall
+   * (handleAppUninstalled) so a later fresh link has nothing stale to reuse; kept
+   * across a self-service pause/resume, which never touches the dual-platform link.
+   */
+  async setPreviousPlan(merchantId: string, previousPlan: unknown | null): Promise<void> {
+    await this.handle.db
+      .updateTable('return_prime_merchants')
+      .set({
+        previousPlan: previousPlan == null ? null : JSON.stringify(previousPlan),
+        updatedAt: sql`CURRENT_TIMESTAMP(3)`,
+      })
+      .where('merchantId', '=', merchantId)
+      .execute();
+  }
+
   async updateTokens(
     merchantId: string,
     data: { accessTokenEnc: string; refreshTokenEnc: string; expiresAt: Date },

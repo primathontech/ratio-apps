@@ -1,9 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { HttpException, Inject, Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { z } from 'zod';
 import type { RatioClient } from '../../../core/ratio-client/ratio.client';
-import type { Env } from '../../../config/env.schema';
 import { RP_RATIO_CLIENT } from '../tokens';
 
 const anySchema = z.unknown();
@@ -12,16 +10,16 @@ const anySchema = z.unknown();
 export class RpRatioClientService {
   private readonly logger = new Logger(`RP:${RpRatioClientService.name}`);
 
-  constructor(
-    @Inject(RP_RATIO_CLIENT) private readonly ratio: RatioClient,
-    private readonly config: ConfigService<Env, true>,
-  ) {}
+  constructor(@Inject(RP_RATIO_CLIENT) private readonly ratio: RatioClient) {}
 
-  // ── Orders (GoKwik OS Order Service) ─────────────────────────────────────
+  // ── Orders (Ratio App Ecosystem API) ─────────────────────────────────────
+  // Was direct OS Order Service calls (gk-merchant-id header, OS_ORDER_BASE_URL) —
+  // moved onto Ratio's own /api/v1/orders (OAuth bearer), the same API meta/other
+  // ecosystem apps already use for get-products/orders, matching the refunds/
+  // discounts/customers pattern below. No adapter should call OS's order/item
+  // services directly — everything goes through Ratio.
 
-  async getOrders(merchantId: string, params: Record<string, string>): Promise<unknown> {
-    const base = this.config.get('OS_ORDER_BASE_URL', { infer: true }) as string;
-    if (!base) throw new Error('OS_ORDER_BASE_URL is not configured');
+  async getOrders(accessToken: string, params: Record<string, string>): Promise<unknown> {
     // GoKwik uses `search` param for order name/number lookup; map Shopify `name` → `search`
     const mapped: Record<string, string> = { ...params };
     if (mapped.name) {
@@ -29,81 +27,56 @@ export class RpRatioClientService {
       delete mapped.name;
     }
     const qs = new URLSearchParams(mapped).toString();
-    const url = `${base}/api/v1/admin/orders${qs ? `?${qs}` : ''}`;
-    const res = await fetch(url, {
-      headers: { 'gk-merchant-id': merchantId, 'Content-Type': 'application/json' },
-    });
-    if (!res.ok) {
-      this.logger.error({ merchantId, status: res.status }, 'OS order service error (orders)');
-    }
-    return res.json();
+    return this.ratio.request(`/api/v1/orders${qs ? `?${qs}` : ''}`, anySchema, { accessToken });
   }
 
-  async getOrder(merchantId: string, orderId: string): Promise<unknown> {
-    const base = this.config.get('OS_ORDER_BASE_URL', { infer: true }) as string;
-    if (!base) throw new Error('OS_ORDER_BASE_URL is not configured');
-    const headers = { 'gk-merchant-id': merchantId, 'Content-Type': 'application/json' };
-
+  async getOrder(accessToken: string, orderId: string): Promise<unknown> {
     // If a real OS order id (ordr_…) is passed, fetch it directly — the storefront/RP
     // sends this when deep-linking a specific order. Otherwise the value is a
     // Shopify-style order_number (e.g. 2484): search by it to avoid lossy ID hashing.
     if (/^ordr_/i.test(orderId)) {
-      const res = await fetch(`${base}/api/v1/admin/orders/${encodeURIComponent(orderId)}`, { headers });
-      if (!res.ok) {
-        this.logger.error({ merchantId, orderId, status: res.status }, 'OS order service error (order by id)');
-      }
-      const data = (await res.json()) as Record<string, unknown>;
-      const order = ((data?.data as any)?.order ?? (data as any)?.order ?? null) as Record<string, unknown> | null;
+      const data = (await this.ratio.request(`/api/v1/orders/${encodeURIComponent(orderId)}`, anySchema, {
+        accessToken,
+      })) as Record<string, unknown>;
+      const order = (data?.order ?? null) as Record<string, unknown> | null;
       return { order };
     }
 
-    const res = await fetch(`${base}/api/v1/admin/orders?search=${encodeURIComponent(orderId)}`, { headers });
-    if (!res.ok) {
-      this.logger.error({ merchantId, orderId, status: res.status }, 'OS order service error (order)');
-    }
-    const data = (await res.json()) as Record<string, unknown>;
-    const orders = ((data?.data as any)?.orders ?? (data as any)?.orders ?? []) as Record<string, unknown>[];
+    const data = (await this.ratio.request(`/api/v1/orders?search=${encodeURIComponent(orderId)}`, anySchema, {
+      accessToken,
+    })) as Record<string, unknown>;
+    const orders = (data?.orders ?? []) as Record<string, unknown>[];
     const match = orders.find((o) => String(o.order_number) === String(orderId)) ?? orders[0];
     return { order: match };
   }
 
   /**
-   * Patch an order in OS. RP sends a Shopify-shaped body (`{ order: { tags,
+   * Patch an order via Ratio. RP sends a Shopify-shaped body (`{ order: { tags,
    * fulfillment_status } }`) — e.g. to mark an order returned/exchanged when the
-   * "Sync returns status" setting is on. Forward the order fields to the OS order
-   * service PATCH. Mirrors osOrderPost's fail-loud behaviour so a rejected patch
-   * never comes back looking like a success.
+   * "Sync returns status" setting is on. Forward the order fields to Ratio's PATCH.
    */
-  async patchOrder(merchantId: string, orderId: string, body: unknown): Promise<unknown> {
-    const base = this.config.get('OS_ORDER_BASE_URL', { infer: true }) as string;
-    if (!base) throw new Error('OS_ORDER_BASE_URL is not configured');
+  async patchOrder(accessToken: string, merchantId: string, orderId: string, body: unknown): Promise<unknown> {
     // RP sends back whatever id it was shown (often the order_number, e.g. "500"), not
     // necessarily OS's real "ordr_..." id — same resolution createRefund/calculateRefund
-    // already do. Without it, OS 404s on the literal order_number string.
-    const osId = await this.resolveOsOrderId(merchantId, orderId);
+    // already do. Without it, this 404s on the literal order_number string.
+    const osId = await this.resolveOsOrderId(accessToken, orderId);
     const order = { ...((body as Record<string, unknown>)?.order ?? body) as Record<string, unknown> };
     // RP's markOsOrderReturned.js builds tags as a JS array (buildReturnedTags dedupes into
-    // [...new Set([...])]) — matching Shopify's own REST tags convention loosely, but OS's
-    // UpdateOrderDto strictly types tags as a comma-separated string and throws an unhandled
-    // 500 ("An error occurred while updating the order") on an array instead of a clean 400.
-    // Confirmed live: the identical array reproduces the same 500 against OS directly.
+    // [...new Set([...])]) — matching Shopify's own REST tags convention loosely, but Ratio's
+    // UpdateOrderDto strictly types tags as a comma-separated string.
     if (Array.isArray(order.tags)) {
       order.tags = (order.tags as unknown[]).map((t) => String(t).trim()).filter(Boolean).join(', ');
     }
-    const res = await fetch(`${base}/api/v1/admin/orders/${encodeURIComponent(osId)}`, {
-      method: 'PATCH',
-      headers: { 'gk-merchant-id': merchantId, 'Content-Type': 'application/json' },
-      body: JSON.stringify(order),
-    });
-    if (!res.ok) {
-      const errBody = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      this.logger.error({ merchantId, orderId, osId, status: res.status, body: errBody }, 'OS order service error (patch)');
-      throw new HttpException(
-        { message: `OS order service patch failed`, os: errBody },
-        res.status,
-      );
+    try {
+      return await this.ratio.request(`/api/v1/orders/${encodeURIComponent(osId)}`, anySchema, {
+        method: 'PATCH',
+        accessToken,
+        body: order,
+      });
+    } catch (err) {
+      this.logger.error({ merchantId, orderId, osId, err }, 'Ratio order patch failed');
+      throw err;
     }
-    return res.json();
   }
 
   // ── Discounts (Ratio App Ecosystem API) ──────────────────────────────────
@@ -132,106 +105,70 @@ export class RpRatioClientService {
     });
   }
 
-  // ── Products (GoKwik OS Item Service) ────────────────────────────────────
+  // ── Products (Ratio App Ecosystem API) ───────────────────────────────────
+  // Was direct OS Item Service calls (OS_ITEM_BASE_URL) — moved onto Ratio's
+  // /api/v1/v1/products and /api/v1/v1/variants (OAuth bearer), same reasoning
+  // as orders above.
 
-  /**
-   * Fetch a product from the OS Item Service.
-   * Auth: gk-merchant-id header (merchant_id from return_prime_merchants).
-   * storeId query param: the OS merchant id (NOT the store domain) — the item
-   * service only returns the merchant's catalog when storeId === merchantId.
-   */
-  async getProduct(merchantId: string, _domain: string, productId: string): Promise<unknown> {
-    const base = this.config.get('OS_ITEM_BASE_URL', { infer: true }) as string;
-    if (!base) throw new Error('OS_ITEM_BASE_URL is not configured');
-    const storeId = merchantId;
-    const url = `${base}/api/v1/admin/products/${encodeURIComponent(productId)}?storeId=${encodeURIComponent(storeId)}&show_variants=true`;
-    const res = await fetch(url, {
-      headers: { 'gk-merchant-id': merchantId, 'Content-Type': 'application/json' },
-    });
-    if (!res.ok) {
-      this.logger.error({ merchantId, productId, status: res.status }, 'OS item service error');
-    }
-    const body = (await res.json()) as Record<string, unknown>;
-    // Diagnostic for the product-id-resolution fix: OS can respond 200 with an empty/
-    // placeholder product (id 0, no variants) for an id it doesn't recognize — e.g. when
-    // products.service.ts's Mongo resolution didn't find a match and fell back to the
-    // still-hashed id. That case has no non-2xx status to trip the error log above, so
-    // it's otherwise invisible. Log the requested id and what came back either way.
-    const product = (body?.product ?? body?.data ?? body) as Record<string, unknown> | undefined;
+  async getProduct(accessToken: string, merchantId: string, productId: string): Promise<unknown> {
+    const body = (await this.ratio.request(`/api/v1/v1/products/${encodeURIComponent(productId)}`, anySchema, {
+      accessToken,
+    })) as Record<string, unknown>;
+    // Diagnostic for the product-id-resolution fix: an id Ratio doesn't recognize can come
+    // back as an empty/placeholder product (id 0, no variants) — e.g. when products.service.ts's
+    // Mongo resolution didn't find a match and fell back to the still-hashed id. Log the
+    // requested id and what came back either way.
+    const product = (body?.product ?? body) as Record<string, unknown> | undefined;
     const looksReal = !!product?.id && product.id !== 0 && product.id !== '0';
     this.logger.log(
-      { merchantId, productId, status: res.status, looksReal, returnedId: product?.id },
-      'OS item service product lookup',
+      { merchantId, productId, looksReal, returnedId: product?.id },
+      'Ratio product lookup',
     );
     return body;
   }
 
   /**
-   * Page the OS item catalog for a merchant (used by the registration-time catalog
+   * Page the OS item catalog via Ratio (used by the registration-time catalog
    * import into RP). Returns the page's products plus whether more pages remain.
    */
   async listProducts(
+    accessToken: string,
     merchantId: string,
     page: number,
     limit: number,
   ): Promise<{ products: Record<string, unknown>[]; hasNext: boolean }> {
-    const base = this.config.get('OS_ITEM_BASE_URL', { infer: true }) as string;
-    if (!base) throw new Error('OS_ITEM_BASE_URL is not configured');
-    const url = `${base}/api/v1/admin/products?storeId=${encodeURIComponent(merchantId)}&page=${page}&limit=${limit}&show_variants=true`;
-    const res = await fetch(url, {
-      headers: { 'gk-merchant-id': merchantId, 'Content-Type': 'application/json' },
-    });
-    if (!res.ok) {
-      this.logger.error({ merchantId, page, status: res.status }, 'OS item service error (list)');
+    try {
+      const data = (await this.ratio.request(`/api/v1/v1/products?page=${page}&limit=${limit}`, anySchema, {
+        accessToken,
+      })) as Record<string, any>;
+      const products = ((data?.products ?? []) as Record<string, unknown>[]) || [];
+      const hasNext = Boolean(data?.pagination?.hasNext);
+      return { products, hasNext };
+    } catch (err) {
+      this.logger.error({ merchantId, page, err }, 'Ratio product list error');
       return { products: [], hasNext: false };
     }
-    const data = (await res.json()) as Record<string, any>;
-    const products = ((data?.products ?? data?.data?.products ?? []) as Record<string, unknown>[]) || [];
-    const hasNext = Boolean(data?.pagination?.hasNext ?? data?.data?.pagination?.hasNext);
-    return { products, hasNext };
   }
 
   /**
-   * Fetch a single variant from the OS Item Service — used to read its current
-   * inventory quantity before an adjust (OS's own inventory endpoint sets an
-   * ABSOLUTE quantity, not a delta, so the caller must read-then-write).
+   * Fetch a single variant via Ratio — used to read its current inventory quantity
+   * before an adjust (inventory is set as an ABSOLUTE quantity, not a delta, so the
+   * caller must read-then-write).
    */
-  async getVariant(merchantId: string, variantId: string): Promise<Record<string, unknown>> {
-    const base = this.config.get('OS_ITEM_BASE_URL', { infer: true }) as string;
-    if (!base) throw new Error('OS_ITEM_BASE_URL is not configured');
-    const res = await fetch(`${base}/api/v1/admin/variants/${encodeURIComponent(variantId)}`, {
-      headers: { 'gk-merchant-id': merchantId, 'Content-Type': 'application/json' },
-    });
-    if (!res.ok) {
-      const errBody = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      this.logger.error(
-        { merchantId, variantId, status: res.status, body: errBody },
-        'OS item service error (get variant)',
-      );
-      throw new HttpException({ message: 'OS item service get variant failed', os: errBody }, res.status);
-    }
-    const body = (await res.json()) as Record<string, unknown>;
+  async getVariant(accessToken: string, variantId: string): Promise<Record<string, unknown>> {
+    const body = (await this.ratio.request(`/api/v1/v1/variants/${encodeURIComponent(variantId)}`, anySchema, {
+      accessToken,
+    })) as Record<string, unknown>;
     return (body?.data ?? body) as Record<string, unknown>;
   }
 
-  /** Set a variant's inventory to an ABSOLUTE quantity via the OS Item Service. */
-  async setVariantInventory(merchantId: string, variantId: string, quantity: number): Promise<unknown> {
-    const base = this.config.get('OS_ITEM_BASE_URL', { infer: true }) as string;
-    if (!base) throw new Error('OS_ITEM_BASE_URL is not configured');
-    const url = `${base}/api/v1/admin/variants/${encodeURIComponent(variantId)}/inventory?quantity=${encodeURIComponent(String(quantity))}`;
-    const res = await fetch(url, {
+  /** Set a variant's inventory to an ABSOLUTE quantity via Ratio. */
+  async setVariantInventory(accessToken: string, variantId: string, quantity: number): Promise<unknown> {
+    return this.ratio.request(`/api/v1/v1/variants/${encodeURIComponent(variantId)}`, anySchema, {
       method: 'PUT',
-      headers: { 'gk-merchant-id': merchantId, 'Content-Type': 'application/json' },
+      accessToken,
+      body: { inventory: { quantity } },
     });
-    if (!res.ok) {
-      const errBody = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      this.logger.error(
-        { merchantId, variantId, quantity, status: res.status, body: errBody },
-        'OS item service error (set inventory)',
-      );
-      throw new HttpException({ message: 'OS item service set inventory failed', os: errBody }, res.status);
-    }
-    return res.json();
   }
 
   // ── Refunds (Ratio App Ecosystem API) ────────────────────────────────────
@@ -278,46 +215,32 @@ export class RpRatioClientService {
 
   // Resolves an order_number (e.g. "2484") to the real OS order ID ("ordr_17835966307325080").
   // Needed because normalizeOrder uses order_number as the Shopify id to avoid lossy hashing.
-  private async resolveOsOrderId(merchantId: string, orderNumber: string): Promise<string> {
-    const base = this.config.get('OS_ORDER_BASE_URL', { infer: true }) as string;
-    if (!base) throw new Error('OS_ORDER_BASE_URL is not configured');
-    const res = await fetch(`${base}/api/v1/admin/orders?search=${encodeURIComponent(orderNumber)}`, {
-      headers: { 'gk-merchant-id': merchantId, 'Content-Type': 'application/json' },
-    });
-    const data = await res.json() as Record<string, unknown>;
-    const orders = ((data?.data as any)?.orders ?? (data as any)?.orders ?? []) as Record<string, unknown>[];
+  private async resolveOsOrderId(accessToken: string, orderNumber: string): Promise<string> {
+    const data = (await this.ratio.request(`/api/v1/orders?search=${encodeURIComponent(orderNumber)}`, anySchema, {
+      accessToken,
+    })) as Record<string, unknown>;
+    const orders = ((data?.orders ?? []) as Record<string, unknown>[]);
     const match = orders.find((o) => String(o.order_number) === String(orderNumber)) ?? orders[0];
     return String(match?.id ?? orderNumber);
   }
 
-  // ── Order creation (OS Order Service) — exchange fulfillment ────────────────
+  // ── Order creation (Ratio App Ecosystem API) — exchange fulfillment ──────
 
-  /** Create an order in OS (used for exchange orders). Body is already OS-shaped. */
-  async createOrder(merchantId: string, body: unknown): Promise<unknown> {
-    return this.osOrderPost(merchantId, '/api/v1/admin/orders', body);
-  }
-
-  private async osOrderPost(merchantId: string, path: string, body: unknown): Promise<unknown> {
-    const base = this.config.get('OS_ORDER_BASE_URL', { infer: true }) as string;
-    if (!base) throw new Error('OS_ORDER_BASE_URL is not configured');
-    const res = await fetch(`${base}${path}`, {
-      method: 'POST',
-      headers: { 'gk-merchant-id': merchantId, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      // Surface the failure with the OS status + body — never return an error body as if
-      // it were a result (that lets normalizeOrder fabricate a { id: 0 } "order", which RP
-      // would record as a successful exchange that created nothing). Preserving the status
-      // lets meaningful OS rejections (e.g. ORDER_FULLY_REFUNDED, NOT_REFUNDABLE_ORIGIN)
-      // reach RP as a 4xx with the real reason instead of an opaque 500.
-      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      this.logger.error({ merchantId, path, status: res.status, body }, 'OS order service error');
-      throw new HttpException(
-        { message: `OS order service ${path} failed`, os: body },
-        res.status,
-      );
+  /** Create an order via Ratio (used for exchange orders). Body is already Ratio-shaped. */
+  async createOrder(accessToken: string, merchantId: string, body: unknown): Promise<unknown> {
+    try {
+      return await this.ratio.request('/api/v1/orders', anySchema, {
+        method: 'POST',
+        accessToken,
+        body,
+      });
+    } catch (err) {
+      // Never let an error slip through as if it were a result (that lets normalizeOrder
+      // fabricate a { id: 0 } "order", which RP would record as a successful exchange
+      // that created nothing) — RatioClient already wraps non-2xx as an HttpException
+      // carrying the real status/body, so just let it propagate.
+      this.logger.error({ merchantId, err }, 'Ratio order creation failed');
+      throw err;
     }
-    return res.json();
   }
 }

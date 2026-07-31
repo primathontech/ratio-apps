@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { RpProductsService } from './products.service';
 import type { RpRatioClientService } from '../ratio-client/ratio-client.service';
+import type { RpRatioTokenProvider } from '../oauth/ratio-token.provider';
 import type { RpTransformerService } from '../transformer/transformer.service';
 import type { RpIdMappingService } from '../id-mapping/id-mapping.service';
 
@@ -19,17 +20,20 @@ function makeService(opts: {
   const ratioClient = {
     getProduct: opts.getProduct ?? vi.fn().mockResolvedValue({ product: { id: 'real-os-id' } }),
   } as unknown as RpRatioClientService;
+  const tokenProvider = {
+    getAccessToken: vi.fn().mockResolvedValue('access-tok-1'),
+  } as unknown as RpRatioTokenProvider;
   const transformer = {
     shopifyProduct: vi.fn((p: unknown) => p),
   } as unknown as RpTransformerService;
   const idMapping = { resolveRealId, hashAndPersist } as unknown as RpIdMappingService;
 
-  const service = new RpProductsService(ratioClient, transformer, idMapping);
+  const service = new RpProductsService(ratioClient, tokenProvider, transformer, idMapping);
   return { service, ratioClient, resolveRealId, hashAndPersist };
 }
 
 describe('RpProductsService.getProduct — hashed product ID resolution', () => {
-  it('resolves the hashed product_id via the id-mapping table before calling OS Item Service', async () => {
+  it('resolves the hashed product_id via the id-mapping table before calling Ratio', async () => {
     const { service, ratioClient, resolveRealId } = makeService({
       resolvedRealId: '17720223476919127',
     });
@@ -37,7 +41,7 @@ describe('RpProductsService.getProduct — hashed product ID resolution', () => 
     await service.getProduct('m1', 'shop.example', '1107513967307445');
 
     expect(resolveRealId).toHaveBeenCalledWith('product', '1107513967307445');
-    expect(ratioClient.getProduct).toHaveBeenCalledWith('m1', 'shop.example', '17720223476919127');
+    expect(ratioClient.getProduct).toHaveBeenCalledWith('access-tok-1', 'm1', '17720223476919127');
   });
 
   it('restores the hashed ID on the response so RP keeps matching its own cache', async () => {
@@ -58,7 +62,7 @@ describe('RpProductsService.getProduct — hashed product ID resolution', () => 
 
     await service.getProduct('m1', 'shop.example', '1107513967307445');
 
-    expect(ratioClient.getProduct).toHaveBeenCalledWith('m1', 'shop.example', '1107513967307445');
+    expect(ratioClient.getProduct).toHaveBeenCalledWith('access-tok-1', 'm1', '1107513967307445');
   });
 });
 

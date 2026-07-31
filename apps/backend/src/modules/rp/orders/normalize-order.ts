@@ -84,10 +84,20 @@ export function normalizeOrder(order: Record<string, unknown>): Record<string, u
           derivedFs === 'fulfilled' ? 0 :
           (li.fulfillable_quantity != null ? Number(li.fulfillable_quantity) : liQty);
 
+        // RP's own return/exchange eligibility logic (date/policy/restriction checks)
+        // only NARROWS an already-supplied returnable/exchangeable boolean — for a real
+        // Shopify store that boolean comes from Shopify's own API. OS has no equivalent
+        // concept, so without this every OS-sourced line item silently evaluates as
+        // non-returnable regardless of fulfillment or policy. A fulfilled item is the
+        // baseline signal RP needs; its own date/policy checks still apply on top.
+        const eligible = derivedFs === 'fulfilled';
+
         return {
           ...li,
           fulfillment_status: derivedFs,
           fulfillable_quantity: fulfillableQuantity,
+          returnable: (li.returnable as boolean | undefined) ?? eligible,
+          exchangeable: (li.exchangeable as boolean | undefined) ?? eligible,
           id: numericIdFromString(String(li.id ?? '')),
           variant_id: li.variant_id != null ? numericIdFromString(String(li.variant_id)) : null,
           product_id: li.product_id != null ? numericIdFromString(String(li.product_id)) : null,

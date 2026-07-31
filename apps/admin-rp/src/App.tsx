@@ -34,14 +34,32 @@ function centered(children: React.ReactNode) {
   );
 }
 
+// 'choice': "are you new here, or do you already use Return Prime?" landing.
+// 'signup': the existing full form — creates a brand-new RP account.
+// 'login': merchant_id alone (already GoKwik/Ratio-authenticated) is enough —
+//   no email/password needed, just confirms linking to an existing account.
+type ScreenMode = 'choice' | 'signup' | 'login';
+
 export function RegisterScreen() {
   const [loading, setLoading] = useState(false);
   const [domainLoading, setDomainLoading] = useState(true);
   const [registered, setRegistered] = useState(false);
+  const [alreadyLinked, setAlreadyLinked] = useState(false);
   const [merchantDomain, setMerchantDomain] = useState<string | null>(null);
+  // Pre-filled from /me's domain, but editable — login must not silently trust
+  // whatever domain ratio-apps has on file (it can be a placeholder equal to the
+  // merchant ID itself if Ratio's OAuth response never carried a real one; see
+  // rp-auth.controller.ts's callback()). The merchant confirms or corrects it here,
+  // same safety net signup's Store Domain field already has.
+  const [loginDomain, setLoginDomain] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // Set alongside `error` when RP rejects because the merchant picked the wrong
+  // mode (already exists / not found) — drives a "Switch to Login/Sign Up"
+  // button instead of leaving the merchant stuck on a dead-end error message.
+  const [switchTo, setSwitchTo] = useState<'login' | 'signup' | null>(null);
   const [active, setActive] = useState(true);
   const [statusLoading, setStatusLoading] = useState(false);
+  const [screenMode, setScreenMode] = useState<ScreenMode>('choice');
   const [form] = Form.useForm<{
     store_domain: string;
     admin_email: string;
@@ -50,9 +68,15 @@ export function RegisterScreen() {
   }>();
 
   useEffect(() => {
-    api<{ domain: string; registered: boolean; active: boolean }>('GET', '/api/admin/merchants/me')
+    api<{
+      domain: string;
+      registered: boolean;
+      active: boolean;
+      suggestedMode: 'login' | 'signup' | null;
+    }>('GET', '/api/admin/merchants/me')
       .then((me) => {
         setMerchantDomain(me.domain);
+        setLoginDomain(me.domain);
         setActive(me.active);
         if (me.registered) {
           setRegistered(true);
@@ -61,6 +85,10 @@ export function RegisterScreen() {
             store_domain: me.domain,
             admin_email: `admin@${me.domain}`,
           });
+          // RP already told us whether this merchant exists there — skip the
+          // manual "have you used Return Prime before?" guess. Null (RP
+          // unreachable/misconfigured) leaves screenMode at 'choice' as before.
+          if (me.suggestedMode) setScreenMode(me.suggestedMode);
         }
       })
       .catch(() => {})
@@ -68,10 +96,20 @@ export function RegisterScreen() {
   }, [form]);
 
   async function handleStatusChange(next: boolean) {
-    // Pausing blocks every /rp/shopify/* call for this store and locks the merchant out
-    // of the RP dashboard (same as a real Shopify uninstall) — confirm before doing that,
-    // resuming is the safe direction so it goes straight through.
-    if (!next && !window.confirm('Pause Return Prime for this store? Return/exchange requests will stop working until you turn it back on.')) {
+    // Turning this off is a full disconnect, not a reversible pause: it blocks every
+    // /rp/shopify/* call and RP dashboard login immediately, AND — if this store was
+    // linked to an existing Shopify Return Prime account — restores that account's
+    // original plan and removes the OS link (Ratio/OS has no separate "uninstall"
+    // signal yet, so this toggle stands in for it). Re-enabling afterward doesn't
+    // silently restore a removed link; a dual-platform store would need to register
+    // again from this screen. Confirm before doing that — resuming from a simple
+    // pause (no prior disconnect) is the safe direction, so it goes straight through.
+    if (
+      !next &&
+      !window.confirm(
+        'Disable Return Prime for this OS store? Return/exchange requests will stop working immediately. If this store is linked to an existing Shopify Return Prime account, that link will be removed and its original plan restored — you would need to register again to reconnect.',
+      )
+    ) {
       return;
     }
     setStatusLoading(true);
@@ -79,7 +117,9 @@ export function RegisterScreen() {
       const res = await api<{ active: boolean }>('POST', '/api/admin/status', { active: next });
       setActive(res.active);
     } catch (err) {
-      setError(err instanceof ApiException ? err.message : 'Could not update status. Please try again.');
+      setError(
+        err instanceof ApiException ? err.message : 'Could not update status. Please try again.',
+      );
     } finally {
       setStatusLoading(false);
     }
@@ -92,18 +132,62 @@ export function RegisterScreen() {
   }) {
     setLoading(true);
     setError(null);
+    setSwitchTo(null);
     try {
-      const res = await api<{ domain: string }>('POST', '/api/admin/register', {
-        store_domain: values.store_domain,
-        admin_email: values.admin_email,
-        admin_password: values.admin_password,
-      });
+      const res = await api<{ domain: string; alreadyLinked?: boolean }>(
+        'POST',
+        '/api/admin/register',
+        {
+          store_domain: values.store_domain,
+          admin_email: values.admin_email,
+          admin_password: values.admin_password,
+          mode: 'signup',
+        },
+      );
       setMerchantDomain(res.domain ?? values.store_domain);
+      setAlreadyLinked(Boolean(res.alreadyLinked));
       setRegistered(true);
     } catch (err) {
-      setError(
-        err instanceof ApiException ? err.message : 'Registration failed. Please try again.',
+      if (err instanceof ApiException && err.errorCode === 'RP_MERCHANT_ALREADY_EXISTS') {
+        setError(err.message);
+        setSwitchTo('login');
+      } else {
+        setError(
+          err instanceof ApiException ? err.message : 'Registration failed. Please try again.',
+        );
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // No email/password: the GoKwik/Ratio session already authenticated this
+  // merchant_id, which is all RP needs to find and link an existing account.
+  async function handleLogin() {
+    setLoading(true);
+    setError(null);
+    setSwitchTo(null);
+    try {
+      const res = await api<{ domain: string; alreadyLinked?: boolean }>(
+        'POST',
+        '/api/admin/register',
+        {
+          mode: 'login',
+          store_domain: loginDomain,
+        },
       );
+      setMerchantDomain(res.domain ?? merchantDomain);
+      setAlreadyLinked(Boolean(res.alreadyLinked));
+      setRegistered(true);
+    } catch (err) {
+      if (err instanceof ApiException && err.errorCode === 'RP_MERCHANT_NOT_FOUND') {
+        setError(err.message);
+        setSwitchTo('signup');
+      } else {
+        setError(
+          err instanceof ApiException ? err.message : 'Onboarding failed. Please try again.',
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -126,8 +210,16 @@ export function RegisterScreen() {
       <div style={{ maxWidth: 600, width: '100%' }}>
         <Result
           status="success"
-          title="Return Prime configured!"
-          subTitle="Your store is connected. Copy the snippet below into your storefront, then open the Return Prime dashboard to configure policies."
+          title={
+            alreadyLinked
+              ? 'Connected to your existing Return Prime account'
+              : 'Return Prime configured!'
+          }
+          subTitle={
+            alreadyLinked
+              ? 'This store already had Return Prime set up on Shopify — we linked to that same account instead of creating a new one, so your existing policies, orders, and return history all carry over.'
+              : 'Your store is connected. Copy the snippet below into your storefront, then open the Return Prime dashboard to configure policies.'
+          }
           extra={
             RP_ADMIN_URL ? (
               <PrimaryButton onClick={() => window.open(rpUrl, '_blank')}>
@@ -144,7 +236,7 @@ export function RegisterScreen() {
                 <Typography.Text type="secondary">
                   {active
                     ? 'Return and exchange requests are active for this store.'
-                    : 'Paused — return/exchange requests are blocked and the RP dashboard login is disabled for this store.'}
+                    : 'Disabled — return/exchange requests are blocked, RP dashboard login is disabled, and any linked Shopify account has been disconnected for this store.'}
                 </Typography.Text>
               </div>
             </div>
@@ -180,17 +272,97 @@ export function RegisterScreen() {
 
   if (domainLoading) return centered(<Spin size="large" />);
 
+  function errorBlock() {
+    if (!error) return null;
+    return (
+      <div style={{ marginBottom: 16 }}>
+        <Typography.Text type="danger" style={{ display: 'block' }}>
+          {error}
+        </Typography.Text>
+        {switchTo && (
+          <PrimaryButton
+            style={{ marginTop: 8 }}
+            onClick={() => {
+              setError(null);
+              setSwitchTo(null);
+              setScreenMode(switchTo);
+            }}
+          >
+            {switchTo === 'login' ? 'Switch to Onboard OS store' : 'Switch to Sign Up'}
+          </PrimaryButton>
+        )}
+      </div>
+    );
+  }
+
+  if (screenMode === 'choice') {
+    return centered(
+      <div className="container">
+        <Card title="Connect Return Prime">
+          <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 20 }}>
+            Have you used Return Prime with this business before (e.g. on Shopify)?
+          </Typography.Text>
+          {errorBlock()}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <PrimaryButton onClick={() => setScreenMode('login')} style={{ width: '100%' }}>
+              Yes — Onboard OS store to my existing account
+            </PrimaryButton>
+            <PrimaryButton onClick={() => setScreenMode('signup')} style={{ width: '100%' }}>
+              No — Sign Up for the first time
+            </PrimaryButton>
+          </div>
+        </Card>
+      </div>,
+    );
+  }
+
+  if (screenMode === 'login') {
+    return centered(
+      <div className="container">
+        <Card title="Onboard OS store to Return Prime">
+          <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 20 }}>
+            We'll link this store to your existing Return Prime account — no password needed.
+            Confirm the OpenStore domain below.
+          </Typography.Text>
+          {errorBlock()}
+          <Form.Item label="Store Domain" style={{ marginBottom: 16 }}>
+            <Input
+              value={loginDomain}
+              onChange={(e) => setLoginDomain(e.target.value)}
+              placeholder="your-store.gokwik.co"
+            />
+          </Form.Item>
+          <PrimaryButton
+            loading={loading}
+            disabled={!loginDomain.trim()}
+            onClick={handleLogin}
+            style={{ width: '100%' }}
+          >
+            Onboard OS store to Return Prime
+          </PrimaryButton>
+          <Typography.Text
+            type="secondary"
+            style={{ display: 'block', marginTop: 12, cursor: 'pointer' }}
+            onClick={() => {
+              setError(null);
+              setSwitchTo(null);
+              setScreenMode('choice');
+            }}
+          >
+            ← Back
+          </Typography.Text>
+        </Card>
+      </div>,
+    );
+  }
+
   return centered(
     <div className="container">
       <Card title="Connect Return Prime">
         <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 20 }}>
           Create your Return Prime admin account to start managing returns.
         </Typography.Text>
-        {error && (
-          <Typography.Text type="danger" style={{ display: 'block', marginBottom: 16 }}>
-            {error}
-          </Typography.Text>
-        )}
+        {errorBlock()}
         <Form form={form} layout="vertical" onFinish={handleRegister}>
           <Form.Item
             name="store_domain"
@@ -257,6 +429,17 @@ export function RegisterScreen() {
             </PrimaryButton>
           </Form.Item>
         </Form>
+        <Typography.Text
+          type="secondary"
+          style={{ display: 'block', marginTop: 12, cursor: 'pointer' }}
+          onClick={() => {
+            setError(null);
+            setSwitchTo(null);
+            setScreenMode('choice');
+          }}
+        >
+          ← Back
+        </Typography.Text>
       </Card>
     </div>,
   );

@@ -31,10 +31,12 @@ const CONFIG_VALUES: Record<string, string> = {
 function makeService(overrides: {
   findByMerchantId?: ReturnType<typeof vi.fn>;
   setActive?: ReturnType<typeof vi.fn>;
+  setPreviousPlan?: ReturnType<typeof vi.fn>;
 } = {}) {
   const merchants = {
     findByMerchantId: overrides.findByMerchantId ?? vi.fn(),
     setActive: overrides.setActive ?? vi.fn().mockResolvedValue(undefined),
+    setPreviousPlan: overrides.setPreviousPlan ?? vi.fn().mockResolvedValue(undefined),
   };
   // transformer / orderSync are unused by these methods — plain stubs.
   const transformer = {};
@@ -111,6 +113,53 @@ describe('RpWebhooksService.handleAppUninstalled', () => {
       expect(fetch).not.toHaveBeenCalled();
     });
   });
+
+  // A REAL uninstall severs a dual-platform link entirely: relay whatever
+  // previous_plan was captured at link time so RP restores the original plan and
+  // nulls os_store_url, then purge our own copy — a later fresh link (this
+  // merchant re-registering from scratch) has nothing stale to reuse.
+  describe('dual-platform: previous_plan relay and purge', () => {
+    it('relays the stored previous_plan and purges it locally when present', async () => {
+      const snapshot = { plan: 'plan-id-1', pricing_plan_details: { name: 'SCALE', price: '149.99' } };
+      const findByMerchantId = vi.fn().mockResolvedValue({
+        merchantId: 'm1',
+        domain: 'store.dev.gokwik.io',
+        previousPlan: JSON.stringify(snapshot),
+      });
+      const setPreviousPlan = vi.fn().mockResolvedValue(undefined);
+      const service = makeService({ findByMerchantId, setPreviousPlan });
+
+      await service.handleAppUninstalled('m1');
+
+      expect(fetch).toHaveBeenCalledWith(
+        'https://devapi.returnprime.co/shopify-webhook/v1/os-uninstall',
+        expect.objectContaining({
+          body: JSON.stringify({ merchant_id: 'store.dev.gokwik.io', active: false, previous_plan: snapshot }),
+        }),
+      );
+      expect(setPreviousPlan).toHaveBeenCalledWith('m1', null);
+    });
+
+    it('does not include previous_plan or purge anything for a single-platform merchant', async () => {
+      const findByMerchantId = vi.fn().mockResolvedValue({
+        merchantId: 'm1',
+        domain: 'store.dev.gokwik.io',
+        previousPlan: null,
+      });
+      const setPreviousPlan = vi.fn().mockResolvedValue(undefined);
+      const service = makeService({ findByMerchantId, setPreviousPlan });
+
+      await service.handleAppUninstalled('m1');
+
+      expect(fetch).toHaveBeenCalledWith(
+        'https://devapi.returnprime.co/shopify-webhook/v1/os-uninstall',
+        expect.objectContaining({
+          body: JSON.stringify({ merchant_id: 'store.dev.gokwik.io', active: false }),
+        }),
+      );
+      expect(setPreviousPlan).not.toHaveBeenCalled();
+    });
+  });
 });
 
 describe('RpWebhooksService.setMerchantActiveStatus', () => {
@@ -151,7 +200,7 @@ describe('RpWebhooksService.setMerchantActiveStatus', () => {
 
   it('still updates locally even when RP is not configured, but skips the relay', async () => {
     const setActive = vi.fn().mockResolvedValue(undefined);
-    const merchants = { findByMerchantId: vi.fn(), setActive };
+    const merchants = { findByMerchantId: vi.fn(), setActive, setPreviousPlan: vi.fn() };
     const config = { get: () => undefined };
     const service = new RpWebhooksService(
       merchants as never,
@@ -173,5 +222,33 @@ describe('RpWebhooksService.setMerchantActiveStatus', () => {
 
     await expect(service.setMerchantActiveStatus('m1', 'store.dev.gokwik.io', true)).resolves.toBeUndefined();
     expect(setActive).toHaveBeenCalledWith('m1', true);
+  });
+
+  it('includes previous_plan in the relay body when disabling with a snapshot passed', async () => {
+    const service = makeService();
+    const snapshot = { plan: 'plan-id-1', pricing_plan_details: { name: 'SCALE' } };
+
+    await service.setMerchantActiveStatus('m1', 'store.dev.gokwik.io', false, snapshot);
+
+    expect(fetch).toHaveBeenCalledWith(
+      'https://devapi.returnprime.co/shopify-webhook/v1/os-uninstall',
+      expect.objectContaining({
+        body: JSON.stringify({ merchant_id: 'store.dev.gokwik.io', active: false, previous_plan: snapshot }),
+      }),
+    );
+  });
+
+  it('never sends previous_plan when reactivating, even if one is passed', async () => {
+    const service = makeService();
+    const snapshot = { plan: 'plan-id-1', pricing_plan_details: { name: 'SCALE' } };
+
+    await service.setMerchantActiveStatus('m1', 'store.dev.gokwik.io', true, snapshot);
+
+    expect(fetch).toHaveBeenCalledWith(
+      'https://devapi.returnprime.co/shopify-webhook/v1/os-uninstall',
+      expect.objectContaining({
+        body: JSON.stringify({ merchant_id: 'store.dev.gokwik.io', active: true }),
+      }),
+    );
   });
 });

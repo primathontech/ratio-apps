@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { RpRatioClientService } from '../ratio-client/ratio-client.service';
+import { RpRatioTokenProvider } from '../oauth/ratio-token.provider';
 import { RpWebhooksService } from '../webhooks/webhooks.service';
 
 /**
@@ -19,6 +20,7 @@ export class RpCatalogSyncService {
 
   constructor(
     private readonly ratioClient: RpRatioClientService,
+    private readonly tokenProvider: RpRatioTokenProvider,
     private readonly webhooks: RpWebhooksService,
   ) {}
 
@@ -26,8 +28,10 @@ export class RpCatalogSyncService {
     let synced = 0;
     let failed = 0;
     try {
+      const token = await this.tokenProvider.getAccessToken(merchantId);
       for (let page = 1; page <= RpCatalogSyncService.MAX_PAGES; page++) {
         const { products, hasNext } = await this.ratioClient.listProducts(
+          token,
           merchantId,
           page,
           RpCatalogSyncService.PAGE_SIZE,

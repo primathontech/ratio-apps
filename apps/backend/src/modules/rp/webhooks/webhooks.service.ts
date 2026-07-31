@@ -47,9 +47,19 @@ export class RpWebhooksService {
   }
 
   /**
-   * Handles the OS `app/uninstalled` event — the adapter's equivalent of RP's own
-   * `StoreDetail.active = false` uninstall webhook. Deactivates the merchant so
-   * `RpRequestGuard` (via `RpMerchantsService.findByDomain`) closes the portal gate.
+   * Full severance: deactivates the merchant (`RpRequestGuard` closes the API/portal
+   * gate) and, if this merchant has a `previousPlan` snapshot (captured at link time,
+   * see RpAdminController.register), relays it so RP restores the original plan and
+   * nulls `os_store_url`, then purges our own copy — a later fresh link has nothing
+   * stale to reuse, so the normal login/signup flow applies exactly as if this were a
+   * brand-new merchant.
+   *
+   * Two callers today, both meaning the same thing: the real OS `app/uninstalled`
+   * webhook (not yet fired by Ratio/OS in production — this handler is ready for when
+   * it is), and — until that webhook exists — the merchant's own toggle-off in
+   * admin-rp (`RpAdminController.setStatus`), which has no other way to represent
+   * "I'm done with OS" today. Don't add a second, divergent disable path when the real
+   * webhook ships; wire it here too.
    */
   async handleAppUninstalled(merchantId: string): Promise<void> {
     if (!merchantId) {
@@ -61,21 +71,33 @@ export class RpWebhooksService {
       this.logger.warn({ merchantId }, 'app uninstalled event: merchant not found — dropping');
       return;
     }
-    await this.setMerchantActiveStatus(merchantId, merchant.domain, false);
+    const previousPlan = merchant.previousPlan ? JSON.parse(merchant.previousPlan) : undefined;
+    await this.setMerchantActiveStatus(merchantId, merchant.domain, false, previousPlan);
+    if (previousPlan) {
+      await this.merchants.setPreviousPlan(merchantId, null);
+    }
   }
 
   /**
    * Sets a merchant's active status both locally (`return_prime_merchants.active`, what
-   * `RpRequestGuard` gates on) and on RP's own side (`StoreDetail.active`, what RP's
-   * `sessionChecker.js` gates portal login on). Single source of truth for the two places
-   * this state is mirrored — used by the real OS `app/uninstalled` webhook path (above,
-   * always `active=false`) and by the merchant's own pause/resume toggle in admin-rp
-   * (either direction). RP's `os-uninstall` webhook doubles as the reactivate call too:
-   * OS has no OAuth/billing reinstall flow to hang a real "reactivate" event off of the
-   * way real Shopify's charge-activation step does, so the same endpoint takes an
-   * `active` flag instead of needing a second one.
+   * `RpRequestGuard` gates on) and on RP's own side (`StoreDetail.active`/`os_active`,
+   * what RP's `sessionChecker.js`/login gate on). Single source of truth for the two
+   * places this state is mirrored. RP's `os-uninstall` webhook doubles as the
+   * reactivate call too: OS has no OAuth/billing reinstall flow to hang a real
+   * "reactivate" event off of the way real Shopify's charge-activation step does, so
+   * the same endpoint takes an `active` flag instead of needing a second one.
+   *
+   * Called directly (with `active=true`, never a `previousPlan`) by the merchant's own
+   * resume in admin-rp — reactivating never restores/reverts anything. The `active=false`
+   * direction always goes through `handleAppUninstalled` instead (see above), which is
+   * the only place `previousPlan` gets attached.
    */
-  async setMerchantActiveStatus(merchantId: string, domain: string, active: boolean): Promise<void> {
+  async setMerchantActiveStatus(
+    merchantId: string,
+    domain: string,
+    active: boolean,
+    previousPlan?: unknown,
+  ): Promise<void> {
     await this.merchants.setActive(merchantId, active);
     this.logger.log({ merchantId, domain, active }, 'merchant active status updated locally');
 
@@ -94,7 +116,11 @@ export class RpWebhooksService {
           'Content-Type': 'application/json',
           'X-OS-Internal-Token': token,
         },
-        body: JSON.stringify({ merchant_id: domain, active }),
+        body: JSON.stringify({
+          merchant_id: domain,
+          active,
+          ...(!active && previousPlan ? { previous_plan: previousPlan } : {}),
+        }),
       });
 
       if (!res.ok) {

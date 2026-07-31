@@ -13,6 +13,10 @@ export interface ReturnPrimeMerchantsTable {
   // 2xx response) — NOT inferred from `domain` having been updated, which happens
   // regardless of whether the RP-side call that follows succeeds or fails.
   rpRegistered: Generated<boolean>;
+  // JSON-stringified `{ plan, pricing_plan_details }` snapshot RP took of this
+  // merchant's pre-link plan (see the 0005 migration). Null for a single-platform
+  // merchant, or once a real uninstall has purged it — see handleAppUninstalled.
+  previousPlan: string | null;
   installedAt: Generated<Date>;
   createdAt: Generated<Date>;
   updatedAt: Generated<Date>;
