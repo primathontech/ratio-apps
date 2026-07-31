@@ -732,3 +732,45 @@ describe('themeVars Batch 5 (visual-payoff theming)', () => {
     expect(css).toContain('--wz-cover-filter: blur(6px)');
   });
 });
+
+describe('per-state color tokens (B3)', () => {
+  it('emits the four state tokens at today’s exact color-mix formulas (default)', () => {
+    const css = themeVars(appearance());
+    // Primary-derived: focus glow ring (55%) + soft selected/hover fill (12%).
+    expect(css).toContain('--wz-primary-active: color-mix(in srgb, #0fb3a9 55%, transparent)');
+    expect(css).toContain('--wz-primary-soft: color-mix(in srgb, #0fb3a9 12%, transparent)');
+    // Error-derived: soft error fill (12%) + invalid ring (22%).
+    expect(css).toContain('--wz-error-bg: color-mix(in srgb, #c0392b 12%, transparent)');
+    expect(css).toContain('--wz-error-ring: color-mix(in srgb, #c0392b 22%, transparent)');
+  });
+
+  it('recomputes the state tokens from a custom primary / error', () => {
+    const css = themeVars(appearance({ colors: { primary: '#123456', error: '#990000' } }));
+    expect(css).toContain('--wz-primary-active: color-mix(in srgb, #123456 55%, transparent)');
+    expect(css).toContain('--wz-primary-soft: color-mix(in srgb, #123456 12%, transparent)');
+    expect(css).toContain('--wz-error-bg: color-mix(in srgb, #990000 12%, transparent)');
+    expect(css).toContain('--wz-error-ring: color-mix(in srgb, #990000 22%, transparent)');
+  });
+
+  it('re-declares the state tokens under the dark scheme so they track the dark hue', () => {
+    const css = darkThemeVars(appearance({ colorsDark: { primary: '#7dd3fc', error: '#f87171' } }));
+    expect(css).toContain('--wz-primary-active: color-mix(in srgb, #7dd3fc 55%, transparent)');
+    expect(css).toContain('--wz-primary-soft: color-mix(in srgb, #7dd3fc 12%, transparent)');
+    expect(css).toContain('--wz-error-bg: color-mix(in srgb, #f87171 12%, transparent)');
+    expect(css).toContain('--wz-error-ring: color-mix(in srgb, #f87171 22%, transparent)');
+  });
+
+  it('the renderer consumes the tokens instead of inline color-mix for these states', () => {
+    const renderer = readFileSync(resolve(process.cwd(), 'src/ui/form-renderer.ts'), 'utf8');
+    // The error/focus rules now reference the named tokens…
+    expect(renderer).toContain('box-shadow: 0 0 0 4px var(--wz-primary-active);');
+    expect(renderer).toContain('box-shadow: 0 0 0 3px var(--wz-error-ring);');
+    expect(renderer).toContain('background: var(--wz-primary-soft);');
+    expect(renderer).toContain('background: var(--wz-error-bg);');
+    // …and the hoisted inline mixes are gone from the renderer.
+    expect(renderer).not.toContain('color-mix(in srgb, var(--wz-focus) 55%, transparent)');
+    expect(renderer).not.toContain('color-mix(in srgb, var(--wz-error) 22%, transparent)');
+    expect(renderer).not.toContain('color-mix(in srgb, var(--wz-primary) 12%, transparent)');
+    expect(renderer).not.toContain('color-mix(in srgb, var(--wz-error) 12%, transparent)');
+  });
+});

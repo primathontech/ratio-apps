@@ -601,7 +601,7 @@ export class RatioForm extends LitElement {
       }
       :host([data-focus='glow']) :is(input, select, textarea):focus-visible {
         outline: none;
-        box-shadow: 0 0 0 4px color-mix(in srgb, var(--wz-focus) 55%, transparent);
+        box-shadow: 0 0 0 4px var(--wz-primary-active);
       }
       :is(input, select, textarea):hover {
         border-color: var(--wz-muted);
@@ -615,7 +615,7 @@ export class RatioForm extends LitElement {
       /* Real error state: an --wz-error border + soft ring on invalid inputs. */
       :is(input, select, textarea)[aria-invalid='true'] {
         border-color: var(--wz-error);
-        box-shadow: 0 0 0 3px color-mix(in srgb, var(--wz-error) 22%, transparent);
+        box-shadow: 0 0 0 3px var(--wz-error-ring);
       }
       /* Grouped fields (radio/multi_select/rating) carry aria-invalid on the container, not a native control — give the group its own error cue. */
       .rf-checks[aria-invalid='true'],
@@ -818,7 +818,7 @@ export class RatioForm extends LitElement {
       .rf-checks[data-variant='button'] .rf-check:has(input:checked),
       .rf-checks[data-variant='card'] .rf-check:has(input:checked) {
         border-color: var(--wz-primary);
-        background: color-mix(in srgb, var(--wz-primary) 12%, transparent);
+        background: var(--wz-primary-soft);
       }
       .rf-checks[data-variant='button'] .rf-check:has(input:focus-visible),
       .rf-checks[data-variant='card'] .rf-check:has(input:focus-visible) {
@@ -853,7 +853,7 @@ export class RatioForm extends LitElement {
       }
       .rf-combo-opt[data-active],
       .rf-combo-opt:hover {
-        background: color-mix(in srgb, var(--wz-primary) 12%, transparent);
+        background: var(--wz-primary-soft);
       }
       .rf-combo-opt[aria-selected='true'] {
         font-weight: 600;
@@ -875,6 +875,36 @@ export class RatioForm extends LitElement {
         color: var(--wz-muted);
         font-size: calc(var(--wz-font-size) * 0.86);
         overflow-wrap: break-word;
+      }
+      /* Upload progress (B7): an INDETERMINATE bar shown while the form is
+         submitting (uploads use fetch(), which emits no byte progress — so no
+         faked percentages). The fill has a resting 40% width so that when the
+         blanket prefers-reduced-motion rule kills its animation it still reads
+         as a static "in progress" cue (mirrors the busy spinner's fallback). */
+      .rf-file-progress {
+        height: 4px;
+        border-radius: 999px;
+        background: var(--wz-subtle);
+        overflow: hidden;
+      }
+      .rf-file-progress-fill {
+        display: block;
+        width: 40%;
+        height: 100%;
+        border-radius: inherit;
+        background: var(--wz-primary);
+        animation: rf-file-progress 1.2s var(--wz-ease, ease-in-out) infinite;
+      }
+      @keyframes rf-file-progress {
+        0% {
+          margin-left: -40%;
+        }
+        50% {
+          margin-left: 100%;
+        }
+        100% {
+          margin-left: -40%;
+        }
       }
       /* Transient "only N files allowed / couldn't add" notice — error-toned, no UA margin. */
       .rf-file-notice {
@@ -950,7 +980,7 @@ export class RatioForm extends LitElement {
       }
       .rf-file-remove:hover {
         color: var(--wz-error);
-        background: color-mix(in srgb, var(--wz-error) 12%, transparent);
+        background: var(--wz-error-bg);
       }
       /* Honeypot: visually hidden but focusable-by-bots. */
       .rf-hp {
@@ -2572,6 +2602,10 @@ export class RatioForm extends LitElement {
       describedBy,
       values: this.values,
       files: this.files,
+      // Drives the file field's indeterminate upload bar: the presign+PUT flow
+      // runs while the form is submitting (see onSubmit), so the bar shows then
+      // and clears when status leaves 'submitting' (success / error re-render).
+      uploading: this.status === 'submitting',
       onInput,
       setValue: (key, value) => this.setValue(key, value),
       ph: (f, fallback) => this.ph(f, fallback),

@@ -36,6 +36,10 @@ export interface FieldRenderCtx {
   describedBy: string | typeof nothing;
   values: Record<string, unknown>;
   files: Record<string, File[]>;
+  /** True while the form is submitting — the file field shows an indeterminate
+   * "uploading" bar for its selected files during this in-flight phase. Optional
+   * so callers that build a bare ctx (idle render, tests) default to no bar. */
+  uploading?: boolean;
   onInput: (e: Event) => void;
   setValue: (key: string, value: unknown) => void;
   ph: (field: FormField, fallback: string) => string;

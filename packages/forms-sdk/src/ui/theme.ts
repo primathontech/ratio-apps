@@ -286,6 +286,7 @@ export function themeVars(appearance?: FormsThemeInput): string {
   // §1 — optional semantic colors. Each falls back to today's derived value
   // (success/link → primary, placeholder → muted), so an un-set form is unchanged.
   const primaryHex = primary;
+  const errorHex = c?.error ?? '#c0392b';
   const success = c?.success ?? primaryHex;
   const link = c?.link ?? primaryHex;
   const placeholder = c?.placeholder ?? c?.muted ?? '#6b7280';
@@ -345,6 +346,12 @@ export function themeVars(appearance?: FormsThemeInput): string {
     `:host { ` +
     `--wz-primary: ${primary}; ` +
     `--wz-primary-hover: color-mix(in srgb, ${primary} 85%, #000); ` +
+    // Per-state primary tokens (B3): the focus-glow ring (55%) and the soft
+    // selected/hover fill (12%) the renderer previously mixed inline. Reference
+    // the primary so they recompute against the dark override; the percentages
+    // match the old inline color-mix() exactly (no visual change).
+    `--wz-primary-active: color-mix(in srgb, ${primary} 55%, transparent); ` +
+    `--wz-primary-soft: color-mix(in srgb, ${primary} 12%, transparent); ` +
     `--wz-bg: ${c?.background ?? '#fff'}; ` +
     // Page color AROUND the card (§2). Transparent unless a distinct solid
     // color / gradient / image is explicitly chosen, so the host page shows
@@ -358,7 +365,12 @@ export function themeVars(appearance?: FormsThemeInput): string {
     `--wz-fg: ${c?.text ?? '#1a1a1a'}; ` +
     `--wz-muted: ${c?.muted ?? '#6b7280'}; ` +
     `--wz-border: ${c?.border ?? '#e5e7eb'}; ` +
-    `--wz-error: ${c?.error ?? '#c0392b'}; ` +
+    `--wz-error: ${errorHex}; ` +
+    // Per-state error tokens (B3): the soft error fill (12%) and the invalid
+    // ring (22%) the renderer previously mixed inline. Same percentages as the
+    // old color-mix() so the error/hover states are visually unchanged.
+    `--wz-error-bg: color-mix(in srgb, ${errorHex} 12%, transparent); ` +
+    `--wz-error-ring: color-mix(in srgb, ${errorHex} 22%, transparent); ` +
     `--wz-btn-text: ${c?.buttonText ?? '#fff'}; ` +
     // §1 — semantic colors. success defaults to primary and link to primary,
     // placeholder to muted, so an un-set form is visually unchanged. The success
@@ -490,6 +502,10 @@ export function darkThemeVars(appearance?: FormsThemeInput): string {
   return (
     `--wz-primary: ${primary}; ` +
     `--wz-primary-hover: color-mix(in srgb, ${primary} 85%, #000); ` +
+    // Per-state primary tokens recompute against the dark primary (same
+    // formulas as themeVars), so the focus glow / soft fill track the dark hue.
+    `--wz-primary-active: color-mix(in srgb, ${primary} 55%, transparent); ` +
+    `--wz-primary-soft: color-mix(in srgb, ${primary} 12%, transparent); ` +
     `--wz-bg: ${bg}; ` +
     `--wz-page-bg: ${pageBg}; ` +
     `--wz-surface: ${surface}; ` +
@@ -500,6 +516,9 @@ export function darkThemeVars(appearance?: FormsThemeInput): string {
     `--wz-muted: ${muted}; ` +
     `--wz-border: ${border}; ` +
     `--wz-error: ${error}; ` +
+    // Per-state error tokens recompute against the dark error (same formulas).
+    `--wz-error-bg: color-mix(in srgb, ${error} 12%, transparent); ` +
+    `--wz-error-ring: color-mix(in srgb, ${error} 22%, transparent); ` +
     `--wz-btn-text: ${buttonText}; ` +
     `--wz-success: ${success}; ` +
     `--wz-success-bg: color-mix(in srgb, ${success} 8%, var(--wz-bg)); ` +
