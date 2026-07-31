@@ -634,6 +634,10 @@ describe('SubmissionsService — multi-file storage + hidden context_json (Batch
     const recaptcha = { verify: vi.fn(async () => ({ verdict: 'pass' as const, score: 0.9 })) };
     const s3 = {
       exists: vi.fn(async () => true),
+      // Field allows only application/pdf — return genuine "%PDF-1.4" head bytes so the P2-3 byte-sniff passes.
+      readHeadBytes: vi.fn(
+        async () => new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34]),
+      ),
       signedGetUrl: vi.fn(async (key: string) => `https://fake-s3/${key}?sig=get`),
     };
     const service = new SubmissionsService(
@@ -662,6 +666,23 @@ describe('SubmissionsService — multi-file storage + hidden context_json (Batch
     expect(JSON.parse(insert?.values.filesJson as string)).toEqual({ docs: [key('a'), key('b')] });
     // One existence HEAD per uploaded key.
     expect(s3.exists).toHaveBeenCalledTimes(2);
+  });
+
+  it('REJECTS a spoofed upload (declared pdf, bytes are a PNG) with a 422 (P2-3)', async () => {
+    const { service, s3 } = setupMulti();
+    // Field allows only application/pdf; the stored object's bytes are really a PNG.
+    s3.readHeadBytes.mockResolvedValue(
+      new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    );
+    await expectHttpError(
+      service.submitPublic(
+        MULTI_FORM_ID,
+        { fields: { utm: 'newsletter' }, files: { docs: [key('a')] } },
+        meta2,
+      ),
+      422,
+      'SUBMISSION_INVALID',
+    );
   });
 
   it('writes hidden-field provenance to context_json (source + raw value)', async () => {

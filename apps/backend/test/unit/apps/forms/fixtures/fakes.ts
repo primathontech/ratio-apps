@@ -89,6 +89,10 @@ export class FakeS3Service {
   uploads: Array<{ bucket: string; key: string; contentType: string; body: string }> = [];
   /** Recorded HEAD existence checks. */
   heads: Array<{ bucket: string; key: string }> = [];
+  /** Recorded ranged GETs (P2-3 head-byte sniff). */
+  rangeGets: Array<{ bucket: string; key: string; length: number }> = [];
+  /** Scripted stored bytes per object key — the ranged GET returns the head slice; a missing key reads as empty. */
+  bytesByKey = new Map<string, Uint8Array>();
 
   /** Verdict returned by {@link headExists} (boolean or per-call fn). */
   headResult: boolean | (() => boolean) = true;
@@ -117,6 +121,11 @@ export class FakeS3Service {
   async headExists(bucket: string, key: string): Promise<boolean> {
     this.heads.push({ bucket, key });
     return typeof this.headResult === 'function' ? this.headResult() : this.headResult;
+  }
+
+  async getObjectRange(bucket: string, key: string, length: number): Promise<Uint8Array> {
+    this.rangeGets.push({ bucket, key, length });
+    return (this.bytesByKey.get(key) ?? new Uint8Array(0)).subarray(0, length);
   }
 
   async uploadStream(

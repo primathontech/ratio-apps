@@ -171,6 +171,17 @@ export function renderFile(field: ControlFieldOf<'file'>, ctx: FieldRenderCtx): 
       }}
     />
     <p class="rf-file-hint">${selected.length}/${maxFiles} selected</p>
+    ${
+      // Upload progress (B7): the presigned PUT flow uses fetch(), which emits no
+      // byte-progress events — so this is an INDETERMINATE "Uploading…" bar shown
+      // while the form is in-flight, not a faked percentage. It appears only when
+      // there are files to upload and clears when uploading ends (done/error).
+      ctx.uploading && selected.length > 0
+        ? html`<div class="rf-file-progress" role="progressbar" aria-label="Uploading files" aria-busy="true">
+            <span class="rf-file-progress-fill"></span>
+          </div>`
+        : nothing
+    }
     ${notice !== undefined ? html`<p class="rf-file-notice" role="status">${notice}</p>` : nothing}
     ${
       selected.length > 0

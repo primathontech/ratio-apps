@@ -19,6 +19,7 @@ import {
   PaperClipOutlined,
   PhoneOutlined,
   PictureOutlined,
+  SplitCellsOutlined,
   StarOutlined,
   Typography,
   UnorderedListOutlined,
@@ -54,6 +55,7 @@ const FIELD_TYPE_ICONS: Record<FormFieldType, ReactNode> = {
   paragraph: <FileTextOutlined />,
   image: <PictureOutlined />,
   html: <CodeOutlined />,
+  page_break: <SplitCellsOutlined />,
 };
 
 /**
@@ -83,7 +85,7 @@ const PALETTE_GROUPS: { title: string; types: FormFieldType[] }[] = [
   },
   {
     title: 'Layout blocks',
-    types: ['heading', 'divider', 'paragraph', 'image', 'html'],
+    types: ['heading', 'divider', 'paragraph', 'image', 'html', 'page_break'],
   },
 ];
 

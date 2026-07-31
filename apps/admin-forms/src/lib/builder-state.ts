@@ -52,6 +52,17 @@ export interface AppearancePatch {
   // is composed whole by the caller); `undefined` clears the whole object, an
   // absent key leaves it — same set/clear posture as logo/cover.
   endings?: FormAppearance['endings'];
+  // Form-level raw custom CSS — set/cleared wholesale (a single string), same
+  // posture as logo/cover: `undefined` clears it, an absent key leaves it.
+  customCss?: FormAppearance['customCss'];
+  // Dark mode — the color scheme is a single enum, set/cleared wholesale like
+  // customCss: `undefined` (or 'light') restores today's single-palette behavior.
+  colorScheme?: FormAppearance['colorScheme'];
+  // Optional dark-palette overrides (same shape as `colors`, every token
+  // optional). Shallow-merged onto the current dark palette like colors/endings,
+  // so a single-token edit never drops the rest; `undefined` clears the whole
+  // dark palette, an absent key leaves it.
+  colorsDark?: FormAppearance['colorsDark'];
 }
 
 export interface BuilderState {
@@ -128,6 +139,9 @@ export const FIELD_TYPE_LABELS: Record<FormFieldType, string> = {
   paragraph: 'Text block',
   image: 'Image',
   html: 'Custom HTML',
+  // Layout separator (§1.3) — splits the form's fields into wizard steps; no
+  // submitted value, only an optional step title.
+  page_break: 'Page break',
 };
 
 /**
@@ -194,6 +208,10 @@ export function makeField(fieldType: FormFieldType, existing: readonly FormField
       // Display-only raw-HTML block; seeds a small placeholder the merchant
       // replaces in the property panel. Rendered as-is (no sanitization).
       return { key, type: 'html', html: '<p>Your custom HTML</p>', width: 'full' };
+    case 'page_break':
+      // Layout separator: carries no submitted value and no label — just an
+      // optional step title, absent by default (mirrors `divider`).
+      return { key, type: 'page_break', width: 'full' };
   }
   // showCounter carries a schema default (false), so it is a required output
   // key on every collectable field type — seed it here (§2.3).
@@ -387,6 +405,19 @@ export function builderReducer(state: BuilderState, action: BuilderAction): Buil
               ? undefined
               : { ...base.endings, ...patch.endings }
             : base.endings,
+        // Form-level custom CSS is a single string, set/cleared wholesale.
+        customCss: 'customCss' in patch ? patch.customCss : base.customCss,
+        // Dark mode — colorScheme is set/cleared wholesale like customCss.
+        colorScheme: 'colorScheme' in patch ? patch.colorScheme : base.colorScheme,
+        // Dark palette merges onto the current object (like colors/endings):
+        // `undefined` clears it, an absent key leaves it, an object shallow-merges
+        // so a single-token edit keeps the previously-set dark tokens.
+        colorsDark:
+          'colorsDark' in patch
+            ? patch.colorsDark === undefined
+              ? undefined
+              : { ...base.colorsDark, ...patch.colorsDark }
+            : base.colorsDark,
       };
       return { ...state, meta: { ...state.meta, appearance }, dirty: true };
     }

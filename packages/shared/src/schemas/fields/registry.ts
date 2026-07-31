@@ -20,6 +20,7 @@ import { htmlFieldSchema } from './html/schema';
 import { imageFieldSchema } from './image/schema';
 import { multiSelectFieldSchema } from './multi_select/schema';
 import { numberFieldSchema } from './number/schema';
+import { pageBreakFieldSchema } from './page_break/schema';
 import { paragraphFieldSchema } from './paragraph/schema';
 import { phoneFieldSchema } from './phone/schema';
 import { radioFieldSchema } from './radio/schema';
@@ -52,4 +53,5 @@ export const fieldSchemaMembers = [
   paragraphFieldSchema,
   imageFieldSchema,
   htmlFieldSchema,
+  pageBreakFieldSchema,
 ] as const;

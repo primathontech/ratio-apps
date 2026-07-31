@@ -108,6 +108,18 @@ export class S3Service {
     }
   }
 
+  /** First `length` bytes of an object via a ranged GET — the seam for server-side magic-byte sniffing (P2-3), so a spoofed content-type can be caught without pulling the whole (up to 5MB) object. A shorter object yields fewer bytes; a missing object throws like any other GET. */
+  async getObjectRange(bucket: string, key: string, length: number): Promise<Uint8Array> {
+    const res = await this.client.send(
+      new GetObjectCommand({ Bucket: bucket, Key: key, Range: `bytes=0-${length - 1}` }),
+    );
+    const body = res.Body as Readable | undefined;
+    if (!body) return new Uint8Array(0);
+    const chunks: Buffer[] = [];
+    for await (const chunk of body) chunks.push(Buffer.from(chunk));
+    return Buffer.concat(chunks);
+  }
+
   /** Stream into S3 via multipart Upload so memory stays bounded regardless of body size (unlike the buffering putObject). */
   async uploadStream(
     bucket: string,

@@ -1,8 +1,8 @@
-import { appearanceSchema, type FormAppearance } from '@ratio-app/shared';
+import { appearanceSchema, type FormAppearance, type FormField } from '@ratio-app/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import './form-renderer';
 import { FormsClient, type PublicFormSchema } from '../client';
-import { RATIO_FORM_TAG, RatioForm } from './form-renderer';
+import { RATIO_FORM_TAG, RatioForm, splitIntoSteps } from './form-renderer';
 
 /** A fully-defaulted appearance with optional group overrides + font family. */
 function appearanceWith(
@@ -621,6 +621,142 @@ describe('ratio-form theming', () => {
       schema: { status: 200, body: { data: kitchenSinkSchema({ appearance: centered }) } },
     });
     expect(shadow(el).querySelector('style')?.textContent).toContain('--wz-btn-align: center');
+  });
+});
+
+describe('ratio-form dark theme (colorScheme + colorsDark)', () => {
+  const darkAppearance = (scheme: 'light' | 'dark' | 'auto'): FormAppearance =>
+    appearanceSchema.parse({
+      colorScheme: scheme,
+      colors: { background: '#ffffff', text: '#1a1a1a' },
+      colorsDark: { background: '#0b0b0b', text: '#f5f5f5' },
+    });
+
+  it('reflects colorScheme:dark onto the host as data-scheme', async () => {
+    const { el } = await mount({
+      schema: {
+        status: 200,
+        body: { data: kitchenSinkSchema({ appearance: darkAppearance('dark') }) },
+      },
+    });
+    expect(el.getAttribute('data-scheme')).toBe('dark');
+  });
+
+  it('reflects colorScheme:auto onto the host as data-scheme', async () => {
+    const { el } = await mount({
+      schema: {
+        status: 200,
+        body: { data: kitchenSinkSchema({ appearance: darkAppearance('auto') }) },
+      },
+    });
+    expect(el.getAttribute('data-scheme')).toBe('auto');
+  });
+
+  it('reflects nothing for colorScheme:light (today’s behavior)', async () => {
+    const { el } = await mount({
+      schema: {
+        status: 200,
+        body: { data: kitchenSinkSchema({ appearance: darkAppearance('light') }) },
+      },
+    });
+    expect(el.hasAttribute('data-scheme')).toBe(false);
+  });
+
+  it('reflects nothing when colorScheme is unset', async () => {
+    const { el } = await mount({
+      schema: {
+        status: 200,
+        body: { data: kitchenSinkSchema({ appearance: appearanceWith() }) },
+      },
+    });
+    expect(el.hasAttribute('data-scheme')).toBe(false);
+  });
+
+  it('emits the dark :host block AND the prefers-color-scheme auto block when scheme is set', async () => {
+    const { el } = await mount({
+      schema: {
+        status: 200,
+        body: { data: kitchenSinkSchema({ appearance: darkAppearance('dark') }) },
+      },
+    });
+    const style = shadow(el).querySelector('style')?.textContent ?? '';
+    // The forced-dark block, carrying the dark color overrides.
+    expect(style).toContain(":host([data-scheme='dark'])");
+    expect(style).toContain('--wz-bg: #0b0b0b');
+    expect(style).toContain('--wz-fg: #f5f5f5');
+    // The OS-driven auto block wraps the SAME vars under prefers-color-scheme.
+    expect(style).toContain('@media (prefers-color-scheme: dark)');
+    expect(style).toContain(":host([data-scheme='auto'])");
+  });
+
+  it('emits neither dark block for light/unset, and the light tokens are unchanged', async () => {
+    const light = await mount({
+      schema: {
+        status: 200,
+        body: { data: kitchenSinkSchema({ appearance: darkAppearance('light') }) },
+      },
+    });
+    const lightStyle = shadow(light.el).querySelector('style')?.textContent ?? '';
+    expect(lightStyle).not.toContain('data-scheme');
+    expect(lightStyle).not.toContain('prefers-color-scheme');
+    // The light :host tokens still render today's values.
+    expect(lightStyle).toContain('--wz-bg: #ffffff');
+
+    const unset = await mount();
+    const unsetStyle = shadow(unset.el).querySelector('style')?.textContent ?? '';
+    expect(unsetStyle).not.toContain('data-scheme');
+    expect(unsetStyle).not.toContain('prefers-color-scheme');
+  });
+});
+
+describe('ratio-form form-level custom CSS (appearance.customCss)', () => {
+  it('injects form-level custom CSS into the shadow <style>', async () => {
+    const appearance = appearanceWith({ customCss: '.rf-submit { letter-spacing: 3px; }' });
+    const { el } = await mount({
+      schema: { status: 200, body: { data: kitchenSinkSchema({ appearance }) } },
+    });
+    const style = shadow(el).querySelector('style');
+    expect(style?.textContent).toContain('.rf-submit');
+    expect(style?.textContent).toMatch(/letter-spacing:\s*3px/);
+  });
+
+  it('injects nothing when appearance.customCss is absent', async () => {
+    const { el } = await mount({
+      schema: {
+        status: 200,
+        body: { data: kitchenSinkSchema({ appearance: appearanceWith({}) }) },
+      },
+    });
+    const style = shadow(el).querySelector('style');
+    // A value only our custom rule would introduce must not appear.
+    expect(style?.textContent).not.toMatch(/letter-spacing:\s*3px/);
+  });
+
+  it('emits form-level CSS AFTER per-field CSS so it can override at equal specificity', async () => {
+    const appearance = appearanceWith({ customCss: '/* FORM-LEVEL */ .rf-submit { opacity: 1; }' });
+    const withField: PublicFormSchema = {
+      id: 'form_css',
+      name: 'CSS order',
+      schema: [
+        {
+          key: 'email',
+          type: 'email',
+          label: 'Email',
+          required: false,
+          // Server-sanitized shape: already field-scoped under [data-field].
+          customCss: '/* FIELD-LEVEL */ [data-field="email"] input { color: teal; }',
+        },
+      ] as PublicFormSchema['schema'],
+      submitLabel: 'Go',
+      successMessage: 'Done',
+      spamProtection: 'honeypot',
+      appearance,
+    };
+    const { el } = await mount({ schema: { status: 200, body: { data: withField } } });
+    const text = shadow(el).querySelector('style')?.textContent ?? '';
+    expect(text).toContain('FIELD-LEVEL');
+    expect(text).toContain('FORM-LEVEL');
+    expect(text.indexOf('FORM-LEVEL')).toBeGreaterThan(text.indexOf('FIELD-LEVEL'));
   });
 });
 
@@ -2688,5 +2824,148 @@ describe('ratio-form inline validation (blur + live re-check)', () => {
     const { el } = await mount();
     // full_name is required but untouched → no error until blur or submit.
     expect(shadow(el).querySelector('[data-error-for="full_name"]')).toBeFalsy();
+  });
+});
+
+/** A 2-step form: text `a` (required) → page_break → text `b` (required). */
+function twoStepSchema(overrides: Partial<PublicFormSchema> = {}): PublicFormSchema {
+  return {
+    id: 'form_steps',
+    name: 'Stepped',
+    schema: [
+      { key: 'a', type: 'text', label: 'A', required: true },
+      { key: 'pb1', type: 'page_break', title: 'Second' },
+      { key: 'b', type: 'text', label: 'B', required: true },
+    ] as PublicFormSchema['schema'],
+    submitLabel: 'Send it',
+    successMessage: 'Done',
+    spamProtection: 'honeypot',
+    ...overrides,
+  };
+}
+
+async function clickBtn(el: RatioForm, selector: string): Promise<void> {
+  (shadow(el).querySelector(selector) as HTMLButtonElement | null)?.click();
+  await flush();
+  await el.updateComplete;
+}
+
+describe('splitIntoSteps (pure step-splitting helper)', () => {
+  const f = (key: string): FormField => ({ key, type: 'text', label: key }) as FormField;
+  const pb = (): FormField => ({ key: 'pb', type: 'page_break' }) as FormField;
+
+  it('a form with ZERO page_breaks is a single step (today’s behaviour)', () => {
+    const steps = splitIntoSteps([f('a'), f('b'), f('c')]);
+    expect(steps).toHaveLength(1);
+    expect(steps[0]?.map((x) => x.key)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('one page_break splits into two steps, dropping the break itself', () => {
+    const steps = splitIntoSteps([f('a'), pb(), f('b'), f('c')]);
+    expect(steps.map((s) => s.map((x) => x.key))).toEqual([['a'], ['b', 'c']]);
+    // The page_break separator never appears inside a rendered step group.
+    expect(steps.flat().some((x) => x.type === 'page_break')).toBe(false);
+  });
+
+  it('two page_breaks split into three steps', () => {
+    const steps = splitIntoSteps([f('a'), pb(), f('b'), pb(), f('c'), f('d')]);
+    expect(steps.map((s) => s.map((x) => x.key))).toEqual([['a'], ['b'], ['c', 'd']]);
+  });
+
+  it('an empty schema still yields one (empty) step', () => {
+    expect(splitIntoSteps([])).toEqual([[]]);
+  });
+});
+
+describe('ratio-form multi-step pagination (§steps)', () => {
+  it('renders ONLY the first step’s fields + progress, and no page_break DOM', async () => {
+    const { el } = await mount({ schema: { status: 200, body: { data: twoStepSchema() } } });
+    const root = shadow(el);
+    // Step 1 field present, step 2 field not yet rendered.
+    expect(root.querySelector('input[name="a"]')).toBeTruthy();
+    expect(root.querySelector('input[name="b"]')).toBeNull();
+    // The page_break renders nothing in the body.
+    expect(root.querySelector('[data-field="pb1"]')).toBeNull();
+    // Progress "Step 1 of 2" + a proportional bar.
+    expect(root.querySelector('.rf-progress-text')?.textContent).toContain('Step 1 of 2');
+    expect(root.querySelector('.rf-progressbar-fill')).toBeTruthy();
+    // Next present; Submit + Back absent on the first step.
+    expect(root.querySelector('.rf-next')).toBeTruthy();
+    expect(root.querySelector('.rf-back')).toBeNull();
+    expect(root.querySelector('.rf-submit:not(.rf-next):not(.rf-back)')).toBeNull();
+  });
+
+  it('Next validates ONLY the current step and blocks (focus first invalid) when invalid', async () => {
+    const { el } = await mount({ schema: { status: 200, body: { data: twoStepSchema() } } });
+    // `a` is empty → Next must not advance.
+    await clickBtn(el, '.rf-next');
+    const root = shadow(el);
+    expect(root.querySelector('[data-error-for="a"]')?.textContent).toContain('required');
+    // Still on step 1 (step 2 field never rendered).
+    expect(root.querySelector('input[name="b"]')).toBeNull();
+    expect(root.querySelector('.rf-progress-text')?.textContent).toContain('Step 1 of 2');
+    // The same invalid-focus path as submit moved focus to the invalid control.
+    expect(root.activeElement?.getAttribute('aria-invalid')).toBe('true');
+  });
+
+  it('Next advances after the current step is valid; Submit shows only on the last step', async () => {
+    const { el } = await mount({ schema: { status: 200, body: { data: twoStepSchema() } } });
+    setInput(el, 'a', 'hello');
+    await clickBtn(el, '.rf-next');
+    const root = shadow(el);
+    // Now on step 2: field b rendered, a unmounted, progress advanced.
+    expect(root.querySelector('input[name="b"]')).toBeTruthy();
+    expect(root.querySelector('input[name="a"]')).toBeNull();
+    expect(root.querySelector('.rf-progress-text')?.textContent).toContain('Step 2 of 2');
+    // Back now available; Next gone; the real Submit is present with its label.
+    expect(root.querySelector('.rf-back')).toBeTruthy();
+    expect(root.querySelector('.rf-next')).toBeNull();
+    const submit = root.querySelector('.rf-submit:not(.rf-back)') as HTMLButtonElement;
+    expect(submit?.textContent).toContain('Send it');
+  });
+
+  it('Back returns to the previous step without validating', async () => {
+    const { el } = await mount({ schema: { status: 200, body: { data: twoStepSchema() } } });
+    setInput(el, 'a', 'hello');
+    await clickBtn(el, '.rf-next');
+    // On step 2 with b empty — Back must go back regardless (no validation gate).
+    await clickBtn(el, '.rf-back');
+    const root = shadow(el);
+    expect(root.querySelector('input[name="a"]')).toBeTruthy();
+    expect(root.querySelector('input[name="b"]')).toBeNull();
+    expect(root.querySelector('.rf-progress-text')?.textContent).toContain('Step 1 of 2');
+    // Going back did not raise an error on the step-2 field it left.
+    expect(root.querySelector('[data-error-for="b"]')).toBeNull();
+  });
+
+  it('the honeypot + Submit ride the final step only, and page_break submits no value', async () => {
+    const { el, fetchImpl } = await mount({
+      schema: { status: 200, body: { data: twoStepSchema() } },
+    });
+    // Step 1 has no honeypot input (it lives on the last step).
+    expect(shadow(el).querySelector('.rf-hp')).toBeNull();
+    setInput(el, 'a', 'first');
+    await clickBtn(el, '.rf-next');
+    // Last step now carries the honeypot.
+    expect(shadow(el).querySelector('.rf-hp')).toBeTruthy();
+    setInput(el, 'b', 'second');
+    await clickBtn(el, '.rf-submit:not(.rf-back)');
+    const post = fetchImpl.mock.calls.find((c) => String(c[0]).endsWith('/submissions'));
+    expect(post).toBeDefined();
+    const body = JSON.parse(String((post?.[1] as RequestInit).body));
+    // Both real fields submitted; the page_break key never appears.
+    expect(body.fields).toEqual({ a: 'first', b: 'second' });
+    expect('pb1' in body.fields).toBe(false);
+  });
+
+  it('a zero-page_break form is unchanged: no progress, no nav, Submit renders inline', async () => {
+    const { el } = await mount();
+    const root = shadow(el);
+    expect(root.querySelector('.rf-progress')).toBeNull();
+    expect(root.querySelector('.rf-nav')).toBeNull();
+    expect(root.querySelector('.rf-next')).toBeNull();
+    expect(root.querySelector('.rf-back')).toBeNull();
+    // The single Submit still sits directly in the form column.
+    expect(root.querySelector('.rf-form > .rf-submit')).toBeTruthy();
   });
 });

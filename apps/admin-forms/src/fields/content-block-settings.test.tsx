@@ -5,6 +5,7 @@ import { renderWithProviders } from '../test-utils';
 import { DividerSettings } from './divider/settings';
 import { HeadingSettings } from './heading/settings';
 import { ImageBlockSettings } from './image/settings';
+import { PageBreakSettings } from './page_break/settings';
 import { ParagraphSettings } from './paragraph/settings';
 
 /** Click an antd Segmented option by its visible label (mirrors DesignSettings tests). */
@@ -45,6 +46,12 @@ const imageField = {
   align: 'left',
   width: 'full',
 } satisfies Extract<FormField, { type: 'image' }>;
+
+const pageBreakField = {
+  key: 'step2',
+  type: 'page_break',
+  width: 'full',
+} satisfies Extract<FormField, { type: 'page_break' }>;
 
 describe('HeadingSettings (§4.15)', () => {
   it('dispatches updateField for eyebrow, size, and alignment', () => {
@@ -180,6 +187,35 @@ describe('ImageBlockSettings (§4.15)', () => {
       type: 'updateField',
       key: 'banner',
       patch: { size: undefined },
+    });
+  });
+});
+
+describe('PageBreakSettings (§1.3)', () => {
+  it('patches the step title from the Step title input', () => {
+    const dispatch = vi.fn();
+    renderWithProviders(<PageBreakSettings field={pageBreakField} dispatch={dispatch} />);
+    fireEvent.change(screen.getByLabelText('Step title'), { target: { value: 'Your details' } });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateField',
+      key: 'step2',
+      patch: { title: 'Your details' },
+    });
+  });
+
+  it('clears the title back to undefined when emptied', () => {
+    const dispatch = vi.fn();
+    renderWithProviders(
+      <PageBreakSettings
+        field={{ ...pageBreakField, title: 'Your details' }}
+        dispatch={dispatch}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('Step title'), { target: { value: '' } });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateField',
+      key: 'step2',
+      patch: { title: undefined },
     });
   });
 });

@@ -58,6 +58,11 @@ export class FormsS3Service {
     return this.s3.headExists(this.bucket(), objectKey);
   }
 
+  /** Head bytes of an uploaded object for submit-time magic-byte sniffing (P2-3): the presigned PUT trusts the client-declared content-type, so the real type is only knowable by reading the stored bytes here. */
+  async readHeadBytes(objectKey: string, length: number): Promise<Uint8Array> {
+    return this.s3.getObjectRange(this.bucket(), objectKey, length);
+  }
+
   /** Stream a CSV body straight into S3 at `objectKey` (export worker). */
   async uploadCsv(objectKey: string, body: Readable): Promise<void> {
     await this.s3.uploadStream(this.bucket(), objectKey, body, 'text/csv; charset=utf-8');

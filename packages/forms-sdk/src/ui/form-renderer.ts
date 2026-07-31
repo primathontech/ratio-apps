@@ -38,6 +38,7 @@ import type {
 import {
   baseStyles,
   customGoogleFontHref,
+  darkThemeVars,
   GOOGLE_FONT_HREF,
   sanitizeFontName,
   themeVars,
@@ -64,8 +65,30 @@ function isContentBlock(field: FormField): field is ContentBlockField {
     field.type === 'divider' ||
     field.type === 'paragraph' ||
     field.type === 'image' ||
-    field.type === 'html'
+    field.type === 'html' ||
+    field.type === 'page_break'
   );
+}
+
+/**
+ * Split a form's fields into STEPS at each `page_break` (§steps). The break
+ * blocks are the separators (they render nothing) and are dropped from the
+ * groups; fields before the first break are step 1, fields between break i and
+ * i+1 are step i+1, and fields after the last break are the final step. A form
+ * with ZERO page_breaks yields a single step ⇒ today's behaviour (no pagination
+ * UI). Pure + exported so it is unit-testable in isolation; always returns at
+ * least one step.
+ */
+export function splitIntoSteps(fields: readonly FormField[]): FormField[][] {
+  const steps: FormField[][] = [[]];
+  for (const field of fields) {
+    if (field.type === 'page_break') {
+      steps.push([]);
+    } else {
+      (steps[steps.length - 1] as FormField[]).push(field);
+    }
+  }
+  return steps;
 }
 
 // Group fields (§P2-7): render a role=radiogroup/group <div>, not a labelable
@@ -578,7 +601,7 @@ export class RatioForm extends LitElement {
       }
       :host([data-focus='glow']) :is(input, select, textarea):focus-visible {
         outline: none;
-        box-shadow: 0 0 0 4px color-mix(in srgb, var(--wz-focus) 55%, transparent);
+        box-shadow: 0 0 0 4px var(--wz-primary-active);
       }
       :is(input, select, textarea):hover {
         border-color: var(--wz-muted);
@@ -592,7 +615,7 @@ export class RatioForm extends LitElement {
       /* Real error state: an --wz-error border + soft ring on invalid inputs. */
       :is(input, select, textarea)[aria-invalid='true'] {
         border-color: var(--wz-error);
-        box-shadow: 0 0 0 3px color-mix(in srgb, var(--wz-error) 22%, transparent);
+        box-shadow: 0 0 0 3px var(--wz-error-ring);
       }
       /* Grouped fields (radio/multi_select/rating) carry aria-invalid on the container, not a native control — give the group its own error cue. */
       .rf-checks[aria-invalid='true'],
@@ -795,7 +818,7 @@ export class RatioForm extends LitElement {
       .rf-checks[data-variant='button'] .rf-check:has(input:checked),
       .rf-checks[data-variant='card'] .rf-check:has(input:checked) {
         border-color: var(--wz-primary);
-        background: color-mix(in srgb, var(--wz-primary) 12%, transparent);
+        background: var(--wz-primary-soft);
       }
       .rf-checks[data-variant='button'] .rf-check:has(input:focus-visible),
       .rf-checks[data-variant='card'] .rf-check:has(input:focus-visible) {
@@ -830,7 +853,7 @@ export class RatioForm extends LitElement {
       }
       .rf-combo-opt[data-active],
       .rf-combo-opt:hover {
-        background: color-mix(in srgb, var(--wz-primary) 12%, transparent);
+        background: var(--wz-primary-soft);
       }
       .rf-combo-opt[aria-selected='true'] {
         font-weight: 600;
@@ -852,6 +875,36 @@ export class RatioForm extends LitElement {
         color: var(--wz-muted);
         font-size: calc(var(--wz-font-size) * 0.86);
         overflow-wrap: break-word;
+      }
+      /* Upload progress (B7): an INDETERMINATE bar shown while the form is
+         submitting (uploads use fetch(), which emits no byte progress — so no
+         faked percentages). The fill has a resting 40% width so that when the
+         blanket prefers-reduced-motion rule kills its animation it still reads
+         as a static "in progress" cue (mirrors the busy spinner's fallback). */
+      .rf-file-progress {
+        height: 4px;
+        border-radius: 999px;
+        background: var(--wz-subtle);
+        overflow: hidden;
+      }
+      .rf-file-progress-fill {
+        display: block;
+        width: 40%;
+        height: 100%;
+        border-radius: inherit;
+        background: var(--wz-primary);
+        animation: rf-file-progress 1.2s var(--wz-ease, ease-in-out) infinite;
+      }
+      @keyframes rf-file-progress {
+        0% {
+          margin-left: -40%;
+        }
+        50% {
+          margin-left: 100%;
+        }
+        100% {
+          margin-left: -40%;
+        }
       }
       /* Transient "only N files allowed / couldn't add" notice — error-toned, no UA margin. */
       .rf-file-notice {
@@ -927,7 +980,7 @@ export class RatioForm extends LitElement {
       }
       .rf-file-remove:hover {
         color: var(--wz-error);
-        background: color-mix(in srgb, var(--wz-error) 12%, transparent);
+        background: var(--wz-error-bg);
       }
       /* Honeypot: visually hidden but focusable-by-bots. */
       .rf-hp {
@@ -1184,6 +1237,45 @@ export class RatioForm extends LitElement {
         color: var(--wz-error);
         font-size: calc(var(--wz-font-size) * 0.93);
       }
+      /* §steps — multi-step progress indicator: the "Step X of N" label plus a
+         thin proportional track. Only rendered on a form that has a page_break. */
+      .rf-progress {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .rf-progress-text {
+        margin: 0;
+        color: var(--wz-muted);
+        font-size: calc(var(--wz-font-size) * 0.86);
+      }
+      .rf-progressbar {
+        height: 4px;
+        border-radius: 999px;
+        background: var(--wz-subtle);
+        overflow: hidden;
+      }
+      .rf-progressbar-fill {
+        height: 100%;
+        background: var(--wz-primary);
+        border-radius: inherit;
+        transition: width var(--wz-dur) var(--wz-ease);
+      }
+      /* §steps — the Back/Next (or Back/Submit) navigation row. Back sits at the
+         start, the primary action at the end; the buttons reuse .rf-submit. */
+      .rf-nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: calc(var(--wz-font-size) * 0.57);
+        align-items: center;
+      }
+      .rf-nav .rf-next,
+      .rf-nav .rf-submit {
+        margin-left: auto;
+      }
+      .rf-nav .rf-back {
+        margin-left: 0;
+      }
       /* Batch 6 — optional "Powered by" footer under the card content; only
          rendered when branding.showPoweredBy is on. A static link to a
          hardcoded target — no merchant string reaches the href. */
@@ -1274,6 +1366,11 @@ export class RatioForm extends LitElement {
   private readonly touched = new Set<string>();
   @state() private formError = '';
   @state() private hp = '';
+  // §steps — the multi-step page currently shown (0-based). Default 0 ⇒ first
+  // step. Only meaningful when the form has ≥1 page_break (≥2 steps); a form
+  // with no page_break is a single step and never reads this. Advanced by
+  // onNext (after the current step validates) and onBack.
+  @state() private currentStep = 0;
   // Batch 6 — whole seconds left on the post-submit redirect countdown; 0 hides
   // it. Only ticked when endings.showRedirectCountdown is on (see maybeRedirect).
   @state() private redirectRemaining = 0;
@@ -1586,6 +1683,73 @@ export class RatioForm extends LitElement {
     return error;
   }
 
+  // ── Multi-step pagination (§steps) ─────────────────────────────
+  /** The current form's fields grouped into steps at each page_break. Recomputed
+   * from the schema on demand (cheap); [[…]] with one group when there are no
+   * page_breaks ⇒ single step ⇒ today's behaviour. */
+  private get steps(): FormField[][] {
+    return splitIntoSteps(this.schema?.schema ?? []);
+  }
+
+  /** ≥2 steps ⇒ the pagination UI (progress + Back/Next) is active. */
+  private get isMultiStep(): boolean {
+    return this.steps.length > 1;
+  }
+
+  /** currentStep clamped to the valid range, so a stale index (e.g. after a
+   * schema swap) never indexes past the last step. */
+  private get stepIndex(): number {
+    return Math.min(Math.max(this.currentStep, 0), this.steps.length - 1);
+  }
+
+  /** True on the final step — the only step that shows honeypot/recaptcha/Submit. */
+  private get onLastStep(): boolean {
+    return this.stepIndex === this.steps.length - 1;
+  }
+
+  /**
+   * Advance to the next step — but ONLY after the current step's fields pass the
+   * SAME client validation used before submit. On failure we flag the fields,
+   * announce the count (role=alert), and move focus to the first invalid control
+   * (the identical invalid-focus path as onSubmit); we do NOT advance. Back never
+   * calls this.
+   */
+  private async onNext(): Promise<void> {
+    const stepFields = this.steps[this.stepIndex] ?? [];
+    const errors: Record<string, string> = { ...this.fieldErrors };
+    let invalidCount = 0;
+    for (const field of stepFields) {
+      // Touch every field so the live re-check keeps flagging it after this pass.
+      this.touched.add(field.key);
+      const error = this.validateField(field);
+      if (error) {
+        errors[field.key] = error;
+        invalidCount += 1;
+      } else {
+        delete errors[field.key];
+      }
+    }
+    this.fieldErrors = errors;
+    if (invalidCount > 0) {
+      this.formError = `Please fix ${invalidCount} ${invalidCount === 1 ? 'field' : 'fields'} and try again.`;
+      await this.updateComplete;
+      const firstInvalid = this.renderRoot.querySelector<HTMLElement>('[aria-invalid="true"]');
+      firstInvalid?.focus();
+      return;
+    }
+    // Valid: clear the summary and advance. The "Step X of N" live region
+    // announces the change (see renderProgress).
+    this.formError = '';
+    this.currentStep = this.stepIndex + 1;
+  }
+
+  /** Go back a step. Never validates (WCAG — moving back must not gate on the
+   * step you are leaving); clears the transient form-error summary. */
+  private onBack(): void {
+    this.formError = '';
+    this.currentStep = Math.max(0, this.stepIndex - 1);
+  }
+
   private async onSubmit(event: Event): Promise<void> {
     event.preventDefault();
     // Preview: run validation so the error rings are viewable, but never POST.
@@ -1708,6 +1872,11 @@ export class RatioForm extends LitElement {
     this.reflectAttr('data-layout', l?.layoutMode === 'flat' ? 'flat' : null);
     // §2.1 — form-wide column count; '1' (today) reflects nothing.
     this.reflectAttr('data-cols', l?.columns && l.columns !== '1' ? l.columns : null);
+    // Dark theme — reflect the opted-in scheme ('dark'/'auto') so the dark
+    // override blocks apply. 'light' (or unset) is today's behavior and reflects
+    // nothing. colorScheme lives on the appearance root, not layout.
+    const scheme = this.appearance?.colorScheme;
+    this.reflectAttr('data-scheme', scheme === 'dark' || scheme === 'auto' ? scheme : null);
     // §2.6 — frosted card only over an image backdrop with a blur radius.
     this.reflectAttr('data-card-blur', this.cardBlurActive ? 'on' : null);
     // Status screens shrink the card; the form (ready/submitting) keeps full width.
@@ -1782,7 +1951,9 @@ export class RatioForm extends LitElement {
     // is required: a binding directly after a raw-text `</style>` is mis-parsed.
     return html`<style>
         ${unsafeCSS(themeVars(this.appearance))}
+        ${unsafeCSS(this.darkThemeCss())}
         ${unsafeCSS(this.customFieldCss())}
+        ${unsafeCSS(this.formCustomCss())}
       </style>
       <div class="rf-root">
         <div class="rf-bg"></div>
@@ -1816,6 +1987,39 @@ export class RatioForm extends LitElement {
       .map((f) => (f as { customCss?: string }).customCss)
       .filter((c): c is string => Boolean(c))
       .join('\n');
+  }
+
+  /**
+   * Merchant FORM-LEVEL custom CSS (appearance.customCss). Already sanitized by
+   * the server (see shared `sanitizeFormCss`), and — unlike per-field CSS — NOT
+   * scoped to a `[data-field]` wrapper, so it can style the whole form
+   * (`.rf-card`, `.rf-submit`, `.rf-field`, …). Emitted AFTER customFieldCss()
+   * so a form-level rule wins over a field-level one at equal specificity.
+   */
+  private formCustomCss(): string {
+    return this.appearance?.customCss ?? '';
+  }
+
+  /**
+   * Dark-theme override CSS. Emitted into the same theme <style> block, AFTER
+   * the light `:host` tokens so it layers on top when active. Two blocks share
+   * the same dark color vars: `:host([data-scheme='dark'])` applies whenever the
+   * merchant forced dark, and the `@media (prefers-color-scheme: dark)` /
+   * `:host([data-scheme='auto'])` pair applies only under the OS dark
+   * preference. Each is keyed to the reflected `data-scheme` value, so only the
+   * active scheme's block ever matches. Light (or unset) reflects no
+   * `data-scheme` and emits neither block, so an un-themed form is byte-identical
+   * to today. Only COLOR tokens are re-declared; every non-color token stays
+   * inherited from the light `:host`.
+   */
+  private darkThemeCss(): string {
+    const scheme = this.appearance?.colorScheme;
+    if (scheme !== 'dark' && scheme !== 'auto') return '';
+    const vars = darkThemeVars(this.appearance);
+    return (
+      `:host([data-scheme='dark']){ ${vars} } ` +
+      `@media (prefers-color-scheme: dark){ :host([data-scheme='auto']){ ${vars} } }`
+    );
   }
 
   /**
@@ -1982,36 +2186,100 @@ export class RatioForm extends LitElement {
   private renderForm(): TemplateResult {
     const schema = this.schema;
     if (!schema) return html`${nothing}`;
+    // §steps — when the form has ≥1 page_break we page through steps: render
+    // ONLY the current step's fields, a progress indicator, and Back/Next; the
+    // honeypot + Submit ride the FINAL step only. A form with no page_break is a
+    // single step ⇒ render every field with Submit, exactly as today (the
+    // progress + nav blocks collapse to nothing).
+    const multi = this.isMultiStep;
+    const steps = this.steps;
+    const stepFields = multi ? (steps[this.stepIndex] ?? []) : schema.schema;
+    const last = this.onLastStep;
     return html`
       <div class="rf-form" role="form" @keydown=${this.onKeydown} @focusout=${this.onFieldBlur}>
-        <div class="rf-fields">${schema.schema.map((field) => this.renderField(field))}</div>
-        <div class="rf-hp" aria-hidden="true">
-          <input
-            type="text"
-            name="_hp"
-            tabindex="-1"
-            autocomplete="off"
-            .value=${this.hp}
-            @input=${(e: Event) => {
-              this.hp = (e.target as HTMLInputElement).value;
-            }}
-          />
-        </div>
+        ${multi ? this.renderProgress(this.stepIndex, steps.length) : nothing}
+        <div class="rf-fields">${stepFields.map((field) => this.renderField(field))}</div>
+        ${
+          last
+            ? html`<div class="rf-hp" aria-hidden="true">
+                <input
+                  type="text"
+                  name="_hp"
+                  tabindex="-1"
+                  autocomplete="off"
+                  .value=${this.hp}
+                  @input=${(e: Event) => {
+                    this.hp = (e.target as HTMLInputElement).value;
+                  }}
+                />
+              </div>`
+            : nothing
+        }
         <div class="rf-form-error" role="alert">${this.formError}</div>
-        <button
-          type="button"
-          class="rf-submit"
-          data-btn-variant=${this.submitVariant}
-          aria-busy=${this.status === 'submitting' ? 'true' : nothing}
-          aria-disabled=${this.status === 'submitting' ? 'true' : nothing}
-          @click=${this.onSubmit}
-        >
-          ${this.status === 'submitting' ? this.renderSubmitLoader() : this.renderButtonIcon()}${
-            this.status === 'submitting' ? 'Submitting...' : schema.submitLabel
-          }
-        </button>
+        ${multi ? this.renderNav(schema.submitLabel) : this.renderSubmit(schema.submitLabel)}
       </div>
     `;
+  }
+
+  /**
+   * §steps — the "Step X of N" text (a polite live region, so a step change is
+   * announced to assistive tech) plus a thin proportional bar. Only rendered on
+   * a multi-step form; the optional per-step title rides the current break/step.
+   */
+  private renderProgress(index: number, count: number): TemplateResult {
+    const pct = Math.round(((index + 1) / count) * 100);
+    return html`<div class="rf-progress">
+      <p class="rf-progress-text" role="status" aria-live="polite">Step ${index + 1} of ${count}</p>
+      <div
+        class="rf-progressbar"
+        role="progressbar"
+        aria-valuenow=${index + 1}
+        aria-valuemin="1"
+        aria-valuemax=${count}
+      >
+        <div class="rf-progressbar-fill" style=${`width:${pct}%`}></div>
+      </div>
+    </div>`;
+  }
+
+  /**
+   * §steps — the step navigation row, reusing the .rf-submit button styling.
+   * Back is hidden on step 0 and never validates; Next validates the current
+   * step; the final step swaps Next for the real Submit (honeypot/recaptcha are
+   * on that step too).
+   */
+  private renderNav(submitLabel: string): TemplateResult {
+    return html`<div class="rf-nav">
+      ${
+        this.stepIndex > 0
+          ? html`<button type="button" class="rf-submit rf-back" data-btn-variant="outline" @click=${this.onBack}>
+              Back
+            </button>`
+          : nothing
+      }
+      ${
+        this.onLastStep
+          ? this.renderSubmit(submitLabel)
+          : html`<button type="button" class="rf-submit rf-next" @click=${this.onNext}>Next</button>`
+      }
+    </div>`;
+  }
+
+  /** The real Submit button (final step / single-step form). Extracted so both
+   * the single-step and the multi-step paths render the identical control. */
+  private renderSubmit(submitLabel: string): TemplateResult {
+    return html`<button
+      type="button"
+      class="rf-submit"
+      data-btn-variant=${this.submitVariant}
+      aria-busy=${this.status === 'submitting' ? 'true' : nothing}
+      aria-disabled=${this.status === 'submitting' ? 'true' : nothing}
+      @click=${this.onSubmit}
+    >
+      ${this.status === 'submitting' ? this.renderSubmitLoader() : this.renderButtonIcon()}${
+        this.status === 'submitting' ? 'Submitting...' : submitLabel
+      }
+    </button>`;
   }
 
   /** §1.5 — submit fill variant reflected on the button; 'solid' (today) sets
@@ -2039,13 +2307,17 @@ export class RatioForm extends LitElement {
     </svg>`;
   }
 
-  /** Enter in a single-line input submits, like a native form would. */
+  /** Enter in a single-line input submits, like a native form would. §steps: on
+   * a non-final step Enter advances (Next) instead — the same key gesture the
+   * on-screen primary button performs, so submit still happens only on the last
+   * step. */
   private onKeydown(event: KeyboardEvent): void {
     if (event.key !== 'Enter') return;
     const target = event.target as HTMLElement;
     if (target.tagName === 'INPUT' && (target as HTMLInputElement).type !== 'checkbox') {
       event.preventDefault();
-      void this.onSubmit(event);
+      if (this.isMultiStep && !this.onLastStep) void this.onNext();
+      else void this.onSubmit(event);
     }
   }
 
@@ -2167,6 +2439,10 @@ export class RatioForm extends LitElement {
    * renders exactly as before; every value comes from a bounded enum/int (or a
    * re-checked https url), so nothing dynamic reaches an inline style or href. */
   private renderBlock(field: ContentBlockField): TemplateResult {
+    // page_break (§steps) is a step SEPARATOR — it renders nothing in the form
+    // body (splitIntoSteps already drops it from the rendered step groups; this
+    // guard keeps renderBlock total over ContentBlockField as a backstop).
+    if (field.type === 'page_break') return html`${nothing}`;
     // Heading returns early: the optional eyebrow and the <h> tag are two
     // children of the statically-wrapped block div. Visual size drives
     // font-size via data-size (decoupled from the semantic level); both the
@@ -2326,6 +2602,10 @@ export class RatioForm extends LitElement {
       describedBy,
       values: this.values,
       files: this.files,
+      // Drives the file field's indeterminate upload bar: the presign+PUT flow
+      // runs while the form is submitting (see onSubmit), so the bar shows then
+      // and clears when status leaves 'submitting' (success / error re-render).
+      uploading: this.status === 'submitting',
       onInput,
       setValue: (key, value) => this.setValue(key, value),
       ph: (f, fallback) => this.ph(f, fallback),

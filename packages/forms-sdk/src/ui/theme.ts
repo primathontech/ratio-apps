@@ -286,6 +286,7 @@ export function themeVars(appearance?: FormsThemeInput): string {
   // §1 — optional semantic colors. Each falls back to today's derived value
   // (success/link → primary, placeholder → muted), so an un-set form is unchanged.
   const primaryHex = primary;
+  const errorHex = c?.error ?? '#c0392b';
   const success = c?.success ?? primaryHex;
   const link = c?.link ?? primaryHex;
   const placeholder = c?.placeholder ?? c?.muted ?? '#6b7280';
@@ -345,6 +346,12 @@ export function themeVars(appearance?: FormsThemeInput): string {
     `:host { ` +
     `--wz-primary: ${primary}; ` +
     `--wz-primary-hover: color-mix(in srgb, ${primary} 85%, #000); ` +
+    // Per-state primary tokens (B3): the focus-glow ring (55%) and the soft
+    // selected/hover fill (12%) the renderer previously mixed inline. Reference
+    // the primary so they recompute against the dark override; the percentages
+    // match the old inline color-mix() exactly (no visual change).
+    `--wz-primary-active: color-mix(in srgb, ${primary} 55%, transparent); ` +
+    `--wz-primary-soft: color-mix(in srgb, ${primary} 12%, transparent); ` +
     `--wz-bg: ${c?.background ?? '#fff'}; ` +
     // Page color AROUND the card (§2). Transparent unless a distinct solid
     // color / gradient / image is explicitly chosen, so the host page shows
@@ -358,7 +365,12 @@ export function themeVars(appearance?: FormsThemeInput): string {
     `--wz-fg: ${c?.text ?? '#1a1a1a'}; ` +
     `--wz-muted: ${c?.muted ?? '#6b7280'}; ` +
     `--wz-border: ${c?.border ?? '#e5e7eb'}; ` +
-    `--wz-error: ${c?.error ?? '#c0392b'}; ` +
+    `--wz-error: ${errorHex}; ` +
+    // Per-state error tokens (B3): the soft error fill (12%) and the invalid
+    // ring (22%) the renderer previously mixed inline. Same percentages as the
+    // old color-mix() so the error/hover states are visually unchanged.
+    `--wz-error-bg: color-mix(in srgb, ${errorHex} 12%, transparent); ` +
+    `--wz-error-ring: color-mix(in srgb, ${errorHex} 22%, transparent); ` +
     `--wz-btn-text: ${c?.buttonText ?? '#fff'}; ` +
     // §1 — semantic colors. success defaults to primary and link to primary,
     // placeholder to muted, so an un-set form is visually unchanged. The success
@@ -441,6 +453,80 @@ export function themeVars(appearance?: FormsThemeInput): string {
     `--wz-cover-overlay: rgba(0, 0, 0, ${coverOverlay}); ` +
     `--wz-cover-filter: ${coverFilter}; ` +
     `}`
+  );
+}
+
+/**
+ * Emit the dark-scheme COLOR custom-property overrides for an appearance.
+ * Returns ONLY the `--wz-*: value;` declarations — no `:host` wrapper — so the
+ * renderer can wrap them in the dark scheme selectors
+ * (`:host([data-scheme='dark'])` plus the `prefers-color-scheme: dark` /
+ * `data-scheme='auto'` block). Every token derives from `colorsDark`, falling
+ * back per-token to the matching LIGHT value (`colorsDark[t] ?? colors[t] ??`
+ * today's default), so an un-overridden token is identical to the light theme
+ * and a merchant can recolor just a few. Only COLOR tokens are re-declared;
+ * non-color tokens (radius, spacing, motion, sizes, …) stay inherited from the
+ * light `:host` block. Mirrors {@link themeVars}' color derivations exactly so
+ * primary-hover / subtle / success recompute the same way on the dark values.
+ */
+export function darkThemeVars(appearance?: FormsThemeInput): string {
+  const c = appearance?.colors;
+  const d = appearance?.colorsDark;
+
+  // Per token: an explicit dark override wins, else the effective LIGHT value
+  // (which itself falls back to today's baked default) — so an un-overridden
+  // token renders identically to the light theme.
+  const primary = d?.primary ?? c?.primary ?? '#0fb3a9';
+  const bg = d?.background ?? c?.background ?? '#fff';
+  const surface = d?.surface ?? c?.surface ?? '#fff';
+  const fg = d?.text ?? c?.text ?? '#1a1a1a';
+  const muted = d?.muted ?? c?.muted ?? '#6b7280';
+  const border = d?.border ?? c?.border ?? '#e5e7eb';
+  const error = d?.error ?? c?.error ?? '#c0392b';
+  const buttonText = d?.buttonText ?? c?.buttonText ?? '#fff';
+  // Semantic colors keep the light derivations (success/link → primary,
+  // placeholder → muted) unless the dark override supplies them.
+  const success = d?.success ?? c?.success ?? primary;
+  const link = d?.link ?? c?.link ?? primary;
+  const placeholder = d?.placeholder ?? c?.placeholder ?? muted;
+
+  // Page color AROUND the card — mirror the light §2 rule (transparent unless a
+  // distinct solid page color is chosen) on the dark bg/pageBackground. The
+  // background TYPE is shared with light (gradient/image paint via their own
+  // layers), so this only recolors the solid gutter.
+  const bgType = appearance?.background?.type ?? 'solid';
+  const pageBackground = d?.pageBackground ?? c?.pageBackground;
+  const pageBg =
+    bgType === 'solid' && pageBackground && pageBackground !== bg ? pageBackground : 'transparent';
+
+  return (
+    `--wz-primary: ${primary}; ` +
+    `--wz-primary-hover: color-mix(in srgb, ${primary} 85%, #000); ` +
+    // Per-state primary tokens recompute against the dark primary (same
+    // formulas as themeVars), so the focus glow / soft fill track the dark hue.
+    `--wz-primary-active: color-mix(in srgb, ${primary} 55%, transparent); ` +
+    `--wz-primary-soft: color-mix(in srgb, ${primary} 12%, transparent); ` +
+    `--wz-bg: ${bg}; ` +
+    `--wz-page-bg: ${pageBg}; ` +
+    `--wz-surface: ${surface}; ` +
+    // Derived tokens reference the redeclared color vars, so they recompute
+    // against the dark surface/fg automatically (same formulas as themeVars).
+    `--wz-subtle: color-mix(in srgb, var(--wz-surface) 92%, var(--wz-fg)); ` +
+    `--wz-fg: ${fg}; ` +
+    `--wz-muted: ${muted}; ` +
+    `--wz-border: ${border}; ` +
+    `--wz-error: ${error}; ` +
+    // Per-state error tokens recompute against the dark error (same formulas).
+    `--wz-error-bg: color-mix(in srgb, ${error} 12%, transparent); ` +
+    `--wz-error-ring: color-mix(in srgb, ${error} 22%, transparent); ` +
+    `--wz-btn-text: ${buttonText}; ` +
+    `--wz-success: ${success}; ` +
+    `--wz-success-bg: color-mix(in srgb, ${success} 8%, var(--wz-bg)); ` +
+    `--wz-success-border: color-mix(in srgb, ${success} 28%, transparent); ` +
+    `--wz-success-on: var(--wz-fg); ` +
+    `--wz-link: ${link}; ` +
+    `--wz-placeholder: ${placeholder}; ` +
+    `--wz-focus: ${primary}; `
   );
 }
 

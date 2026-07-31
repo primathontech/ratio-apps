@@ -8,7 +8,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { sanitizeFieldCss } from '@ratio-app/shared/schemas/custom-css';
+import { sanitizeFieldCss, sanitizeFormCss } from '@ratio-app/shared/schemas/custom-css';
 import {
   HIDDEN_DEFAULT_SOURCE,
   type SubmissionContext,
@@ -28,6 +28,11 @@ import { FORMS_DB_TOKEN } from '../kysely.module';
 import { FormsRecaptchaService } from '../spam/recaptcha.service';
 import { SubmitRateLimitService } from '../spam/submit-rate-limit.service';
 import { FormsS3Service } from '../uploads/s3.service';
+import {
+  FILE_SNIFF_BYTES,
+  FORM_FILE_ALLOWED_MIME_TYPES,
+  validateFileType,
+} from './fields/file/sniff';
 import { validateFileExists } from './fields/file/validate';
 import { IdempotencyService } from './idempotency.service';
 import { SchemaValidatorService } from './schema-validator.service';
@@ -173,11 +178,21 @@ export class SubmissionsService {
       });
     }
 
-    // (4b) HEAD each accepted file: key segments are public, so a fabricated key would store a phantom reference (P2-2). Bounded-concurrency so many files don't serialize into one slow round-trip per key.
-    const fileChecks: Array<{ fieldKey: string; objectKey: string }> = [];
+    // (4b) HEAD each accepted file: key segments are public, so a fabricated key would store a phantom reference (P2-2). Bounded-concurrency so many files don't serialize into one slow round-trip per key. Each check also carries the field's allowed types for the byte-sniff in (4c).
+    const fileChecks: Array<{
+      fieldKey: string;
+      objectKey: string;
+      allowedMimeTypes: readonly string[];
+    }> = [];
     for (const [fieldKey, value] of Object.entries(validated.files)) {
+      const field = ctx.schema.find(
+        (f): f is Extract<FormField, { type: 'file' }> => f.key === fieldKey && f.type === 'file',
+      );
+      const allowedMimeTypes = field?.validation?.allowedMimeTypes ?? [
+        ...FORM_FILE_ALLOWED_MIME_TYPES,
+      ];
       for (const objectKey of Array.isArray(value) ? value : [value]) {
-        fileChecks.push({ fieldKey, objectKey });
+        fileChecks.push({ fieldKey, objectKey, allowedMimeTypes });
       }
     }
     const missing = await this.firstMissingFile(fileChecks);
@@ -186,6 +201,17 @@ export class SubmissionsService {
         message: 'submission validation failed',
         error_code: 'SUBMISSION_INVALID',
         details: { fields: { [missing.fieldKey]: missing.error } },
+        safeForClient: true,
+      });
+    }
+
+    // (4c) Byte-level content-type verification (P2-3): the presign only signs the CLIENT-DECLARED type, so a caller can declare `image/png` and PUT an executable/PDF. Now that each object exists, read its head bytes and reject when the sniffed type isn't in the field's allowlist. Same bounded-concurrency + first-error shape as the existence pass.
+    const mismatch = await this.firstTypeMismatch(fileChecks);
+    if (mismatch) {
+      throw new UnprocessableEntityException({
+        message: 'submission validation failed',
+        error_code: 'SUBMISSION_INVALID',
+        details: { fields: { [mismatch.fieldKey]: mismatch.error } },
         safeForClient: true,
       });
     }
@@ -280,7 +306,13 @@ export class SubmissionsService {
       form.spamProtection === 'recaptcha'
         ? (config.recaptchaSiteKey ?? process.env.FORMS_RECAPTCHA_SHARED_SITE_KEY?.trim() ?? null)
         : null;
-    const appearance = parseJsonColumnOrNull<FormAppearance>(form.appearanceJson);
+    // Sanitize form-level custom CSS on the same read path. Unlike per-field CSS
+    // it is NOT scoped to a `[data-field]` wrapper (it styles the whole form);
+    // the css-tree allow-list (sanitizeFormCss) is the shadow-safe boundary.
+    const rawAppearance = parseJsonColumnOrNull<FormAppearance>(form.appearanceJson);
+    const appearance = rawAppearance?.customCss
+      ? { ...rawAppearance, customCss: sanitizeFormCss(rawAppearance.customCss).css || undefined }
+      : rawAppearance;
     return {
       id: form.id,
       name: form.name,
@@ -459,6 +491,27 @@ export class SubmissionsService {
       );
       const miss = results.find((r) => r.error !== null);
       if (miss?.error) return { fieldKey: miss.check.fieldKey, error: miss.error };
+    }
+    return null;
+  }
+
+  /** First accepted file whose STORED bytes don't match its field's type allowlist (spoofed content-type, P2-3), or null when every file's magic bytes check out. Mirrors {@link firstMissingFile}: reads only the head bytes ({@link FILE_SNIFF_BYTES}) per key, bounded-concurrency batches, stops at the first batch with a mismatch, and returns `{fieldKey, error}` to drive the 422. */
+  private async firstTypeMismatch(
+    checks: Array<{ fieldKey: string; objectKey: string; allowedMimeTypes: readonly string[] }>,
+  ): Promise<{ fieldKey: string; error: string } | null> {
+    for (let i = 0; i < checks.length; i += FILE_EXISTS_CONCURRENCY) {
+      const batch = checks.slice(i, i + FILE_EXISTS_CONCURRENCY);
+      const results = await Promise.all(
+        batch.map(async (check) => ({
+          check,
+          error: validateFileType(
+            check.allowedMimeTypes,
+            await this.s3.readHeadBytes(check.objectKey, FILE_SNIFF_BYTES),
+          ),
+        })),
+      );
+      const bad = results.find((r) => r.error !== null);
+      if (bad?.error) return { fieldKey: bad.check.fieldKey, error: bad.error };
     }
     return null;
   }

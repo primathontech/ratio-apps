@@ -13,8 +13,13 @@ const field = (overrides: Partial<ControlFieldOf<'file'>> = {}): ControlFieldOf<
     ...overrides,
   }) as ControlFieldOf<'file'>;
 
-/** A self-re-rendering harness: `requestUpdate` re-runs the template into host. */
-function harness(f: ControlFieldOf<'file'>): { host: HTMLElement; ctx: FieldRenderCtx } {
+/** A self-re-rendering harness: `requestUpdate` re-runs the template into host.
+ * `uploading` seeds the in-flight state and can be flipped on the returned ctx
+ * (then re-render via `ctx.requestUpdate()`) to exercise the upload bar. */
+function harness(
+  f: ControlFieldOf<'file'>,
+  uploading = false,
+): { host: HTMLElement; ctx: FieldRenderCtx } {
   const host = document.createElement('div');
   const files: Record<string, File[]> = {};
   const ctx: FieldRenderCtx = {
@@ -23,6 +28,7 @@ function harness(f: ControlFieldOf<'file'>): { host: HTMLElement; ctx: FieldRend
     describedBy: nothing,
     values: {},
     files,
+    uploading,
     onInput: () => {},
     setValue: () => {},
     ph: (_f, fallback) => fallback,
@@ -107,5 +113,45 @@ describe('renderFile add-time rejection', () => {
     expect(notice?.textContent).toContain("Couldn't add");
     expect(notice?.textContent).toContain('bad.txt');
     expect(notice?.textContent).toContain('allowed type');
+  });
+});
+
+describe('renderFile upload progress bar (B7)', () => {
+  it('shows no bar while idle (not uploading), even with files selected', () => {
+    const { host } = harness(field({ maxFiles: 3 }));
+    pick(host, [pdf('a.pdf')]);
+    expect(host.querySelector('.rf-file-progress')).toBeNull();
+    // The counter is still present — the bar is additive, not a replacement.
+    expect(host.querySelector('.rf-file-hint')?.textContent).toContain('1/3 selected');
+  });
+
+  it('shows no bar while uploading when nothing is selected yet', () => {
+    const { host } = harness(field({ maxFiles: 3 }), true);
+    expect(host.querySelector('.rf-file-progress')).toBeNull();
+  });
+
+  it('shows an indeterminate progressbar while uploading selected files', () => {
+    const { host } = harness(field({ maxFiles: 3 }), true);
+    pick(host, [pdf('a.pdf'), png('b.png')]);
+    const bar = host.querySelector('.rf-file-progress');
+    expect(bar).not.toBeNull();
+    // Indeterminate: role=progressbar with aria-busy and NO aria-valuenow (fetch
+    // uploads emit no byte progress, so no faked percentage is claimed).
+    expect(bar?.getAttribute('role')).toBe('progressbar');
+    expect(bar?.getAttribute('aria-busy')).toBe('true');
+    expect(bar?.hasAttribute('aria-valuenow')).toBe(false);
+    expect(bar?.querySelector('.rf-file-progress-fill')).not.toBeNull();
+    // Counter stays alongside the bar.
+    expect(host.querySelector('.rf-file-hint')?.textContent).toContain('2/3 selected');
+  });
+
+  it('clears the bar when uploading ends (done/error re-render)', () => {
+    const { host, ctx } = harness(field({ maxFiles: 3 }), true);
+    pick(host, [pdf('a.pdf')]);
+    expect(host.querySelector('.rf-file-progress')).not.toBeNull();
+    // Upload finished: the form leaves the submitting phase.
+    ctx.uploading = false;
+    ctx.requestUpdate();
+    expect(host.querySelector('.rf-file-progress')).toBeNull();
   });
 });

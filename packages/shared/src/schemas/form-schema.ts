@@ -31,6 +31,9 @@ export const FORM_FIELD_TYPES = [
   'paragraph',
   'image',
   'html',
+  // page_break (§steps) — a display-only separator that splits the form's
+  // fields into multi-step pages. Submits no data, like the blocks above.
+  'page_break',
 ] as const;
 
 export type FormFieldType = (typeof FORM_FIELD_TYPES)[number];
@@ -42,7 +45,12 @@ export type FormFieldType = (typeof FORM_FIELD_TYPES)[number];
 // helpers) live in ./fields/_shared/base and are re-exported here so the public
 // surface of this module is unchanged. Field-owned constants are likewise
 // re-exported next to the field schemas.
-import { FORM_INPUT_VARIANTS, hexColor, httpsAssetUrl } from './fields/_shared/base';
+import {
+  FORM_INPUT_VARIANTS,
+  hexColor,
+  httpsAssetUrl,
+  MAX_FORM_CSS_LENGTH,
+} from './fields/_shared/base';
 import { fieldSchemaMembers } from './fields/registry';
 
 export {
@@ -54,12 +62,12 @@ export {
   type FormInputVariant,
   formFieldKeySchema,
 } from './fields/_shared/base';
-export { FORM_DIVIDER_VARIANTS, type FormDividerVariant } from './fields/divider/schema';
 export {
   FORM_SELECT_OTHER_DEFAULT_LABEL,
   FORM_SELECT_OTHER_MAX_LENGTH,
   FORM_SELECT_OTHER_SENTINEL,
 } from './fields/_shared/select-constants';
+export { FORM_DIVIDER_VARIANTS, type FormDividerVariant } from './fields/divider/schema';
 export {
   FORM_FILE_ALLOWED_MIME_TYPES,
   FORM_FILE_MAX_BYTES,
@@ -83,6 +91,7 @@ export {
   type FormNumberLocale,
   type FormNumberStyle,
 } from './fields/number/schema';
+export { FORM_PAGE_BREAK_TITLE_MAX_LENGTH } from './fields/page_break/schema';
 export {
   RADIO_LAYOUTS,
   RADIO_MAX_GRID_COLUMNS,
@@ -119,6 +128,9 @@ export const FORM_NON_COLLECTABLE_FIELD_TYPES = [
   'paragraph',
   'image',
   'html',
+  // page_break is display-only too — it marks a step boundary and submits no
+  // value, so the CSV export and the server validator strip it like a divider.
+  'page_break',
 ] as const;
 
 export type FormNonCollectableFieldType = (typeof FORM_NON_COLLECTABLE_FIELD_TYPES)[number];
@@ -312,6 +324,15 @@ export type FormLogoSize = (typeof FORM_LOGO_SIZES)[number];
 export const FORM_LOGO_ALIGNS = ['left', 'center', 'right'] as const;
 export type FormLogoAlign = (typeof FORM_LOGO_ALIGNS)[number];
 
+// ── Dark theme (color scheme) ──────────────────────────────────
+// Opt-in color scheme. 'light' (the default when unset) = today's behavior,
+// fully back-compat. 'dark' always applies the colorsDark override; 'auto'
+// applies it only under the OS `prefers-color-scheme: dark`. The renderer
+// reflects the active scheme onto the host as `data-scheme` so the dark
+// override CSS blocks apply (mirrors the data-layout/data-align reflection).
+export const FORM_COLOR_SCHEMES = ['light', 'dark', 'auto'] as const;
+export type FormColorScheme = (typeof FORM_COLOR_SCHEMES)[number];
+
 const appearanceColorsSchema = z
   .object({
     primary: hexColor.default('#0fb3a9'), // submit bg  (today's --wz-primary)
@@ -331,6 +352,26 @@ const appearanceColorsSchema = z
     placeholder: hexColor.optional(),
   })
   .prefault({}); // parse the empty default so each sub-token default applies
+
+// Dark-scheme color overrides — the SAME token shape as appearanceColorsSchema,
+// but every token is OPTIONAL with NO default. An absent token falls back to
+// its LIGHT value at the SDK (colorsDark[t] ?? colors[t]), so a merchant can
+// override just a few and the rest track the light theme. NOT prefaulted:
+// absent ⇒ the whole group is undefined ⇒ dark reuses every light token.
+const appearanceColorsDarkSchema = z.object({
+  primary: hexColor.optional(),
+  background: hexColor.optional(),
+  pageBackground: hexColor.optional(),
+  surface: hexColor.optional(),
+  text: hexColor.optional(),
+  muted: hexColor.optional(),
+  border: hexColor.optional(),
+  error: hexColor.optional(),
+  buttonText: hexColor.optional(),
+  success: hexColor.optional(),
+  link: hexColor.optional(),
+  placeholder: hexColor.optional(),
+});
 
 const appearanceTypographySchema = z
   .object({
@@ -501,6 +542,11 @@ const appearanceBackgroundSchema = z
 export const appearanceSchema = z
   .object({
     colors: appearanceColorsSchema,
+    // Dark theme — opt-in scheme + its partial color overrides. Both optional
+    // and default-free: an absent `colorScheme` (or 'light') is today's exact
+    // behavior, and `colorsDark` tokens fall back to the light values at the SDK.
+    colorScheme: z.enum(FORM_COLOR_SCHEMES).optional(),
+    colorsDark: appearanceColorsDarkSchema.optional(),
     typography: appearanceTypographySchema,
     layout: appearanceLayoutSchema,
     background: appearanceBackgroundSchema,
@@ -511,6 +557,13 @@ export const appearanceSchema = z
     // defined { showPoweredBy: false }.
     endings: appearanceEndingsSchema.optional(),
     branding: appearanceBrandingSchema,
+    // FORM-LEVEL raw custom CSS — distinct from the PER-FIELD `customCss` on
+    // baseFieldShape. Stored raw + bounded; the server sanitizes it on the embed
+    // read path (see sanitize `sanitizeFormCss`) and, unlike per-field CSS, it is
+    // NOT scoped to a `[data-field]` wrapper — it styles the whole form
+    // (`.rf-card`, `.rf-submit`, …) inside the shadow root, with the css-tree
+    // allow-list as the safety boundary. Absent ⇒ nothing injected ⇒ unchanged.
+    customCss: z.string().max(MAX_FORM_CSS_LENGTH).optional(),
   })
   .strict(); // reject unknown keys — same posture as the field schemas
 

@@ -74,6 +74,15 @@ export type FormInputVariant = (typeof FORM_INPUT_VARIANTS)[number];
  */
 export const MAX_FIELD_CSS_LENGTH = 2000;
 
+/**
+ * Hard cap on a form's raw FORM-LEVEL custom CSS (appearance.customCss). Larger
+ * than the per-field cap because one form-level block styles the whole form
+ * (card, submit, every field) rather than a single field. Same rationale as
+ * above: kept here (Zod-side, css-tree-free) so the appearance schema bounds it
+ * without pulling the sanitizer into the widget bundle.
+ */
+export const MAX_FORM_CSS_LENGTH = 5000;
+
 /** Shared per-field basics — every field type carries these. */
 export const baseFieldShape = {
   key: formFieldKeySchema,
