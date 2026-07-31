@@ -311,10 +311,13 @@ export function themeVars(appearance?: FormsThemeInput): string {
   const cardPad = l?.cardPadding ?? density.cardPad;
   const maxWidth = l?.fluidWidth ? 'none' : `${l?.maxWidth ?? 640}px`;
   // §1.3 — the status/ending card keeps a comfortable confirmation cap even
-  // under fluidWidth, which sets --wz-max-width to `none`. Feeding that into
-  // `min(26rem, none)` is invalid CSS (the panel would then span the page), so
-  // emit a dedicated bounded token the status rule consumes instead.
-  const statusMaxWidth = l?.fluidWidth ? '26rem' : `min(26rem, ${l?.maxWidth ?? 640}px)`;
+  // §Status width — the confirmation/thank-you card matches the form's OWN width
+  // so it never jarringly shrinks to a narrow column after submit (a comfortable
+  // floor keeps a very narrow form's confirmation readable). Fluid forms let it
+  // fill like the form itself does (--wz-max-width is `none` there).
+  const statusMaxWidth = l?.fluidWidth
+    ? 'none'
+    : `max(26rem, ${l?.maxWidth ?? 640}px)`;
 
   // §1.8 — easing selects a fixed curve (duration handled by `dur` above/below).
   const ease = EASING_CURVES[l?.easing ?? 'standard'];
