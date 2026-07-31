@@ -10,11 +10,11 @@ const ALLOWED_HOST_SUFFIXES = ['.gokwik.co', '.gokwik.in'];
 const REQUIRE_IFRAME =
   ((import.meta.env.VITE_REQUIRE_IFRAME as string | undefined) ?? 'true').toLowerCase() !== 'false';
 
-function isLocalhost(host: string): boolean {
+export function isLocalhost(host: string): boolean {
   return host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0';
 }
 
-function isAllowedOrigin(origin: string): boolean {
+export function isAllowedOrigin(origin: string): boolean {
   try {
     const url = new URL(origin);
     if (url.protocol !== 'https:') return false;

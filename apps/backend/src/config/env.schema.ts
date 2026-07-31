@@ -105,17 +105,17 @@ const baseEnv = z.object({
   OS_RP_TOKEN: emptyAsUndefined(z.string().min(1)),
   // RP_BASE_URL: Return Prime server base URL (no trailing slash).
   RP_BASE_URL: emptyAsUndefined(z.string().url()),
-  // OS_ORDER_BASE_URL / OS_ITEM_BASE_URL: GoKwik OpenStore service base URLs.
-  // Used by the RP adapter for refund and product lookups that the Ratio
-  // ecosystem API does not yet expose. Optional so other modules aren't forced
-  // to declare them.
-  OS_ORDER_BASE_URL: emptyAsUndefined(z.string().url()),
-  OS_ITEM_BASE_URL: emptyAsUndefined(z.string().url()),
   // RP_OS_ADMIN_*: credentials used when calling RP BE /os-install from the
   // admin-rp SPA registration flow. Optional — defaults to derived values.
   RP_OS_ADMIN_EMAIL: emptyAsUndefined(z.string().email()),
   RP_OS_ADMIN_PASSWORD: emptyAsUndefined(z.string().min(1)),
   RP_OS_ADMIN_NAME: emptyAsUndefined(z.string().min(1)),
+  // RP_PLATFORM_KILL_SWITCH_ENABLED: platform-wide emergency kill switch for the
+  // /rp/shopify/* compatibility API (PRD §11). Default 'true' (on) — flip to
+  // 'false' to make every /rp/shopify/* route return 503, independent of any
+  // per-merchant `returnExchangeEnabled` setting (which only hides the
+  // storefront button, not the API itself).
+  RP_PLATFORM_KILL_SWITCH_ENABLED: z.enum(['true', 'false']).default('true'),
 
   // ─── meta app: Meta Graph API base for Conversions API dispatch ───────────
   // Defaults to the real Graph API; override with a local mock URL for testing.

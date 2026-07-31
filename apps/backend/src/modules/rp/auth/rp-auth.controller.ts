@@ -72,7 +72,7 @@ export class RpAuthController {
     }
 
     const domain =
-      (tokenRes as Record<string, unknown>).domain as string | undefined ??
+      tokenRes.merchantStoreId ??
       extractDomainFromJwt(tokenRes.access_token) ??
       merchantId;
 

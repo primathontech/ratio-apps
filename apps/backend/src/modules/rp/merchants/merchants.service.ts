@@ -62,19 +62,55 @@ export class RpMerchantsService {
       .execute();
   }
 
-  /** Flip the merchant inactive (OS app uninstalled → adapter). Mirrors RP's own `StoreDetail.active = false` gate. */
-  async deactivate(merchantId: string): Promise<void> {
+  /** Flip the merchant active/inactive. Mirrors RP's own `StoreDetail.active` gate. */
+  async setActive(merchantId: string, active: boolean): Promise<void> {
     await this.handle.db
       .updateTable('return_prime_merchants')
-      .set({ active: false, updatedAt: sql`CURRENT_TIMESTAMP(3)` })
+      .set({ active, updatedAt: sql`CURRENT_TIMESTAMP(3)` })
       .where('merchantId', '=', merchantId)
       .execute();
+  }
+
+  /** Flip the merchant inactive (OS app uninstalled → adapter). */
+  async deactivate(merchantId: string): Promise<void> {
+    await this.setActive(merchantId, false);
   }
 
   async updateDomain(merchantId: string, domain: string): Promise<void> {
     await this.handle.db
       .updateTable('return_prime_merchants')
       .set({ domain, updatedAt: sql`CURRENT_TIMESTAMP(3)` })
+      .where('merchantId', '=', merchantId)
+      .execute();
+  }
+
+  /**
+   * Set only after RP's os-install has genuinely returned a 2xx — never as a side
+   * effect of merely attempting registration. `RpAdminController.me()` reads this
+   * (not `domain !== merchantId`) to decide register-vs-configured, so a failed
+   * os-install can never look like a completed registration on the next page load.
+   */
+  async setRpRegistered(merchantId: string, registered: boolean): Promise<void> {
+    await this.handle.db
+      .updateTable('return_prime_merchants')
+      .set({ rpRegistered: registered, updatedAt: sql`CURRENT_TIMESTAMP(3)` })
+      .where('merchantId', '=', merchantId)
+      .execute();
+  }
+
+  /**
+   * Persists (or, passing `null`, purges) the pre-link plan snapshot RP's os-install
+   * hands back on a genuine dual-platform link. Purged on a real uninstall
+   * (handleAppUninstalled) so a later fresh link has nothing stale to reuse; kept
+   * across a self-service pause/resume, which never touches the dual-platform link.
+   */
+  async setPreviousPlan(merchantId: string, previousPlan: unknown | null): Promise<void> {
+    await this.handle.db
+      .updateTable('return_prime_merchants')
+      .set({
+        previousPlan: previousPlan == null ? null : JSON.stringify(previousPlan),
+        updatedAt: sql`CURRENT_TIMESTAMP(3)`,
+      })
       .where('merchantId', '=', merchantId)
       .execute();
   }

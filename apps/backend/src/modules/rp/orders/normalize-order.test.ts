@@ -134,3 +134,52 @@ describe('normalizeOrder - line item fulfillment_status derivation', () => {
     expect(items[0]?.fulfillable_quantity).toBe(2);
   });
 });
+
+describe('normalizeOrder - returnable/exchangeable derivation', () => {
+  // Regression: RP's customer.service.js only NARROWS an already-present
+  // returnable/exchangeable boolean (e.g. `datum.returnable && !hasNonReturnableTag`)
+  // — it never computes a base value. Real Shopify orders get that boolean from
+  // Shopify's own API; OS has no equivalent, so without this every OS order line
+  // item silently evaluated as non-returnable regardless of fulfillment/policy.
+  it('marks a fulfilled line item returnable and exchangeable', () => {
+    const order = {
+      id: 'ordr_444',
+      currency: 'INR',
+      fulfillment_status: 'fulfilled',
+      fulfillments: [],
+      line_items: [{ ...baseLine, quantity: 1, fulfillment_status: 'unfulfilled' }],
+      shipping_lines: [],
+    };
+    const items = (normalizeOrder(order) as Record<string, unknown>).line_items as Array<Record<string, unknown>>;
+    expect(items[0]?.returnable).toBe(true);
+    expect(items[0]?.exchangeable).toBe(true);
+  });
+
+  it('marks an unfulfilled line item non-returnable and non-exchangeable', () => {
+    const order = {
+      id: 'ordr_555',
+      currency: 'INR',
+      fulfillment_status: null,
+      fulfillments: [],
+      line_items: [{ ...baseLine, quantity: 1, fulfillment_status: 'unfulfilled' }],
+      shipping_lines: [],
+    };
+    const items = (normalizeOrder(order) as Record<string, unknown>).line_items as Array<Record<string, unknown>>;
+    expect(items[0]?.returnable).toBe(false);
+    expect(items[0]?.exchangeable).toBe(false);
+  });
+
+  it('does not override an explicit returnable/exchangeable value if OS ever supplies one', () => {
+    const order = {
+      id: 'ordr_666',
+      currency: 'INR',
+      fulfillment_status: 'fulfilled',
+      fulfillments: [],
+      line_items: [{ ...baseLine, quantity: 1, fulfillment_status: 'unfulfilled', returnable: false, exchangeable: false }],
+      shipping_lines: [],
+    };
+    const items = (normalizeOrder(order) as Record<string, unknown>).line_items as Array<Record<string, unknown>>;
+    expect(items[0]?.returnable).toBe(false);
+    expect(items[0]?.exchangeable).toBe(false);
+  });
+});

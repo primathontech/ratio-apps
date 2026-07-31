@@ -126,4 +126,18 @@ describe('envSchema', () => {
     const env = loadEnv({ ...validEnv, TRUSTED_PROXY_CIDRS: ' 1.2.3.0/24 , 5.6.7.0/24 ' });
     expect(env.TRUSTED_PROXY_CIDRS).toEqual(['1.2.3.0/24', '5.6.7.0/24']);
   });
+
+  it('defaults RP_PLATFORM_KILL_SWITCH_ENABLED to "true"', () => {
+    const env = loadEnv(validEnv);
+    expect(env.RP_PLATFORM_KILL_SWITCH_ENABLED).toBe('true');
+  });
+
+  it('accepts RP_PLATFORM_KILL_SWITCH_ENABLED=false and rejects a non-boolean value', () => {
+    expect(
+      envSchema.safeParse({ ...validEnv, RP_PLATFORM_KILL_SWITCH_ENABLED: 'false' }).success,
+    ).toBe(true);
+    expect(
+      envSchema.safeParse({ ...validEnv, RP_PLATFORM_KILL_SWITCH_ENABLED: 'off' }).success,
+    ).toBe(false);
+  });
 });
