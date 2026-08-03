@@ -287,6 +287,26 @@ describe('RpRatioClientService.calculateRefund', () => {
     );
     expect(result).toEqual({ totalAmount: 35900, currency: 'INR' });
   });
+
+  it('uses the access token — not the merchant id — for the internal order-number lookup', async () => {
+    const requestMock = vi.fn();
+    stubOrderLookup(requestMock, 'ordr_real123', '2439');
+    requestMock.mockResolvedValueOnce({ totalAmount: 35900, currency: 'INR' });
+    const svc = makeService(requestMock);
+
+    await svc.calculateRefund('access-tok-1', 'gk-merchant', '2439', {
+      line_items: [{ line_item_id: '700', quantity: 1 }],
+      include_shipping: false,
+      reason: 'test',
+    });
+
+    expect(requestMock).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining('/api/v1/orders?search='),
+      expect.anything(),
+      expect.objectContaining({ accessToken: 'access-tok-1' }),
+    );
+  });
 });
 
 describe('RpRatioClientService.createRefund', () => {
@@ -319,6 +339,28 @@ describe('RpRatioClientService.createRefund', () => {
     );
     expect(result).toEqual({ id: 'ref_1', totalAmount: 52522 });
   });
+
+  it('uses the access token — not the merchant id — for the internal order-number lookup', async () => {
+    const requestMock = vi.fn();
+    stubOrderLookup(requestMock, 'ordr_real123', '2439');
+    requestMock.mockResolvedValueOnce({ id: 'ref_1', totalAmount: 52522 });
+    const svc = makeService(requestMock);
+
+    await svc.createRefund('access-tok-1', 'gk-merchant', '2439', {
+      line_items: [{ line_item_id: '700', quantity: 1 }],
+      include_shipping: false,
+      restock_type: 'CANCEL',
+      notify_customer: true,
+      reason: 'test',
+    });
+
+    expect(requestMock).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining('/api/v1/orders?search='),
+      expect.anything(),
+      expect.objectContaining({ accessToken: 'access-tok-1' }),
+    );
+  });
 });
 
 describe('RpRatioClientService.getRefunds', () => {
@@ -339,5 +381,21 @@ describe('RpRatioClientService.getRefunds', () => {
       expect.objectContaining({ accessToken: 'access-tok-1' }),
     );
     expect(result).toEqual([{ id: 'ref_1' }]);
+  });
+
+  it('uses the access token — not the merchant id — for the internal order-number lookup', async () => {
+    const requestMock = vi.fn();
+    stubOrderLookup(requestMock, 'ordr_real123', '2439');
+    requestMock.mockResolvedValueOnce([{ id: 'ref_1' }]);
+    const svc = makeService(requestMock);
+
+    await svc.getRefunds('access-tok-1', 'gk-merchant', '2439');
+
+    expect(requestMock).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining('/api/v1/orders?search='),
+      expect.anything(),
+      expect.objectContaining({ accessToken: 'access-tok-1' }),
+    );
   });
 });
