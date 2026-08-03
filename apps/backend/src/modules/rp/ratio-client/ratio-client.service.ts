@@ -183,7 +183,7 @@ export class RpRatioClientService {
     orderId: string,
     body: unknown,
   ): Promise<unknown> {
-    const osId = await this.resolveOsOrderId(merchantId, orderId);
+    const osId = await this.resolveOsOrderId(accessToken, orderId);
     return this.ratio.request('/api/v1/refunds/calculate', anySchema, {
       method: 'POST',
       accessToken,
@@ -197,7 +197,7 @@ export class RpRatioClientService {
     orderId: string,
     body: unknown,
   ): Promise<unknown> {
-    const osId = await this.resolveOsOrderId(merchantId, orderId);
+    const osId = await this.resolveOsOrderId(accessToken, orderId);
     return this.ratio.request('/api/v1/refunds', anySchema, {
       method: 'POST',
       accessToken,
@@ -207,7 +207,7 @@ export class RpRatioClientService {
   }
 
   async getRefunds(accessToken: string, merchantId: string, orderId: string): Promise<unknown> {
-    const osId = await this.resolveOsOrderId(merchantId, orderId);
+    const osId = await this.resolveOsOrderId(accessToken, orderId);
     return this.ratio.request(`/api/v1/orders/${encodeURIComponent(osId)}/refunds`, anySchema, {
       accessToken,
     });

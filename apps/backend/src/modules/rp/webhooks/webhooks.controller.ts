@@ -32,7 +32,9 @@ export class RpWebhooksController {
     @Req() req: FastifyRequest,
   ) {
     const body = (req.body ?? {}) as Record<string, unknown>;
-    this.webhooks.handleProductCreate(merchantId, body).catch(() => {});
+    this.webhooks.handleProductCreate(merchantId, body).catch((err) => {
+      this.logger.error({ err, merchantId }, 'product create handler failed');
+    });
     return { ok: true };
   }
 
@@ -43,7 +45,9 @@ export class RpWebhooksController {
     @Req() req: FastifyRequest,
   ) {
     const body = (req.body ?? {}) as Record<string, unknown>;
-    this.webhooks.handleProductUpdate(merchantId, body).catch(() => {});
+    this.webhooks.handleProductUpdate(merchantId, body).catch((err) => {
+      this.logger.error({ err, merchantId }, 'product update handler failed');
+    });
     return { ok: true };
   }
 
@@ -125,7 +129,9 @@ export class RpWebhooksController {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const merchantId = merchantIdHeader || merchantIdFallback || (body.merchant_id as string) || '';
     const orderPayload = (body.order as Record<string, unknown>) ?? (body.data as Record<string, unknown>) ?? body;
-    this.webhooks.handleOrderEvent(merchantId, orderPayload, 'orders/create').catch(() => {});
+    this.webhooks.handleOrderEvent(merchantId, orderPayload, 'orders/create').catch((err) => {
+      this.logger.error({ err, merchantId }, 'order create handler failed');
+    });
     return { ok: true };
   }
 
@@ -139,7 +145,9 @@ export class RpWebhooksController {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const merchantId = merchantIdHeader || merchantIdFallback || (body.merchant_id as string) || '';
     const orderPayload = (body.order as Record<string, unknown>) ?? (body.data as Record<string, unknown>) ?? body;
-    this.webhooks.handleOrderEvent(merchantId, orderPayload, 'orders/update').catch(() => {});
+    this.webhooks.handleOrderEvent(merchantId, orderPayload, 'orders/update').catch((err) => {
+      this.logger.error({ err, merchantId }, 'order update handler failed');
+    });
     return { ok: true };
   }
 }
