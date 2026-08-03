@@ -24,10 +24,10 @@ import { FBT_MERCHANTS } from '../tokens';
  */
 @Injectable()
 export class FbtAppUninstalledHandler implements WebhookHandler {
-  // TEMPLATE: webhook `topic` must equal the EXACT `event` string the Ratio
-  // runtime delivers. This example uses dot-form (`app.uninstalled`), but the
+  // NOTE: webhook `topic` must equal the EXACT `event` string the Ratio
+  // runtime delivers. This uses dot-form (`app.uninstalled`), but the
   // platform webhook registry documents slash-form (`app/uninstalled`). Verify
-  // against a live delivery when scaffolding — a wrong topic silently no-ops
+  // against a live delivery — a wrong topic silently no-ops
   // (the dispatcher's topic-mismatch fast-path). See docs/agent/context/learnings.md.
   readonly topic = 'app.uninstalled';
   private readonly logger = new Logger(FbtAppUninstalledHandler.name);
