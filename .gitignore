@@ -73,3 +73,7 @@ zip/
 claude --resume 4d70ff1e-c37e-4e4d-ba08-121ee0b8450f
 .ec2.env
 .ec2.env.pending
+
+# Subagent-driven-development scratch workspace (ledgers, briefs, review packages).
+# Local process tooling, never tracked — same rationale as docs/superpowers/.
+.superpowers/
