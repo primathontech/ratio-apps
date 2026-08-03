@@ -14,6 +14,8 @@ CREATE DATABASE IF NOT EXISTS wizzy_app;
 CREATE DATABASE IF NOT EXISTS wizzy_app_test;
 CREATE DATABASE IF NOT EXISTS forms_app;
 CREATE DATABASE IF NOT EXISTS forms_app_test;
+CREATE DATABASE IF NOT EXISTS fbt_app;
+CREATE DATABASE IF NOT EXISTS fbt_app_test;
 
 GRANT ALL ON `_template_app`.*      TO 'app'@'%';
 GRANT ALL ON `_template_app_test`.* TO 'app'@'%';
@@ -29,4 +31,6 @@ GRANT ALL ON `wizzy_app`.*          TO 'app'@'%';
 GRANT ALL ON `wizzy_app_test`.*     TO 'app'@'%';
 GRANT ALL ON `forms_app`.*          TO 'app'@'%';
 GRANT ALL ON `forms_app_test`.*     TO 'app'@'%';
+GRANT ALL ON `fbt_app`.*      TO 'app'@'%';
+GRANT ALL ON `fbt_app_test`.* TO 'app'@'%';
 FLUSH PRIVILEGES;
