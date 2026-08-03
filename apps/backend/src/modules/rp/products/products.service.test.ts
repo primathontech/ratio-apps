@@ -22,6 +22,7 @@ function makeService(opts: {
   } as unknown as RpRatioClientService;
   const tokenProvider = {
     getAccessToken: vi.fn().mockResolvedValue('access-tok-1'),
+    withAuthRetry: vi.fn((_merchantId: string, fn: (token: string) => unknown) => fn('access-tok-1')),
   } as unknown as RpRatioTokenProvider;
   const transformer = {
     shopifyProduct: vi.fn((p: unknown) => p),

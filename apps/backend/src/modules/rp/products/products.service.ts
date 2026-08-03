@@ -28,8 +28,9 @@ export class RpProductsService {
       'resolved product id for OS lookup',
     );
 
-    const token = await this.tokenProvider.getAccessToken(merchantId);
-    const raw = await this.ratioClient.getProduct(token, merchantId, resolvedId) as Record<string, unknown>;
+    const raw = await this.tokenProvider.withAuthRetry(merchantId, (token) =>
+      this.ratioClient.getProduct(token, merchantId, resolvedId),
+    ) as Record<string, unknown>;
     const product = (raw?.product ?? raw?.data ?? raw) as Record<string, unknown>;
 
     // Persist variant hash mappings here too, not just on the webhook-forward path — RP's

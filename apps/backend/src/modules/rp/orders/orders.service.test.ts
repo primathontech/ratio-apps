@@ -20,6 +20,7 @@ function makeService(opts: { getOrderResult?: unknown; getOrdersResult?: unknown
   } as unknown as RpRatioClientService;
   const tokenProvider = {
     getAccessToken: vi.fn().mockResolvedValue('access-tok-1'),
+    withAuthRetry: vi.fn((_merchantId: string, fn: (token: string) => unknown) => fn('access-tok-1')),
   } as unknown as RpRatioTokenProvider;
   const transformer = {} as unknown as RpTransformerService;
   const idMapping = { hashAndPersist } as unknown as RpIdMappingService;

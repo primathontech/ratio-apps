@@ -154,15 +154,33 @@ export function normalizeOrder(order: Record<string, unknown>): Record<string, u
   const fulfillmentStatus = order.fulfillment_status as string | null | undefined;
   const fulfillments =
     rawFulfillments.length === 0 && (fulfillmentStatus === 'fulfilled' || fulfillmentStatus === 'partial')
-      ? [
-          {
-            id: numericOrderId || 1,
-            status: 'success',
-            location_id: null,
-            created_at: order.created_at,
-            line_items: lineItems.map((li) => ({ id: li.id, quantity: ((li as Record<string, unknown>).quantity as number) ?? 1 })),
-          },
-        ]
+      ? (() => {
+          // A real Shopify fulfillment only ever lists the units actually shipped in it —
+          // for a `partial` order that's per-item (quantity - fulfillable_quantity), NOT the
+          // full ordered quantity, and an item with nothing shipped yet doesn't appear at all
+          // (so its date-eligibility falls through to the "no fulfillment yet" branch instead
+          // of being treated as shipped on order.created_at).
+          const shippedLineItems = lineItems
+            .map((li) => {
+              const rec = li as Record<string, unknown>;
+              const qty = Number(rec.quantity ?? 0);
+              const fulfillableQty = Number(rec.fulfillable_quantity ?? 0);
+              const shippedQty = Math.max(qty - fulfillableQty, 0);
+              return shippedQty > 0 ? { id: rec.id, quantity: shippedQty } : null;
+            })
+            .filter((li): li is { id: unknown; quantity: number } => li !== null);
+          return shippedLineItems.length > 0
+            ? [
+                {
+                  id: numericOrderId || 1,
+                  status: 'success',
+                  location_id: null,
+                  created_at: order.created_at,
+                  line_items: shippedLineItems,
+                },
+              ]
+            : [];
+        })()
       : rawFulfillments;
 
   return {

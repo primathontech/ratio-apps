@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { HttpException, Inject, Injectable, Logger } from '@nestjs/common';
 import { sql } from 'kysely';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
 import type { CryptoService } from '../../../core/crypto/crypto.service';
@@ -26,6 +26,8 @@ const EXPIRY_SKEW_MS = 60_000;
  */
 @Injectable()
 export class RpRatioTokenProvider {
+  private readonly logger = new Logger(`RP:${RpRatioTokenProvider.name}`);
+
   /** Per-merchant in-flight refresh promises (in-process single-flight). */
   private readonly inflight = new Map<string, Promise<string>>();
 
@@ -48,7 +50,87 @@ export class RpRatioTokenProvider {
     if (this.isValid(row.expiresAt)) return this.crypto.decrypt(row.accessTokenEnc);
 
     // Token expired or near-expiry → collapse concurrent same-merchant refreshes.
-    return this.refreshSingleFlight(merchantId);
+    return this.refreshSingleFlight(merchantId, false);
+  }
+
+  /**
+   * Unconditionally refreshes and returns a NEW access token, bypassing the stored
+   * `expiresAt` entirely. Needed because getAccessToken's expiry check only reflects what
+   * THIS environment's database last recorded — it can't detect that another
+   * environment/process already refreshed (and thus invalidated) the same merchant's
+   * credentials before our own recorded expiry. Use this only after a genuine 401 from an
+   * actual upstream call (see withAuthRetry), not routinely.
+   */
+  async forceRefresh(merchantId: string): Promise<string> {
+    return this.refreshSingleFlight(merchantId, true);
+  }
+
+  /**
+   * Runs `fn` with a valid access token. If `fn` fails with a 401 from the actual Ratio
+   * upstream call (not just a refresh-endpoint failure), forces exactly one token refresh
+   * and retries `fn` once with the new token — self-healing the case where another
+   * environment already invalidated our cached token before its own recorded expiry. If the
+   * retry ALSO 401s, or the forced refresh itself fails (refresh token is genuinely dead),
+   * throws one clear, distinctly-labeled error instead of leaking Ratio's raw
+   * upstream/refresh failure up to the caller.
+   */
+  async withAuthRetry<T>(merchantId: string, fn: (accessToken: string) => Promise<T>): Promise<T> {
+    const token = await this.getAccessToken(merchantId);
+    try {
+      return await fn(token);
+    } catch (err) {
+      if (!this.isUpstream401(err)) throw err;
+
+      this.logger.warn(
+        { merchantId },
+        'Ratio 401 on a call with an unexpired cached token — another environment likely refreshed it early; forcing a refresh',
+      );
+
+      let freshToken: string;
+      try {
+        freshToken = await this.forceRefresh(merchantId);
+      } catch (refreshErr) {
+        this.logger.error(
+          { merchantId, err: refreshErr },
+          'Ratio refresh token rejected — auth is dead for this merchant, needs reinstall',
+        );
+        throw new Error(
+          `RATIO_AUTH_DEAD_NEEDS_REINSTALL: Ratio refresh token rejected for merchant ${merchantId} — ${(refreshErr as Error).message}`,
+        );
+      }
+
+      try {
+        const result = await fn(freshToken);
+        this.logger.log({ merchantId }, 'Ratio auth self-healed — forced refresh + retry succeeded');
+        return result;
+      } catch (retryErr) {
+        if (this.isUpstream401(retryErr)) {
+          this.logger.error(
+            { merchantId },
+            'Ratio still returned 401 after a forced refresh — auth is dead for this merchant, needs reinstall',
+          );
+          throw new Error(
+            `RATIO_AUTH_DEAD_NEEDS_REINSTALL: Ratio still returned 401 for merchant ${merchantId} after a forced token refresh`,
+          );
+        }
+        throw retryErr;
+      }
+    }
+  }
+
+  /**
+   * True only for a 401 the actual Ratio upstream call returned. RatioClient
+   * (core/ratio-client/ratio.client.ts) wraps EVERY non-2xx upstream response as a 502
+   * HttpException, with the real upstream status nested in the response body's
+   * `details.status` — so this must inspect that, not err.getStatus() (which is always 502).
+   */
+  private isUpstream401(err: unknown): boolean {
+    if (!(err instanceof HttpException)) return false;
+    const response = err.getResponse();
+    if (typeof response !== 'object' || response === null) return false;
+    const details = (response as Record<string, unknown>).details;
+    if (typeof details !== 'object' || details === null) return false;
+    return (details as Record<string, unknown>).status === 401;
   }
 
   private isValid(expiresAt: Date): boolean {
@@ -56,10 +138,10 @@ export class RpRatioTokenProvider {
   }
 
   /** In-process single-flight wrapper — layer 1. */
-  private refreshSingleFlight(merchantId: string): Promise<string> {
+  private refreshSingleFlight(merchantId: string, force: boolean): Promise<string> {
     const existing = this.inflight.get(merchantId);
     if (existing) return existing;
-    const p = this.refreshWithLock(merchantId).finally(() => this.inflight.delete(merchantId));
+    const p = this.refreshWithLock(merchantId, force).finally(() => this.inflight.delete(merchantId));
     this.inflight.set(merchantId, p);
     return p;
   }
@@ -70,7 +152,7 @@ export class RpRatioTokenProvider {
    * in another process blocks, then re-reads the already-rotated token and
    * returns it without calling the refresh endpoint again.
    */
-  private refreshWithLock(merchantId: string): Promise<string> {
+  private refreshWithLock(merchantId: string, force: boolean): Promise<string> {
     return this.handle.db.transaction().execute(async (trx) => {
       const locked = await trx
         .selectFrom('return_prime_merchants')
@@ -81,11 +163,13 @@ export class RpRatioTokenProvider {
 
       if (!locked) throw new Error(`no RP merchant row for merchant ${merchantId}`);
 
-      // Double-check under the lock: another process may have already rotated
-      // the token while we waited. Use it — do NOT refresh again.
-      if (this.isValid(locked.expiresAt)) return this.crypto.decrypt(locked.accessTokenEnc);
+      // Double-check under the lock: another process may have already rotated the token
+      // while we waited. Use it — do NOT refresh again. Skipped entirely when `force` is
+      // true, since the whole point of forceRefresh is that the stored expiresAt cannot be
+      // trusted (another ENVIRONMENT, not just another process in this same DB, may have
+      // already invalidated it without updating this row at all).
+      if (!force && this.isValid(locked.expiresAt)) return this.crypto.decrypt(locked.accessTokenEnc);
 
-      // Safe to spend the single-use refresh token now.
       const refreshed = await this.http.refresh(this.crypto.decrypt(locked.refreshTokenEnc), {
         clientId: this.creds.clientId,
         clientSecret: this.creds.clientSecret,
