@@ -121,6 +121,46 @@ describe('normalizeOrder - fulfillments synthesis - partial fulfillment quantiti
   });
 });
 
+describe('normalizeOrder - customer.tags default', () => {
+  // Real OS customer objects have no `tags` field at all ({id, email, phone} only) —
+  // Shopify's always does (even if just an empty string). RP has ~14 call sites across
+  // returnFeeRule.service.js/promotion.service.js/rpAdvantage.service.js that read
+  // `customer.tags.split(',')` guarded only on `customer` being truthy, not `customer.tags`
+  // — an OS order with no tags field crashes them with "Cannot read properties of
+  // undefined (reading 'split')" (confirmed live: RETURN_FEE_RULE_E15 wraps exactly this).
+  it('defaults tags to an empty string when the raw customer has none', () => {
+    const order = {
+      id: 'ordr_1',
+      currency: 'INR',
+      line_items: [],
+      shipping_lines: [],
+      customer: { id: 'e4d643ce-8ed6-4145-bc1c-f0ba16a6650a', email: 'a@b.com', phone: '123' },
+    };
+    const result = normalizeOrder(order) as Record<string, unknown>;
+    const customer = result.customer as Record<string, unknown>;
+    expect(customer.tags).toBe('');
+  });
+
+  it('preserves an already-present tags value unchanged', () => {
+    const order = {
+      id: 'ordr_2',
+      currency: 'INR',
+      line_items: [],
+      shipping_lines: [],
+      customer: { id: 'cust-1', tags: 'vip, repeat' },
+    };
+    const result = normalizeOrder(order) as Record<string, unknown>;
+    const customer = result.customer as Record<string, unknown>;
+    expect(customer.tags).toBe('vip, repeat');
+  });
+
+  it('leaves a missing customer as-is (no crash)', () => {
+    const order = { id: 'ordr_3', currency: 'INR', line_items: [], shipping_lines: [] };
+    const result = normalizeOrder(order) as Record<string, unknown>;
+    expect(result.customer).toBeUndefined();
+  });
+});
+
 describe('normalizeOrder - id normalization', () => {
   it('strips ordr_ prefix and returns a numeric id', () => {
     const order = {

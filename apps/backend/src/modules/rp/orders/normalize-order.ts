@@ -136,10 +136,18 @@ export function normalizeOrder(order: Record<string, unknown>): Record<string, u
   const rawOrderNumberInt = parseInt(String(order.order_number ?? 0), 10);
   const numericOrderId: number = rawOrderNumberInt > 0 ? rawOrderNumberInt : numericIdFromString(strippedId);
 
-  // Normalize customer ID — OS uses UUID, Shopify uses numeric
+  // Normalize customer ID — OS uses UUID, Shopify uses numeric. Also default `tags` to ''
+  // when absent — real OS customer objects have no tags field at all ({id, email, phone}
+  // only), but Shopify's always does (even if empty), and ~14 call sites in RP
+  // (returnFeeRule.service.js, promotion.service.js, rpAdvantage.service.js) read
+  // `customer.tags.split(',')` guarded only on `customer` being truthy, not `customer.tags`.
   const customer = order.customer as Record<string, unknown> | null | undefined;
   const normalizedCustomer = customer
-    ? { ...customer, id: numericIdFromString(String(customer.id ?? '')) }
+    ? {
+        ...customer,
+        id: numericIdFromString(String(customer.id ?? '')),
+        tags: (customer.tags as string | undefined) ?? '',
+      }
     : customer;
 
   // Shopify always returns order_number as integer; GoKwik returns it as string.
