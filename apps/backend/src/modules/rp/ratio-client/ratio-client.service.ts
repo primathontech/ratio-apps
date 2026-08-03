@@ -137,17 +137,12 @@ export class RpRatioClientService {
     page: number,
     limit: number,
   ): Promise<{ products: Record<string, unknown>[]; hasNext: boolean }> {
-    try {
-      const data = (await this.ratio.request(`/api/v1/v1/products?page=${page}&limit=${limit}`, anySchema, {
-        accessToken,
-      })) as Record<string, any>;
-      const products = ((data?.products ?? []) as Record<string, unknown>[]) || [];
-      const hasNext = Boolean(data?.pagination?.hasNext);
-      return { products, hasNext };
-    } catch (err) {
-      this.logger.error({ merchantId, page, err }, 'Ratio product list error');
-      return { products: [], hasNext: false };
-    }
+    const data = (await this.ratio.request(`/api/v1/v1/products?page=${page}&limit=${limit}`, anySchema, {
+      accessToken,
+    })) as Record<string, any>;
+    const products = ((data?.products ?? []) as Record<string, unknown>[]) || [];
+    const hasNext = Boolean(data?.pagination?.hasNext);
+    return { products, hasNext };
   }
 
   /**

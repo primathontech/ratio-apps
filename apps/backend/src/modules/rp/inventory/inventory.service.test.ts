@@ -21,6 +21,7 @@ function makeService(opts: {
   const ratioClient = { getVariant, setVariantInventory } as unknown as RpRatioClientService;
   const tokenProvider = {
     getAccessToken: vi.fn().mockResolvedValue('access-tok-1'),
+    withAuthRetry: vi.fn((_merchantId: string, fn: (token: string) => unknown) => fn('access-tok-1')),
   } as unknown as RpRatioTokenProvider;
   const idMapping = { resolveRealId } as unknown as RpIdMappingService;
 

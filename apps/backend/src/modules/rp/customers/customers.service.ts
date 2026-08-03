@@ -12,11 +12,12 @@ export class RpCustomersService {
   ) {}
 
   async search(merchantId: string, query: string | undefined): Promise<unknown> {
-    const token = await this.tokenProvider.getAccessToken(merchantId);
     const { email } = this.transformer.parseCustomerSearchQuery(query);
     if (!email) return { customers: [] };
 
-    const raw = await this.ratioClient.searchCustomer(token, email) as Record<string, unknown>;
+    const raw = await this.tokenProvider.withAuthRetry(merchantId, (token) =>
+      this.ratioClient.searchCustomer(token, email),
+    ) as Record<string, unknown>;
     const customer = (raw?.customer ?? raw?.data ?? raw) as Record<string, unknown> | null;
     if (!customer || !customer.id) return { customers: [] };
 
@@ -24,8 +25,9 @@ export class RpCustomersService {
   }
 
   async create(merchantId: string, body: unknown): Promise<unknown> {
-    const token = await this.tokenProvider.getAccessToken(merchantId);
-    const raw = await this.ratioClient.createCustomer(token, body) as Record<string, unknown>;
+    const raw = await this.tokenProvider.withAuthRetry(merchantId, (token) =>
+      this.ratioClient.createCustomer(token, body),
+    ) as Record<string, unknown>;
     const customer = (raw?.customer ?? raw?.data ?? raw) as Record<string, unknown>;
     return { customer: this.transformer.shopifyCustomer(customer) };
   }

@@ -206,13 +206,11 @@ describe('RpRatioClientService.listProducts', () => {
     expect(result).toEqual({ products: [{ id: 'p1' }, { id: 'p2' }], hasNext: true });
   });
 
-  it('returns an empty page instead of throwing when the request fails', async () => {
+  it('propagates the error instead of swallowing it (so withAuthRetry can react to a 401)', async () => {
     const requestMock = vi.fn().mockRejectedValue(new Error('upstream down'));
     const svc = makeService(requestMock);
 
-    const result = await svc.listProducts('access-tok-1', 'gk-merchant', 1, 50);
-
-    expect(result).toEqual({ products: [], hasNext: false });
+    await expect(svc.listProducts('access-tok-1', 'gk-merchant', 1, 50)).rejects.toThrow('upstream down');
   });
 });
 

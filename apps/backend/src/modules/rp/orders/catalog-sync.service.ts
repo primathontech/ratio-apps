@@ -28,13 +28,9 @@ export class RpCatalogSyncService {
     let synced = 0;
     let failed = 0;
     try {
-      const token = await this.tokenProvider.getAccessToken(merchantId);
       for (let page = 1; page <= RpCatalogSyncService.MAX_PAGES; page++) {
-        const { products, hasNext } = await this.ratioClient.listProducts(
-          token,
-          merchantId,
-          page,
-          RpCatalogSyncService.PAGE_SIZE,
+        const { products, hasNext } = await this.tokenProvider.withAuthRetry(merchantId, (token) =>
+          this.ratioClient.listProducts(token, merchantId, page, RpCatalogSyncService.PAGE_SIZE),
         );
         if (products.length === 0) break;
         for (const product of products) {

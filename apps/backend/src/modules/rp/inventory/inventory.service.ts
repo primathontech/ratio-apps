@@ -29,17 +29,19 @@ export class RpInventoryService {
     const delta = Number(available_adjustment ?? 0);
     const hashedId = String(inventory_item_id);
     const realVariantId = (await this.idMapping.resolveRealId('variant', hashedId)) ?? hashedId;
-    const token = await this.tokenProvider.getAccessToken(merchantId);
 
-    const variant = await this.ratioClient.getVariant(token, realVariantId);
-    const current = Number(variant?.inventory_quantity ?? (variant?.inventory as Record<string, unknown> | undefined)?.quantity ?? 0);
-    const next = current + delta;
+    const next = await this.tokenProvider.withAuthRetry(merchantId, async (token) => {
+      const variant = await this.ratioClient.getVariant(token, realVariantId);
+      const current = Number(variant?.inventory_quantity ?? (variant?.inventory as Record<string, unknown> | undefined)?.quantity ?? 0);
+      const computedNext = current + delta;
 
-    this.logger.log(
-      { merchantId, hashedId, realVariantId, current, delta, next },
-      'adjusting OS variant inventory',
-    );
-    await this.ratioClient.setVariantInventory(token, realVariantId, next);
+      this.logger.log(
+        { merchantId, hashedId, realVariantId, current, delta, next: computedNext },
+        'adjusting OS variant inventory',
+      );
+      await this.ratioClient.setVariantInventory(token, realVariantId, computedNext);
+      return computedNext;
+    });
 
     return {
       inventory_level: {

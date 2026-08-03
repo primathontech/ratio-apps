@@ -10,7 +10,8 @@ export class RpDiscountsService {
   ) {}
 
   async createDiscount(merchantId: string, body: unknown): Promise<unknown> {
-    const token = await this.tokenProvider.getAccessToken(merchantId);
-    return this.ratioClient.createDiscount(token, body);
+    return this.tokenProvider.withAuthRetry(merchantId, (token) =>
+      this.ratioClient.createDiscount(token, body),
+    );
   }
 }
