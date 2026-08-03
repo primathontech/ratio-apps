@@ -1,0 +1,98 @@
+{
+  "slug": "loyalty",
+  "displayName": "Loyalty",
+  "hasStorefrontSdk": true,
+  "deployment": {
+    "apiPlacement": "shared",
+    "workerPlacement": "shared-api"
+  },
+  "phase": "pr-author",
+  "gates": {
+    "prd": "approved",
+    "trd": "approved",
+    "tdd": "approved",
+    "pr": "pending",
+    "deploy": "pending"
+  },
+  "docs": {
+    "prd": "docs/agent/apps/loyalty/PRD.md",
+    "trd": "docs/agent/apps/loyalty/TRD.md",
+    "tdd": "docs/agent/apps/loyalty/TDD.md"
+  },
+  "scopes": ["read_orders", "read_customers"],
+  "webhooks": ["app/uninstalled", "orders/create", "orders/cancelled"],
+  "paths": {
+    "module": "apps/backend/src/modules/loyalty",
+    "admin": "apps/admin-loyalty",
+    "sdk": "packages/loyalty-sdk"
+  },
+  "deployTarget": null,
+  "prUrl": null,
+  "notes": "FRESH BUILD 2026-07-20 — prior PRD/TRD/STATE deleted by user as wrong; do not reuse them. Grounded against live UAT spec (https://uat-os-ecosystem.dev.gokwik.io/api/docs-json): Core Loyalty = ONLY 4 endpoints (credit/debit with required idempotency_key, balance, history — all phone-keyed). No bulk-credit, no rules API/hook, no QR API, no loyalty customers/export API, no loyalty scopes, no loyalty webhook topics, no customer-create/search-by-phone, no OTP API. App owns: bulk ops via SQS worker (idempotency bulk:{opId}:{rowNo}), rule storage+evaluation on orders/create webhook crediting only the EXTRA coins (rule:{ruleId}:{orderId}) with active rule set cached in Redis via core RedisService (MySQL source of truth, invalidate on rule mutation, DB fallback when Redis down), QR lifecycle + printable poster; claim UI = storefront widget SDK packages/loyalty-sdk (hasStorefrontSdk TRUE; _template-sdk golden path, wizzy-sdk reference, freq-bought-style delivery): QR encodes {storefront_base_url}/?loyalty_qr={code}, loader detects param, claim widget drives KwikPass login (window.handleCustomLogin + user-loggedin event, token from KWIKUSERTOKEN keys), app's public claim API verifies gk-access-token via GoKwik customer-profile API (LOYALTY_GK_CUSTOMER_API_URL) to resolve verified phone — NO app-hosted page, NO OTP/SMS infra (11 app tables); storefront integration = FBT (SDK) widget flow from wellversed-2.0 (src/widgets/common/FBT reference): SDK exposes window.RatioLoyalty.initClaim + self-init fallback; IN-SCOPE deliverable = LoyaltyClaim Shopkit wrapper widget PR in wellversed-2.0 (registry entry + root-template placement + NEXT_PUBLIC_LOYALTY_SDK_URL/_API_BASE_URL envs), bridges KwikPass via loyalty:login:request event. Exports: worker streams CSV to S3 (new core/storage/s3.service.ts), presigned downloads, email link via new core/email/email.service.ts (SES, EMAIL_FROM) required when >10k rows. Rules engine = dynamic nested AND/OR condition trees (customer + order fields, shared Zod schema). Local customer mirror for export/search/leaderboard, daily snapshots for dashboard trends. Scope: source-PRD Phase 1+2. Storefront claim page = separate PR to wellversed-2.0 (outside this repo's CI). Open Qs in TRD §8: merchant-JWT acceptance, Core phone format, GoKwik profile API base URL, Core base-earn liveness.",
+  "history": [
+    {
+      "phase": "zero-code-verification",
+      "ts": "2026-07-20T00:00:00.000Z",
+      "note": "Verified the ZERO-CODE storefront path (single <script> include, no wellversed-2.0 component). Traced real code + added src/script-include.integration.test.ts composing the REAL loader + REAL claim-widget against a stubbed backend: script src `{apiBase}/loyalty/sdk/loyalty-loader.js?store=m1` on a page with ?loyalty_qr=CODE → self-init overlay → widget derives api-base+merchant-id from script src → GET /loyalty/qr/CODE/status → active CTA → tap → POST /loyalty/qr/CODE/claim with ONLY {gkAccessToken} → credited render + loyalty:claim:success event; and inert (no widget/no fetch) on a normal page. SDK now 42 tests/6 files, typecheck+lint+build green. Client endpoints match backend routes exactly; claim uses plain cross-origin fetch (token in body, no cookies). DEPLOY PRECONDITIONS for it to work live (config/deploy, NOT code): (1) loyalty in the running API ENABLED_MODULES; (2) packages/loyalty-sdk/dist present at runtime (backend serves from process.cwd()/packages/loyalty-sdk/dist — ship it in the image / build before boot); (3) storefront origin (https://wellversed.in) in backend ALLOWED_ORIGINS (public /loyalty/qr/* rely on global enableCors allowlist — supports exact + https://*.gokwik.in wildcard); (4) LOYALTY_GK_CUSTOMER_API_URL set (token verification) + merchant config.storefrontBaseUrl set (QR URL minting) + valid merchant OAuth token (Core credit); (5) KwikPass present on the storefront (window.handleCustomLogin + KWIKUSERTOKEN) — true on wellversed-2.0. All are the same env/secrets/IAM items already listed in TRD §7."
+    },
+    {
+      "phase": "code-reviewer-result",
+      "ts": "2026-07-20T00:00:00.000Z",
+      "note": "LIGHT GATE RESULT (awaiting GATE 4). pnpm -r lint EXIT 0 (10 pkgs; loyalty-sdk+admin-loyalty warnings-only). pnpm -r typecheck EXIT 0 (0 errors). pnpm -r build EXIT 0 (all loyalty artifacts built). pnpm -r test EXIT 1 — BUT the failure is entirely PRE-EXISTING and non-loyalty: apps/admin-rp `test`=`vitest run` finds no *.test.{ts,tsx} and exits 1 (from commit ebacb59, aborts the recursive run via ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL); backend suite in isolation = 621 passed / 2 failed where the 2 are test/unit/meta/catalog-source-paging.test.ts (pre-existing; google feed-sync-dedup flaky, passed this run). ALL loyalty tests pass: backend loyalty 178, admin-loyalty 48, loyalty-sdk 40, shared 58. Checklist PASS: zero // TEMPLATE: markers (module+admin+sdk); no .env staged, no real secrets in loyalty source; core/ NOT forked into module; wiring intact (loyalty in APPS, LoyaltyModule registered, RATIO_LOYALTY_* in .env.example); deployment shared/shared-api consistent across PRD/TRD/STATE; delivery change documented in TRD §7 (no ad-hoc k8s manifests). Fixed 3 loyalty-owned lint errors this pass: STATE.json format, storefront.controller.test import order, fake-loyalty-db noAssignInExpressions. RECOMMENDATION for GATE 4: loyalty build is fully green; the two red pre-existing conditions (admin-rp empty suite, meta paging ×2) are out of scope for this build and should not block it — but a human should confirm before PR."
+    },
+    { "phase": "prd-architect", "ts": "2026-07-20T00:00:00.000Z" },
+    {
+      "phase": "trd-architect",
+      "ts": "2026-07-20T00:00:00.000Z",
+      "note": "GATE 1 approved by human"
+    },
+    {
+      "phase": "trd-architect",
+      "ts": "2026-07-20T00:00:00.000Z",
+      "note": "TRD.md written; awaiting GATE 2"
+    },
+    {
+      "phase": "tdd-author",
+      "ts": "2026-07-20T00:00:00.000Z",
+      "note": "GATE 2 approved by human (TRD rev 4: FBT-style widget SDK + wellversed wrapper in scope, S3+email exports, AND/OR rule trees; storefront-widget skill created)"
+    },
+    {
+      "phase": "tdd-author",
+      "ts": "2026-07-20T00:00:00.000Z",
+      "note": "TDD.md written; awaiting GATE 3"
+    },
+    {
+      "phase": "vendor-scaffolder",
+      "ts": "2026-07-20T00:00:00.000Z",
+      "note": "GATE 3 approved by human"
+    },
+    {
+      "phase": "backend-builder",
+      "ts": "2026-07-20T00:00:00.000Z",
+      "note": "scaffold complete: module + admin + loyalty-sdk copied/renamed/wired (APPS, module-registry, shared loyalty-config/-events/-search, docker SQL, .env.example, storefront/ bundle serving); pnpm -r typecheck green. Deviation: skipped wizzy-style 0004 storefront-columns migration (search columns wrong for loyalty; scaffold publicConfig serves TEMPLATE defaults; backend-builder lands the real config migration per TRD)."
+    },
+    {
+      "phase": "code-reviewer",
+      "ts": "2026-07-20T00:00:00.000Z",
+      "note": "frontend-builder complete. Admin SPA (apps/admin-loyalty): 7 screens — Dashboard (index.tsx: economy tiles + trend + rule/QR/bulk tables + period picker), Bulk Operations (client CSV parse → preview → chunked ingest → confirm → progress poll + errors.csv), Earning Rules (+ ConditionTreeBuilder for AND/OR segment trees, CUSTOMER_LIST management), QR Codes (poster PNG/PDF authenticated download, claimUrl + loader-snippet copy, masked scans), Export (filter builder, live count, email-required-over-10k, EMAIL_REQUIRED surfaced), Customers (search profile w/ live Core + manual adjust + leaderboard), Settings (config). Hooks in useLoyalty.ts; Navbar rewired; install/ScriptTagPanel kept (install-session flow). 48 admin tests/10 files. Storefront SDK (packages/loyalty-sdk): rebuilt from search template into the claim widget — dependency-free loader (window.RatioLoyalty.initClaim + ?loyalty_qr self-init), Lit claim-widget (Shadow DOM, KwikPass bridge: getKwikPassToken/requestLogin/onLoggedIn, loyalty:login:request + loyalty:claim:success/error events), LoyaltyClient, kwikpass.ts. 40 tests/5 files; sizes loader 647B (≤4KB) + claim 8.32KB (≤12KB). Backend storefront.controller renamed to serve loyalty-loader.js + loyalty-claim.js (+5-test); shared loyalty-search.ts (template placeholder) deleted. Fix applied inline by orchestrator: happy-dom mis-parses nested-template/conditional child-parts adjacent to @click bindings — claim message inlined as a stable `<p class=note>` text-part (hidden via .note:empty). Verification: workspace pnpm -r typecheck 0 errors, pnpm -r build all pass, zero // TEMPLATE: markers in module+admin+sdk, all loyalty files lint-clean (warnings-only: noExplicitAny/noDocumentCookie/noNonNullAssertion are warn-level in this repo's biome.json). KNOWN pre-existing workspace lint errors NOT from this build (verify at GATE 4): apps/_template-admin/ScriptTagPanel.tsx (format), apps/admin-google/src/index.css, packages/wizzy-sdk/package.json (format), tools/test-pixel.html. KNOWN pre-existing test failures NOT from this build: test/unit/meta/catalog-source-paging.test.ts (2), flaky test/unit/apps/google/feed-sync-dedup.test.ts (1). Original note: backend-builder complete. Core additions: order-resource webhook envelope (envelopeResource; 33 core tests green), core/storage/s3.service.ts + core/email/email.service.ts, LOYALTY_*+EMAIL_FROM+S3_ENDPOINT env keys, deps qrcode/pdf-lib/aws-s3/sesv2/ulid. Shared: loyalty-config (real fields), loyalty-rules (AND/OR condition trees), loyalty-claim, loyalty-export schemas + tests. Module fully implemented per TRD: CoreLoyaltyClient (merchant JWT via RatioTokenProvider w/ forceRefresh, 401-refresh-once, 429/5xx retry, typed CoreLoyaltyError, no body logging), GokwikIdentityClient, customer mirror + query service, Redis rule cache + evaluator, order-created/cancelled handlers (rule extras rule:{id}:{orderId} + uq guard, QR conversion stamp), bulk service/controller/worker (bulk:{op}:{row} keys, insufficient-balance precheck, transient-vs-permanent error split, resume-from-pending), exports service/controller/worker (S3 gzip CSV, presigned 15min download, email >10k via SES, EMAIL_REQUIRED 422), QR service/admin controller/public claim controller (KwikPass token verify, one-scan uq, race compensation, poster PNG/PDF), customers controller (live Core merge, manual: adjust), dashboard stats + daily snapshot (Redis firstSeen lock, delta clamp) + maintenance worker (balance sweep + IST date flip). Migration consolidated into single 0001_initial (14 tables — module never deployed; template 0002/0003 deleted). Verification: backend typecheck+build green; loyalty suite 18 files/178 tests green; env.schema.test fixture extended with RATIO_LOYALTY_* (required when slug joins APPS); zero // TEMPLATE: markers in module. KNOWN PRE-EXISTING failures (verified via stash — NOT this build): test/unit/meta/catalog-source-paging.test.ts (2) + flaky test/unit/apps/google/feed-sync-dedup.test.ts (1). Admin interim: config form rebound to new schema, template events screen removed, api.test.ts added so admin suite isn't empty — real screens are frontend-builder's job. Incident note: parallel-agent + git-stash race once reverted env.schema.ts to a stale revision (RP block lost); restored from HEAD and re-applied loyalty block — avoid stashing shared files while agents run."
+    },
+    {
+      "phase": "claim-v2-rearchitecture",
+      "ts": "2026-07-21T00:00:00.000Z",
+      "note": "QR-claim identity rearchitected (plan: docs/agent/changes/loyalty-qr-claim-v2/PLAN.md; SDD ledger: .superpowers/sdd/progress.md, base b16de3d). The backend NO LONGER resolves identity — KwikPass/GoKwik removed entirely from apps/backend (GokwikIdentityClient + token + LOYALTY_GK_CUSTOMER_API_URL deleted in Task 4; grep 'GokwikIdentity|GK_CUSTOMER_API_URL|gkAccessToken' in apps/backend/src is empty). NEW FLOW: the browser talks only to its own storefront origin; the wellversed-2.0 BFF (src/app/api/loyalty/{status,claim}/route.ts, runtime nodejs) resolves the verified phone from the KwikPass token via the GoKwik customer-profile API, then HMAC-signs sig=HMAC_SHA256(`${merchantId}.${qr}.${phone}.${ts}`, per-merchant secret) hex and POSTs {merchantId, phone, ts, sig} to /loyalty/qr/{code}/claim. Backend verifies via ClaimSignatureService (constant-time timingSafeEqual, ±5-min ts window, body.merchantId==qr.merchantId), reads loyalty_configs.claimSigningSecret. Task 1: shared loyaltyClaimRequestSchema {merchantId,phone,ts,sig}. Task 2: claim-signature.service.ts (sign/verify). Task 3: migration 0002_claim_signing_secret + bootstrap generateClaimSecret (randomBytes(32) base64). Task 4: qr-claim.controller rewrite; response invalid_session→invalid_signature; downstream (mirror/scan INSERT IGNORE (qr_code_id,phone), Core key qr:{qrId}:{phone}) unchanged; uniqueness still per-QR (same phone MAY claim different QRs). Task 5: admin ClaimSecretCard + GET loyalty-config/claim-secret {claimSecretSet:boolean} + POST rotate (raw secret never returned). Task 6: loyalty-sdk same-origin — LoyaltyClient baseUrl=window.location.origin, GET /api/loyalty/status?qr=, POST /api/loyalty/claim {qr,gkAccessToken}, no envelope-unwrap, no ngrok header, claim.js now IIFE; loader base-url attr = page origin. Task 7: wellversed-2.0 wrapper widget + BFF routes CODE-COMPLETE + verified (typecheck+build; BFF HMAC recipe byte-identical to backend) — commit PENDING, blocked by that repo's corrupted src/app/editor submodule + heavy pre-commit hook (environmental; USER to land + set envs NEXT_PUBLIC_LOYALTY_SDK_URL, LOYALTY_API_BASE_URL, LOYALTY_CLAIM_SECRET, LOYALTY_MERCHANT_ID, GK_MERCHANT_ID). Task 8: Dockerfile ships loyalty-sdk dist; loader no-cache + versioned claim immutable (+test); package.json loyalty scripts; loyalty-sdk README + TRD §2b/§4 + this STATE + storefront-widget skill updated to v2. FULL WORKSPACE VERIFY GREEN: pnpm -r typecheck 0, build 0, lint 0; test — only pre-existing admin-rp empty-suite exit-1 (no individual test failed; known meta/google flakies did not recur). PENDING: docker image rebuild + signed-path smoke test (operational, user env); final whole-branch code review; finishing-a-development-branch."
+    }
+  ],
+  "filesCreated": [
+    "docs/agent/apps/loyalty/PRD.md",
+    "docs/agent/apps/loyalty/STATE.json",
+    "docs/agent/apps/loyalty/TRD.md",
+    "docs/agent/apps/loyalty/TDD.md",
+    "apps/backend/src/modules/loyalty/",
+    "apps/admin-loyalty/",
+    "packages/loyalty-sdk/",
+    "packages/shared/src/schemas/loyalty-config.ts",
+    "packages/shared/src/schemas/loyalty-search.ts",
+    "packages/shared/src/constants/loyalty-events.ts",
+    ".claude/skills/storefront-widget/SKILL.md"
+  ]
+}

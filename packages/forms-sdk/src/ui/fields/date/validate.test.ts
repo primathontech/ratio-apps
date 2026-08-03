@@ -4,6 +4,14 @@ import { validateDate } from './validate';
 
 const field = (required = false): ControlFieldOf<'date'> =>
   ({ key: 'd', type: 'date', label: 'Date', required }) as ControlFieldOf<'date'>;
+const fieldWith = (validation: Record<string, unknown>): ControlFieldOf<'date'> =>
+  ({
+    key: 'd',
+    type: 'date',
+    label: 'Date',
+    required: false,
+    validation,
+  }) as ControlFieldOf<'date'>;
 const ctx = (value: unknown): FieldValidateCtx => ({ values: { d: value }, files: {} });
 
 // Client parity for the tightened server date validator (P2-5): the widget must
@@ -28,5 +36,31 @@ describe('validateDate (strict ISO, P2-5 client parity)', () => {
   it('honors required vs optional on an empty value', () => {
     expect(validateDate(field(true), ctx(''))).toBe('This field is required.');
     expect(validateDate(field(false), ctx(''))).toBeNull();
+  });
+});
+
+// Client parity for the new [min,max] bounds (mirrors the server bounds check).
+describe('validateDate ([min,max] bounds — client/server parity)', () => {
+  it('rejects a date before min', () => {
+    expect(validateDate(fieldWith({ min: '2026-01-01' }), ctx('2025-12-31'))).toBe(
+      'Please enter a date on or after 2026-01-01.',
+    );
+  });
+
+  it('rejects a date after max', () => {
+    expect(validateDate(fieldWith({ max: '2026-12-31' }), ctx('2027-01-01'))).toBe(
+      'Please enter a date on or before 2026-12-31.',
+    );
+  });
+
+  it('accepts a date on the inclusive boundaries and inside the range', () => {
+    const v = { min: '2026-01-01', max: '2026-12-31' };
+    expect(validateDate(fieldWith(v), ctx('2026-01-01'))).toBeNull();
+    expect(validateDate(fieldWith(v), ctx('2026-12-31'))).toBeNull();
+    expect(validateDate(fieldWith(v), ctx('2026-06-15'))).toBeNull();
+  });
+
+  it('ignores bounds on an empty optional value', () => {
+    expect(validateDate(fieldWith({ min: '2026-01-01' }), ctx(''))).toBeNull();
   });
 });

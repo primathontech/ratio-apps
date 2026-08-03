@@ -37,20 +37,21 @@ COPY apps/admin-meta/package.json apps/admin-meta/
 COPY apps/admin-moengage/package.json apps/admin-moengage/
 COPY apps/admin-posthog/package.json apps/admin-posthog/
 COPY packages/shared/package.json packages/shared/
-# wizzy-sdk: its built dist (Lit storefront-search bundles) is served by the
-# backend's wizzy StorefrontController, so we build it in-image (dist is
+# wizzy-sdk + loyalty-sdk: their built dist (Lit storefront bundles) are served
+# by the backend's StorefrontControllers, so we build them in-image (dist is
 # gitignored, so it cannot be copied from the host in CI).
 COPY packages/wizzy-sdk/package.json packages/wizzy-sdk/
+COPY packages/loyalty-sdk/package.json packages/loyalty-sdk/
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile
 
 # ── build: bring in the source and compile only what the API ships. ─────────
 FROM deps AS build
 COPY . .
-# Build shared (tsc) + wizzy-sdk (vite: loader+widget+results bundles) + backend
-# (pixel tsc + nest build). The admin SPAs are built/deployed by a separate
-# service, so they're intentionally skipped.
-RUN pnpm --filter @ratio-app/shared --filter @ratio-app/wizzy-sdk --filter @ratio-app/backend build
+# Build shared (tsc) + wizzy-sdk + loyalty-sdk (vite storefront bundles) +
+# backend (pixel tsc + nest build). The admin SPAs are built/deployed by a
+# separate service, so they're intentionally skipped.
+RUN pnpm --filter @ratio-app/shared --filter @ratio-app/wizzy-sdk --filter @ratio-app/loyalty-sdk --filter @ratio-app/backend build
 
 # ── prod-deps: a clean node_modules with devDependencies pruned. Built in its
 #    own stage from manifests + lockfile so it carries none of the build cruft.
@@ -90,10 +91,11 @@ COPY --from=build /app/packages/shared/package.json ./packages/shared/package.js
 # UI is built and deployed by a separate service.
 COPY --from=build /app/apps/backend/dist ./apps/backend/dist
 COPY --from=build /app/packages/shared/dist ./packages/shared/dist
-# Built storefront-search SDK bundles, read at runtime by the wizzy
-# StorefrontController via readFileSync (the package is never imported, so no
-# node_modules entry is needed — only the dist files).
+# Built storefront SDK bundles, read at runtime by the StorefrontControllers
+# via readFileSync (the packages are never imported, so no node_modules entry
+# is needed — only the dist files).
 COPY --from=build /app/packages/wizzy-sdk/dist ./packages/wizzy-sdk/dist
+COPY --from=build /app/packages/loyalty-sdk/dist ./packages/loyalty-sdk/dist
 
 EXPOSE 3000
 

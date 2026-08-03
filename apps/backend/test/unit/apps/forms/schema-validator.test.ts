@@ -127,7 +127,16 @@ describe('SchemaValidatorService — new P0 field types (radio / checkbox / numb
 
   describe('radio', () => {
     const schema: FormField[] = [
-      { key: 'plan', type: 'radio', label: 'Plan', required: true, options: ['basic', 'pro'] },
+      {
+        key: 'plan',
+        type: 'radio',
+        label: 'Plan',
+        required: true,
+        options: [
+          { value: 'basic', label: 'basic' },
+          { value: 'pro', label: 'pro' },
+        ],
+      },
     ];
 
     it('accepts a configured option', () => {
@@ -146,6 +155,72 @@ describe('SchemaValidatorService — new P0 field types (radio / checkbox / numb
       const result = run(schema, {});
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.errors.plan).toBe('This field is required.');
+    });
+
+    describe('"Other" free-text (client↔server parity, §4.9 P0)', () => {
+      const otherSchema = (allowOther: boolean): FormField[] => [
+        {
+          key: 'plan',
+          type: 'radio',
+          label: 'Plan',
+          required: false,
+          options: [
+            { value: 'basic', label: 'basic' },
+            { value: 'pro', label: 'pro' },
+          ],
+          ...(allowOther ? { allowOther: true } : {}),
+        },
+      ];
+
+      it('accepts a non-option value when allowOther is on', () => {
+        const result = run(otherSchema(true), { plan: 'my own plan' });
+        expect(result.ok).toBe(true);
+        if (result.ok) expect(result.data.plan).toBe('my own plan');
+      });
+
+      it('rejects a non-option value when allowOther is off', () => {
+        expect(run(otherSchema(false), { plan: 'my own plan' }).ok).toBe(false);
+      });
+
+      it('rejects an over-long "Other" value even when allowOther is on', () => {
+        expect(run(otherSchema(true), { plan: 'x'.repeat(256) }).ok).toBe(false);
+      });
+    });
+  });
+
+  describe('dropdown', () => {
+    const dropdownSchema = (allowOther: boolean): FormField[] => [
+      {
+        key: 'size',
+        type: 'dropdown',
+        label: 'Size',
+        required: false,
+        options: [
+          { value: 's', label: 'Small' },
+          { value: 'm', label: 'Medium' },
+        ],
+        ...(allowOther ? { allowOther: true } : {}),
+      },
+    ];
+
+    it('accepts a configured option', () => {
+      const result = run(dropdownSchema(false), { size: 'm' });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.data.size).toBe('m');
+    });
+
+    it('rejects a non-option value when allowOther is off (parity)', () => {
+      expect(run(dropdownSchema(false), { size: 'xl' }).ok).toBe(false);
+    });
+
+    it('accepts a free-text "Other" value when allowOther is on (parity)', () => {
+      const result = run(dropdownSchema(true), { size: 'XXL custom' });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.data.size).toBe('XXL custom');
+    });
+
+    it('rejects an over-long "Other" value even when allowOther is on', () => {
+      expect(run(dropdownSchema(true), { size: 'x'.repeat(256) }).ok).toBe(false);
     });
   });
 
@@ -276,6 +351,55 @@ describe('SchemaValidatorService — P1 field types (url / rating / hidden, §4)
       expect(result.ok).toBe(true);
       if (result.ok) expect('site' in result.data).toBe(false);
     });
+
+    it('normalizes a bare domain to https and stores the normalized value', () => {
+      const result = run(schema, { site: 'example.com' });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.data.site).toBe('https://example.com');
+    });
+
+    it('requireHttps rejects an http URL', () => {
+      const https: FormField[] = [
+        {
+          key: 'site',
+          type: 'url',
+          label: 'Website',
+          required: true,
+          validation: { requireHttps: true },
+        },
+      ];
+      const result = run(https, { site: 'http://example.com' });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.site).toBe('Please enter a valid https URL.');
+    });
+
+    it('requireHttps accepts an https URL', () => {
+      const https: FormField[] = [
+        {
+          key: 'site',
+          type: 'url',
+          label: 'Website',
+          required: true,
+          validation: { requireHttps: true },
+        },
+      ];
+      expect(run(https, { site: 'https://example.com' }).ok).toBe(true);
+    });
+
+    it('enforces maxLength', () => {
+      const capped: FormField[] = [
+        {
+          key: 'site',
+          type: 'url',
+          label: 'Website',
+          required: true,
+          validation: { requireHttps: false, maxLength: 15 },
+        },
+      ];
+      const result = run(capped, { site: 'https://example.com/too/long' });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.site).toBe('Please enter no more than 15 characters.');
+    });
   });
 
   describe('rating', () => {
@@ -319,6 +443,42 @@ describe('SchemaValidatorService — P1 field types (url / rating / hidden, §4)
       ];
       expect(run(wide, { score: 10 }).ok).toBe(true);
       expect(run(wide, { score: 11 }).ok).toBe(false);
+    });
+
+    it('allows a 0-based scale when min is 0 (0–10 NPS)', () => {
+      const nps: FormField[] = [
+        {
+          key: 'score',
+          type: 'rating',
+          label: 'How likely',
+          required: true,
+          min: 0,
+          max: 10,
+          icon: 'star',
+          display: 'numbers',
+          lowLabel: 'Not likely',
+          highLabel: 'Very likely',
+        },
+      ];
+      expect(run(nps, { score: 0 }).ok).toBe(true);
+      expect(run(nps, { score: 10 }).ok).toBe(true);
+    });
+
+    it('rejects a value below a 0-based min with the min..max message', () => {
+      const nps: FormField[] = [
+        {
+          key: 'score',
+          type: 'rating',
+          label: 'How likely',
+          required: true,
+          min: 0,
+          max: 10,
+          icon: 'star',
+        },
+      ];
+      const result = run(nps, { score: -1 });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.score).toBe('Please choose a rating between 0 and 10.');
     });
   });
 
@@ -410,10 +570,100 @@ describe('SchemaValidatorService — P1 field types (url / rating / hidden, §4)
     });
   });
 
+  describe('number.format (Batch-4 — server-authoritative display formatting)', () => {
+    it('strips group separators from a client-bypassed formatted string → canonical number', () => {
+      const schema: FormField[] = [
+        {
+          key: 'amount',
+          type: 'number',
+          label: 'Amount',
+          required: true,
+          format: { style: 'currency', currency: 'INR', locale: 'en-IN', grouping: true },
+        },
+      ];
+      const result = run(schema, { amount: '1,234.50' });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.data.amount).toBe(1234.5);
+    });
+
+    it('parses a de-DE formatted string (dot group, comma decimal)', () => {
+      const schema: FormField[] = [
+        {
+          key: 'amount',
+          type: 'number',
+          label: 'Amount',
+          required: true,
+          format: { style: 'decimal', currency: 'INR', locale: 'de-DE', grouping: true },
+        },
+      ];
+      const result = run(schema, { amount: '1.234,50' });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.data.amount).toBe(1234.5);
+    });
+
+    it('rounds the canonical value to the configured decimal places', () => {
+      const schema: FormField[] = [
+        {
+          key: 'amount',
+          type: 'number',
+          label: 'Amount',
+          required: true,
+          format: {
+            style: 'decimal',
+            currency: 'INR',
+            locale: 'en-IN',
+            grouping: true,
+            decimalPlaces: 2,
+          },
+        },
+      ];
+      // Raw number bypassing the SDK's blur-rounding is normalized server-side.
+      const result = run(schema, { amount: 1234.567 });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.data.amount).toBe(1234.57);
+    });
+
+    it('rejects a value with no digits after separator stripping', () => {
+      const schema: FormField[] = [
+        {
+          key: 'amount',
+          type: 'number',
+          label: 'Amount',
+          required: true,
+          format: { style: 'currency', currency: 'USD', locale: 'en-US', grouping: true },
+        },
+      ];
+      const result = run(schema, { amount: '$abc' });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.amount).toBe('Please enter a number.');
+    });
+
+    it('applies rounding before min/max bounds', () => {
+      const schema: FormField[] = [
+        {
+          key: 'amount',
+          type: 'number',
+          label: 'Amount',
+          required: true,
+          validation: { max: 10, integer: false },
+          format: {
+            style: 'decimal',
+            currency: 'INR',
+            locale: 'en-IN',
+            grouping: true,
+            decimalPlaces: 0,
+          },
+        },
+      ];
+      // 10.4 rounds to 10 → within max.
+      const result = run(schema, { amount: 10.4 });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.data.amount).toBe(10);
+    });
+  });
+
   describe('date (P2-5 — strict ISO + normalization)', () => {
-    const schema: FormField[] = [
-      { key: 'd', type: 'date', label: 'Date', required: true },
-    ];
+    const schema: FormField[] = [{ key: 'd', type: 'date', label: 'Date', required: true }];
 
     it('accepts a strict ISO date and stores it canonically', () => {
       const result = run(schema, { d: '2026-03-01' });
@@ -421,14 +671,53 @@ describe('SchemaValidatorService — P1 field types (url / rating / hidden, §4)
       if (result.ok) expect(result.data.d).toBe('2026-03-01');
     });
 
-    it.each(['2026', 'July 2026', '2026-02-30', '12/31/2026', '2026-13-01', '2026-00-10'])(
-      'rejects the non-ISO / impossible date %s',
-      (value) => {
-        const result = run(schema, { d: value });
-        expect(result.ok).toBe(false);
-        if (!result.ok) expect(result.errors.d).toBeDefined();
+    it.each([
+      '2026',
+      'July 2026',
+      '2026-02-30',
+      '12/31/2026',
+      '2026-13-01',
+      '2026-00-10',
+    ])('rejects the non-ISO / impossible date %s', (value) => {
+      const result = run(schema, { d: value });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.d).toBeDefined();
+    });
+  });
+
+  describe('date.bounds (server-side [min,max] enforcement)', () => {
+    const bounded: FormField[] = [
+      {
+        key: 'd',
+        type: 'date',
+        label: 'Date',
+        required: true,
+        validation: { min: '2026-01-01', max: '2026-12-31' },
       },
-    );
+    ];
+
+    it('accepts a date within [min,max] and stores it canonically', () => {
+      const result = run(bounded, { d: '2026-06-15' });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.data.d).toBe('2026-06-15');
+    });
+
+    it('accepts the inclusive boundaries', () => {
+      expect(run(bounded, { d: '2026-01-01' }).ok).toBe(true);
+      expect(run(bounded, { d: '2026-12-31' }).ok).toBe(true);
+    });
+
+    it('rejects a date before min', () => {
+      const result = run(bounded, { d: '2025-12-31' });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.d).toBe('Please enter a date on or after 2026-01-01.');
+    });
+
+    it('rejects a date after max', () => {
+      const result = run(bounded, { d: '2027-01-01' });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.d).toBe('Please enter a date on or before 2026-12-31.');
+    });
   });
 
   describe('multi_select (P2-6 — dedup + count cap)', () => {
@@ -438,7 +727,10 @@ describe('SchemaValidatorService — P1 field types (url / rating / hidden, §4)
         type: 'multi_select',
         label: 'Channels',
         required: false,
-        options: ['email', 'sms'],
+        options: [
+          { value: 'email', label: 'email' },
+          { value: 'sms', label: 'sms' },
+        ],
       },
     ];
 
@@ -456,6 +748,72 @@ describe('SchemaValidatorService — P1 field types (url / rating / hidden, §4)
       const result = run(schema, { ch: ['email', 'sms', 'email'] });
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.errors.ch).toBeDefined();
+    });
+
+    describe('server-authoritative selection count (P0 field-depth)', () => {
+      const withSelection = (selection: { min?: number; max?: number }): FormField[] => [
+        {
+          key: 'ch',
+          type: 'multi_select',
+          label: 'Channels',
+          required: false,
+          options: [
+            { value: 'email', label: 'email' },
+            { value: 'sms', label: 'sms' },
+          ],
+          selection,
+        },
+      ];
+
+      it('rejects a client-bypassed value below the minimum', () => {
+        const result = run(withSelection({ min: 2 }), { ch: ['email'] });
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.errors.ch).toBe('Please select at least 2 options.');
+      });
+
+      it('rejects a client-bypassed value above the maximum', () => {
+        const result = run(withSelection({ max: 1 }), { ch: ['email', 'sms'] });
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.errors.ch).toBe('Please select at most 1 option.');
+      });
+
+      it('accepts a value inside the configured bounds', () => {
+        expect(run(withSelection({ min: 1, max: 2 }), { ch: ['email', 'sms'] }).ok).toBe(true);
+      });
+    });
+
+    describe('"Other" free-text (client↔server parity, §4.5 P0)', () => {
+      const withOther = (allowOther: boolean): FormField[] => [
+        {
+          key: 'ch',
+          type: 'multi_select',
+          label: 'Channels',
+          required: false,
+          options: [
+            { value: 'email', label: 'email' },
+            { value: 'sms', label: 'sms' },
+          ],
+          ...(allowOther ? { allowOther: true } : {}),
+        },
+      ];
+
+      it('accepts one non-member value when allowOther is on', () => {
+        const result = run(withOther(true), { ch: ['email', 'carrier pigeon'] });
+        expect(result.ok).toBe(true);
+        if (result.ok) expect(result.data.ch).toEqual(['email', 'carrier pigeon']);
+      });
+
+      it('rejects a non-member value when allowOther is off', () => {
+        expect(run(withOther(false), { ch: ['email', 'carrier pigeon'] }).ok).toBe(false);
+      });
+
+      it('rejects more than one non-member value even when allowOther is on', () => {
+        expect(run(withOther(true), { ch: ['one', 'two'] }).ok).toBe(false);
+      });
+
+      it('rejects an over-long non-member value when allowOther is on', () => {
+        expect(run(withOther(true), { ch: ['email', 'x'.repeat(256)] }).ok).toBe(false);
+      });
     });
   });
 
@@ -523,7 +881,8 @@ describe('SchemaValidatorService — P1 field types (url / rating / hidden, §4)
         scope,
       );
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.errors.avatar).toBe('This file was not uploaded for this field.');
+      if (!result.ok)
+        expect(result.errors.avatar).toBe('This file was not uploaded for this field.');
     });
 
     it('rejects a key with the wrong segment count', () => {
@@ -538,6 +897,96 @@ describe('SchemaValidatorService — P1 field types (url / rating / hidden, §4)
       );
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.errors.resume).toBe('This file does not belong to this form.');
+    });
+  });
+
+  describe('file multi-file (maxFiles)', () => {
+    const multi: FormField[] = [
+      {
+        key: 'docs',
+        type: 'file',
+        label: 'Docs',
+        required: true,
+        maxFiles: 3,
+        validation: { allowedMimeTypes: ['application/pdf'], maxBytes: 1024 },
+      },
+    ];
+    const key = (n: string) => `${MERCHANT_ID}/${FORM_ID}/${n}/docs`;
+
+    it('accepts an ARRAY of object keys within maxFiles and stores it as an array', () => {
+      const result = service.validate(multi, {}, { docs: [key('draft_a'), key('draft_b')] }, scope);
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.files.docs).toEqual([key('draft_a'), key('draft_b')]);
+    });
+
+    it('rejects more files than maxFiles', () => {
+      const result = service.validate(
+        multi,
+        {},
+        { docs: [key('a'), key('b'), key('c'), key('d')] },
+        scope,
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.docs).toBe('Please attach at most 3 files.');
+    });
+
+    it('structurally validates EVERY key in the array (one bad key fails the field)', () => {
+      const result = service.validate(
+        multi,
+        {},
+        { docs: [key('draft_a'), `${MERCHANT_ID}/form_other/draft_b/docs`] },
+        scope,
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.docs).toBe('This file does not belong to this form.');
+    });
+
+    it('rejects a missing required multi-file field (empty array)', () => {
+      const result = service.validate(multi, {}, { docs: [] }, scope);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.docs).toBe('Please attach a file.');
+    });
+
+    it('accepts a single object key even on a multi-file field (stored as a 1-element array)', () => {
+      const result = service.validate(multi, {}, { docs: key('draft_a') }, scope);
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.files.docs).toEqual([key('draft_a')]);
+    });
+
+    it('single-file field (maxFiles default 1) still stores a SCALAR key — byte-identical', () => {
+      const single: FormField[] = [
+        {
+          key: 'resume',
+          type: 'file',
+          label: 'Resume',
+          required: true,
+          validation: { allowedMimeTypes: ['application/pdf'], maxBytes: 1024 },
+        },
+      ];
+      const objectKey = `${MERCHANT_ID}/${FORM_ID}/draft_a/resume`;
+      const result = service.validate(single, {}, { resume: objectKey }, scope);
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.files.resume).toBe(objectKey);
+    });
+
+    it('a single-file field rejects an array of more than one key', () => {
+      const single: FormField[] = [
+        {
+          key: 'resume',
+          type: 'file',
+          label: 'Resume',
+          required: true,
+          validation: { allowedMimeTypes: ['application/pdf'], maxBytes: 1024 },
+        },
+      ];
+      const result = service.validate(
+        single,
+        {},
+        { resume: [`${MERCHANT_ID}/${FORM_ID}/a/resume`, `${MERCHANT_ID}/${FORM_ID}/b/resume`] },
+        scope,
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.resume).toBe('Please attach a single file.');
     });
   });
 

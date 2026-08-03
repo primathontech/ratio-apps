@@ -1,5 +1,6 @@
 // Type-only shapes of the shared form-schema contract (no Zod in the bundle).
-import type { FormAppearance, FormField } from '@ratio-app/shared';
+import type { FormAppearance, FormEndingIcon, FormField } from '@ratio-app/shared';
+import { resolveHiddenValue } from '@ratio-app/shared/schemas/fields/hidden/constants';
 // Adornment capability matrix (§2.3) — the single source of truth shared with
 // the admin builder, so the two never drift over which types get chips/counters.
 import {
@@ -19,10 +20,12 @@ import {
   unsafeCSS,
 } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
+import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { getAnonId } from '../anon-id';
 import { FormsClient, FormsClientError, type PublicFormSchema } from '../client';
 // Per-field module registry (Phase 0 refactor): renderControl + validateField
 // dispatch through this map. Zod-free (only lit + type-only shared imports).
+import { todayISO } from './fields/date/render';
 import { fieldControls } from './fields/registry';
 import type {
   ContentBlockField,
@@ -30,12 +33,23 @@ import type {
   FieldControlModule,
   FieldRenderCtx,
   FieldValidateCtx,
+  SelectUiState,
 } from './fields/types';
-import { baseStyles, GOOGLE_FONT_HREF, themeVars } from './theme';
+import {
+  baseStyles,
+  customGoogleFontHref,
+  darkThemeVars,
+  GOOGLE_FONT_HREF,
+  sanitizeFontName,
+  themeVars,
+} from './theme';
 
 /** Defensive hex re-check for the per-field accent (§2.2); the schema already
  * guarantees hex, so this only confines what reaches the inline style. */
 const HEX_COLOR_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+/** Defensive https re-check for the image block's linkUrl (§4.15); the schema
+ * already guarantees https, so this only confines what reaches an <a href>. */
+const HTTPS_URL_RE = /^https:\/\//i;
 /** Delay before following a form's redirectUrl, so the success state is seen. */
 const REDIRECT_DELAY_MS = 1500;
 
@@ -50,8 +64,31 @@ function isContentBlock(field: FormField): field is ContentBlockField {
     field.type === 'heading' ||
     field.type === 'divider' ||
     field.type === 'paragraph' ||
-    field.type === 'image'
+    field.type === 'image' ||
+    field.type === 'html' ||
+    field.type === 'page_break'
   );
+}
+
+/**
+ * Split a form's fields into STEPS at each `page_break` (§steps). The break
+ * blocks are the separators (they render nothing) and are dropped from the
+ * groups; fields before the first break are step 1, fields between break i and
+ * i+1 are step i+1, and fields after the last break are the final step. A form
+ * with ZERO page_breaks yields a single step ⇒ today's behaviour (no pagination
+ * UI). Pure + exported so it is unit-testable in isolation; always returns at
+ * least one step.
+ */
+export function splitIntoSteps(fields: readonly FormField[]): FormField[][] {
+  const steps: FormField[][] = [[]];
+  for (const field of fields) {
+    if (field.type === 'page_break') {
+      steps.push([]);
+    } else {
+      (steps[steps.length - 1] as FormField[]).push(field);
+    }
+  }
+  return steps;
 }
 
 // Group fields (§P2-7): render a role=radiogroup/group <div>, not a labelable
@@ -66,6 +103,45 @@ const BUTTON_ICONS: Record<'arrow' | 'check' | 'send', TemplateResult> = {
   check: svg`<path d="M20 6L9 17l-5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`,
   send: svg`<path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`,
 };
+
+// Batch 6 — curated end-panel glyphs keyed by the shared FORM_ENDING_ICONS enum
+// (same static-markup-only pattern as BUTTON_ICONS). Rendered at 44×44 via
+// renderEndingIcon; 'currentColor' so each panel's accent tokens tint it. The
+// 'check' path matches today's success glyph exactly.
+const ENDING_ICONS: Record<Exclude<FormEndingIcon, 'none'>, TemplateResult> = {
+  check: svg`<circle cx="12" cy="12" r="11" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.35"></circle><path d="M7 12.4l3.3 3.3L17 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>`,
+  info: svg`<circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.5"></circle><path d="M12 11v5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><circle cx="12" cy="7.6" r="0.9" fill="currentColor"></circle>`,
+  warning: svg`<path d="M12 3.5l9 15.5H3z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"></path><path d="M12 10v4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><circle cx="12" cy="16.6" r="0.9" fill="currentColor"></circle>`,
+  lock: svg`<rect x="5" y="10.5" width="14" height="9.5" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"></rect><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>`,
+  clock: svg`<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.5"></circle><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>`,
+};
+
+// Default glyph per end state when the merchant authors copy but no icon. Mirrors
+// the shared FORM_ENDING_STATES set; 'success' keeps today's check.
+const DEFAULT_ENDING_ICON: Record<
+  'success' | 'closed' | 'expired' | 'unavailable' | 'error',
+  FormEndingIcon
+> = {
+  success: 'check',
+  closed: 'lock',
+  expired: 'clock',
+  unavailable: 'info',
+  error: 'warning',
+};
+
+// Default body copy per non-success end state — the exact strings today's
+// status screens show, reused when a merchant authors a panel (an icon/heading)
+// but leaves the body blank, so the fallback text is never lost.
+const DEFAULT_ENDING_BODY: Record<'closed' | 'expired' | 'unavailable' | 'error', string> = {
+  closed: 'This form is closed.',
+  expired: 'This form is no longer available.',
+  unavailable: 'This form is no longer available.',
+  error: 'This form could not be loaded.',
+};
+
+// Hardcoded "Powered by" footer target (branding.showPoweredBy). Single named
+// constant so the link is trivial to retarget; no merchant value reaches it.
+const POWERED_BY_URL = 'https://ratio.so';
 
 /** The subset of states the admin preview can request via `previewState`. */
 export type PreviewState = 'ready' | 'success' | 'error' | 'closed';
@@ -101,18 +177,31 @@ export class RatioForm extends LitElement {
          scrim ::before layer sits over the image for contrast (§1.1). */
       .rf-root {
         position: relative;
+        /* Own stacking context so the bg/scrim/card z-index ladder is scoped. */
+        isolation: isolate;
         background-color: var(--wz-page-bg);
+        /* §3 — backdrop breathes above/below the card; 0 when transparent. */
+        padding-block: var(--wz-page-pad);
+      }
+      /* §1.6 — dedicated image layer so brightness/blur/grayscale filters never
+         touch the card or content (distinct from §2.6 card backdrop-filter).
+         Sits below the scrim and the card. */
+      .rf-bg {
+        position: absolute;
+        inset: 0;
+        z-index: 0;
         background-image: var(--wz-page-bg-image);
         background-size: var(--wz-page-bg-size);
         background-repeat: var(--wz-page-bg-repeat);
         background-position: center;
-        /* §3 — backdrop breathes above/below the card; 0 when transparent. */
-        padding-block: var(--wz-page-pad);
+        filter: var(--wz-bg-filter);
+        pointer-events: none;
       }
       .rf-root::before {
         content: '';
         position: absolute;
         inset: 0;
+        z-index: 1;
         background: var(--wz-page-scrim);
         pointer-events: none;
       }
@@ -121,8 +210,13 @@ export class RatioForm extends LitElement {
          so it stacks above the page scrim. */
       .rf-card {
         position: relative;
+        z-index: 2;
         background: var(--wz-bg);
         color: var(--wz-fg);
+        /* §1.2 — body font + line-height roles (default to --wz-font / normal),
+           so headings can override with their own role tokens. */
+        font-family: var(--wz-font-body);
+        line-height: var(--wz-lh-body);
         padding: var(--wz-card-pad);
         border: var(--wz-card-border);
         border-radius: var(--wz-radius);
@@ -130,6 +224,25 @@ export class RatioForm extends LitElement {
         max-width: var(--wz-max-width);
         margin: 0 auto;
         box-sizing: border-box;
+      }
+      /* §1.3 — flat surface: drop the card border/shadow/fill so the form sits
+         directly on the page. 'card' (default) reflects nothing. */
+      :host([data-layout='flat']) .rf-card {
+        background: transparent;
+        border: none;
+        box-shadow: none;
+      }
+      /* §1.3 — center the header block, logo, and heading blocks; 'left'
+         (default) reflects nothing. */
+      :host([data-align='center']) .rf-head {
+        text-align: center;
+      }
+      :host([data-align='center']) .rf-logo {
+        margin-left: auto;
+        margin-right: auto;
+      }
+      :host([data-align='center']) .rf-heading {
+        text-align: center;
       }
       /* §2.6 — frosted card over an image backdrop (gated by data-card-blur,
          set only when a background image + blur radius are configured).
@@ -143,28 +256,55 @@ export class RatioForm extends LitElement {
       }
       .rf-logo {
         display: block;
-        max-height: 56px;
+        /* Batch 6 — logo height cap from the enum→px token; 56px = today. The
+           per-logo alignment rides an inline margin style (SDK-composed from the
+           align enum) so it wins over the contentAlign host-centering rule. */
+        max-height: var(--wz-logo-max-h, 56px);
         max-width: 100%;
         margin-bottom: 12px;
+      }
+      /* Batch 6 — cover wrapper hosts the dark overlay layer and clips the
+         image (and its optional blur) to the card radius. With overlay 0, blur
+         0, and height 180 the wrapper renders visually identical to today. */
+      .rf-cover-wrap {
+        position: relative;
+        margin-bottom: 16px;
+        border-radius: var(--wz-radius);
+        overflow: hidden;
+      }
+      .rf-cover-wrap::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        /* rgba(0,0,0,0) (default) is fully transparent ⇒ no overlay today. */
+        background: var(--wz-cover-overlay, rgba(0, 0, 0, 0));
+        pointer-events: none;
       }
       .rf-cover {
         display: block;
         width: 100%;
-        max-height: 180px;
+        max-height: var(--wz-cover-max-h, 180px);
         object-fit: cover;
-        border-radius: var(--wz-radius);
-        margin-bottom: 16px;
+        /* Blur filter (0 ⇒ none by default). Radius lives on the wrapper. */
+        filter: var(--wz-cover-filter, none);
       }
       .rf-title {
-        margin: 0 0 4px;
-        font-size: calc(var(--wz-font-size) + 6px);
+        margin: 0 0 calc(var(--wz-font-size) * 0.29);
+        /* §1.2 — role-scoped size / heading font / heading line-height. Defaults
+           reproduce today (base+6, --wz-font, normal). */
+        font-size: var(--wz-fs-title);
+        font-family: var(--wz-font-heading);
+        line-height: var(--wz-lh-heading);
         font-weight: 700;
         color: var(--wz-fg);
+        /* A long unbroken name/URL must break rather than force page scroll. */
+        overflow-wrap: break-word;
       }
       .rf-desc {
-        margin: 0 0 16px;
+        margin: 0 0 calc(var(--wz-font-size) * 1.14);
         color: var(--wz-muted);
         font-size: var(--wz-font-size);
+        overflow-wrap: break-word;
       }
       .rf-form {
         display: flex;
@@ -183,7 +323,7 @@ export class RatioForm extends LitElement {
       .rf-field {
         display: flex;
         flex-direction: column;
-        gap: 4px;
+        gap: 0.3em;
         flex: 0 1 100%;
         min-width: 0;
         max-width: 100%;
@@ -241,8 +381,12 @@ export class RatioForm extends LitElement {
         }
       }
       .rf-label {
-        font-size: calc(var(--wz-font-size) - 1px);
+        font-size: calc(var(--wz-font-size) * 0.93);
         font-weight: 600;
+        /* Long unbroken labels wrap inside the field instead of overflowing.
+           min-width:0 lets the label shrink as a grid/flex child (label-left). */
+        overflow-wrap: break-word;
+        min-width: 0;
       }
       .rf-required {
         color: var(--wz-error);
@@ -273,34 +417,105 @@ export class RatioForm extends LitElement {
         transform: translateY(-1.4em) scale(0.85);
         color: var(--wz-focus);
       }
-      /* Content blocks (§1.3): display-only, no label/control. */
+      /* Content blocks (§1.3, §4.15): display-only, no label/control. */
+      /* §4.15 — small uppercase kicker above the heading. */
+      .rf-eyebrow {
+        display: block;
+        margin: 0 0 2px;
+        font-size: calc(var(--wz-font-size) * 0.79);
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--wz-muted);
+      }
       .rf-heading {
         margin: 0;
+        /* §1.2 — heading font + line-height roles (default to --wz-font / normal). */
+        font-family: var(--wz-font-heading);
+        line-height: var(--wz-lh-heading);
         font-weight: 700;
         color: var(--wz-fg);
       }
-      h2.rf-heading {
-        font-size: calc(var(--wz-font-size) + 4px);
+      /* §4.15 — visual size decoupled from the h2/h3 tag; 'md' = the prior h2 size. */
+      .rf-heading[data-size='sm'] {
+        font-size: calc(var(--wz-font-size) * 1.14);
       }
-      h3.rf-heading {
-        font-size: calc(var(--wz-font-size) + 2px);
+      .rf-heading[data-size='md'] {
+        font-size: calc(var(--wz-font-size) * 1.29);
+      }
+      .rf-heading[data-size='lg'] {
+        font-size: calc(var(--wz-font-size) * 1.57);
       }
       .rf-paragraph {
         margin: 0;
         color: var(--wz-muted);
         font-size: var(--wz-font-size);
+        overflow-wrap: break-word;
+      }
+      /* §4.15 — alignment inherits from the wrapper into heading/paragraph text. */
+      .rf-block[data-align='center'] {
+        text-align: center;
+      }
+      .rf-block[data-align='right'] {
+        text-align: right;
       }
       .rf-divider {
         width: 100%;
         border: none;
         border-top: 1px solid var(--wz-border);
-        margin: 4px 0;
+        margin: calc(var(--wz-font-size) * 0.29) 0;
+      }
+      /* §4.15 — variant flips only the border-style; 'spacer' drops the rule. */
+      .rf-divider[data-variant='dashed'] {
+        border-top-style: dashed;
+      }
+      .rf-divider[data-variant='dotted'] {
+        border-top-style: dotted;
+      }
+      .rf-divider[data-variant='spacer'] {
+        border-top: none;
+      }
+      /* §4.15 — figure caps width (size) and aligns itself via auto margins. */
+      .rf-figure {
+        margin: 0;
+        max-width: 100%;
+      }
+      .rf-figure[data-size='sm'] {
+        max-width: 240px;
+      }
+      .rf-figure[data-size='md'] {
+        max-width: 480px;
+      }
+      .rf-figure[data-size='lg'] {
+        max-width: 720px;
+      }
+      .rf-figure[data-align='center'] {
+        margin-left: auto;
+        margin-right: auto;
+      }
+      .rf-figure[data-align='right'] {
+        margin-left: auto;
+      }
+      .rf-block-link {
+        display: block;
       }
       .rf-block-img {
         display: block;
         max-width: 100%;
         height: auto;
         border-radius: var(--wz-radius);
+      }
+      /* §4.15 — caption under the image; follows the figure's alignment. */
+      .rf-figcaption {
+        margin-top: 6px;
+        font-size: calc(var(--wz-font-size) * 0.86);
+        color: var(--wz-muted);
+      }
+      .rf-figure[data-align='center'] .rf-figcaption {
+        text-align: center;
+      }
+      .rf-figure[data-align='right'] .rf-figcaption {
+        text-align: right;
       }
       /* Input look (§1.2): one rule block driven by private tokens; only the
          differing tokens flip per variant, so focus/hover/error stay shared.
@@ -314,6 +529,8 @@ export class RatioForm extends LitElement {
         color: var(--wz-fg);
         width: 100%;
         max-width: 100%;
+        /* Let inputs shrink inside flex rows (.rf-phone, .rf-adorned) instead of flooring at min-content and overflowing a narrow card. */
+        min-width: 0;
         box-sizing: border-box;
         /* §1.9 — control height scales with inputSize; 'md' (~40px) = today.
            A floor only, so density/§1.6 padding still applies within it and a
@@ -326,6 +543,18 @@ export class RatioForm extends LitElement {
           border-color var(--wz-dur) var(--wz-ease),
           box-shadow var(--wz-dur) var(--wz-ease),
           background-color var(--wz-dur) var(--wz-ease);
+      }
+      /* §1 — placeholder color (defaults to muted) at full opacity so it renders
+         consistently across browsers. */
+      ::placeholder {
+        color: var(--wz-placeholder);
+        opacity: 1;
+      }
+      /* §1 — link color + underline (non-color cue); inert until a form renders
+         an anchor, but the token stays wired. */
+      a {
+        color: var(--wz-link);
+        text-decoration: underline;
       }
       :host([data-input='filled']) :is(input, select, textarea) {
         --_fill: var(--wz-subtle);
@@ -363,7 +592,7 @@ export class RatioForm extends LitElement {
       :is(input, select, textarea):focus-visible,
       .rf-submit:focus-visible {
         outline: var(--wz-focus-width) solid var(--wz-focus);
-        outline-offset: 2px;
+        outline-offset: var(--wz-focus-offset);
       }
       :host([data-focus='border']) :is(input, select, textarea):focus-visible {
         outline: none;
@@ -372,19 +601,57 @@ export class RatioForm extends LitElement {
       }
       :host([data-focus='glow']) :is(input, select, textarea):focus-visible {
         outline: none;
-        box-shadow: 0 0 0 4px color-mix(in srgb, var(--wz-focus) 55%, transparent);
+        box-shadow: 0 0 0 4px var(--wz-primary-active);
       }
       :is(input, select, textarea):hover {
         border-color: var(--wz-muted);
       }
+      /* Disabled control (e.g. multi-file picker at its limit): dim + inert cue. */
+      :is(input, select, textarea):disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        background: var(--wz-subtle);
+      }
       /* Real error state: an --wz-error border + soft ring on invalid inputs. */
       :is(input, select, textarea)[aria-invalid='true'] {
         border-color: var(--wz-error);
-        box-shadow: 0 0 0 3px color-mix(in srgb, var(--wz-error) 22%, transparent);
+        box-shadow: 0 0 0 3px var(--wz-error-ring);
+      }
+      /* Grouped fields (radio/multi_select/rating) carry aria-invalid on the container, not a native control — give the group its own error cue. */
+      .rf-checks[aria-invalid='true'],
+      .rf-rating[aria-invalid='true'] {
+        outline: 1px solid var(--wz-error);
+        outline-offset: 4px;
+        border-radius: var(--wz-radius);
+      }
+      /* Autofill (§1.4 I1): Chrome paints its own yellow bg + dark text, which
+         breaks the filled/underlined/dark variants. Re-assert the field's own
+         surface + fg via the inset box-shadow trick. */
+      :is(input, select, textarea):-webkit-autofill,
+      :is(input, select, textarea):-webkit-autofill:hover,
+      :is(input, select, textarea):-webkit-autofill:focus {
+        -webkit-text-fill-color: var(--wz-fg);
+        -webkit-box-shadow: 0 0 0 1000px var(--_fill, var(--wz-surface)) inset;
+        caret-color: var(--wz-fg);
+      }
+      /* Windows High Contrast (§ A8): box-shadow rings/glows aren't painted, so
+         re-express focus + error with real outlines against system colors. */
+      @media (forced-colors: active) {
+        :is(input, select, textarea):focus-visible,
+        .rf-submit:focus-visible {
+          outline: 2px solid CanvasText;
+          outline-offset: 2px;
+        }
+        :is(input, select, textarea)[aria-invalid='true'],
+        .rf-checks[aria-invalid='true'],
+        .rf-rating[aria-invalid='true'] {
+          outline: 2px solid Mark;
+        }
       }
       .rf-error {
         color: var(--wz-error);
-        font-size: calc(var(--wz-font-size) - 2px);
+        font-size: calc(var(--wz-font-size) * 0.86);
+        overflow-wrap: break-word;
       }
       /* §2.3 — prefix/suffix adornment chips flanking a text-like input.
          Mirrors the +91 phone-prefix chip: standalone bordered chips, so the
@@ -411,16 +678,37 @@ export class RatioForm extends LitElement {
       .rf-help {
         margin: 0;
         color: var(--wz-muted);
-        font-size: calc(var(--wz-font-size) - 2px);
+        font-size: calc(var(--wz-font-size) * 0.86);
+        min-width: 0;
+        overflow-wrap: break-word;
       }
       .rf-counter {
         align-self: flex-end;
         color: var(--wz-muted);
-        font-size: calc(var(--wz-font-size) - 2px);
+        font-size: calc(var(--wz-font-size) * 0.86);
         font-variant-numeric: tabular-nums;
       }
       .rf-counter[data-near='true'] {
         color: var(--wz-error);
+      }
+      /* Multi-select selection counter — matches the char-counter's muted helper look. */
+      .rf-selcount {
+        color: var(--wz-muted);
+        font-size: calc(var(--wz-font-size) * 0.86);
+        font-variant-numeric: tabular-nums;
+      }
+      /* Inline link-buttons: email "Did you mean…" correction + multi-select "Select all / Clear". */
+      .rf-email-suggest,
+      .rf-linkbtn {
+        align-self: flex-start;
+        background: none;
+        border: none;
+        padding: 0;
+        margin-top: 4px;
+        color: var(--wz-link);
+        font-size: calc(var(--wz-font-size) * 0.93);
+        text-decoration: underline;
+        cursor: pointer;
       }
       .rf-phone {
         display: flex;
@@ -428,32 +716,271 @@ export class RatioForm extends LitElement {
       }
       .rf-phone-prefix {
         flex: none;
+        /* Center "+91" on both axes. The prefix stretches to the input's
+           min-height via the flex row, but as a <span> it wouldn't center its
+           own text — without this the label sits at the top of the box. Flex
+           centering is height- and radius-independent, so it holds whether the
+           box renders as a rectangle (small radius) or a circle (pill radius). */
+        display: flex;
+        align-items: center;
+        justify-content: center;
         padding: var(--wz-pad-y) var(--wz-pad-x);
         border: 1px solid var(--wz-border);
         border-radius: var(--wz-radius);
         background: var(--wz-subtle);
       }
+      /* Multi-country dial-code select must not stretch to 100% and crowd the number input. */
+      .rf-phone-country {
+        flex: 0 0 auto;
+        width: auto;
+        max-width: 40%;
+      }
       .rf-checks {
         display: flex;
         flex-direction: column;
-        gap: 6px;
+        gap: 0.25em;
       }
       .rf-check {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 0.57em;
+        /* Content-proportional row height (relative to the form's font), the
+           production pattern for option lists: scales with typography, no fixed
+           px. The whole label is the clickable hit area. Kept just above the
+           control size so rows stay a comfortable tap target without the airy
+           gaps that made the list look disconnected from the rest of the form. */
+        min-height: 1.7em;
         font-size: var(--wz-font-size);
+        /* Long unbroken option text wraps instead of overflowing the card;
+           min-width:0 lets the label shrink within its .rf-checks column. */
+        overflow-wrap: break-word;
+        min-width: 0;
       }
       .rf-check input {
         width: auto;
+      }
+      /* Chip options (multi_select display:chips) carry inline pill styling from
+         the renderer; the widget only adds the wrap guard so a long single-word
+         option breaks inside the pill rather than forcing horizontal scroll. */
+      .rf-chip {
+        overflow-wrap: break-word;
+        min-width: 0;
       }
       /* §1.9 — the input min-height governs text inputs, selects, and
          textareas only; toggles (checkbox/radio), the rating stars, and the
          file control opt out so their intrinsic sizing is unchanged. */
       .rf-check input,
       .rf-star input,
+      .rf-rating-num input,
       input[type='file'] {
         min-height: 0;
+      }
+      /* §4.5 — "Other" free-text input, revealed under a select/radio/multi
+         when the Other choice is picked. A normal themed text input. */
+      .rf-other-input {
+        margin-top: 6px;
+      }
+      /* §4.9 — radio layout. vertical (no data-layout) is the .rf-checks
+         column default; horizontal wraps into a row; grid sets its own
+         inline grid-template from the bounded gridColumns. */
+      .rf-checks[data-layout='horizontal'] {
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+      /* §4.9 — radio visual variants. list (no data-variant) keeps today's
+         plain rows. button/card keep the real input for a11y but hide it
+         visually and style the label as a segment / bordered card, filled with
+         the accent when checked. */
+      .rf-checks[data-variant='button'] .rf-check,
+      .rf-checks[data-variant='card'] .rf-check {
+        position: relative;
+        cursor: pointer;
+        border: 1px solid var(--wz-border);
+        border-radius: var(--wz-radius);
+        padding: var(--wz-pad-y) var(--wz-pad-x);
+        transition:
+          border-color var(--wz-dur) var(--wz-ease),
+          background-color var(--wz-dur) var(--wz-ease);
+      }
+      .rf-checks[data-variant='button'] .rf-check {
+        justify-content: center;
+      }
+      .rf-checks[data-variant='button'] .rf-check input,
+      .rf-checks[data-variant='card'] .rf-check input {
+        position: absolute;
+        opacity: 0;
+        width: 1px;
+        height: 1px;
+        margin: 0;
+        pointer-events: none;
+      }
+      .rf-checks[data-variant='button'] .rf-check:has(input:checked),
+      .rf-checks[data-variant='card'] .rf-check:has(input:checked) {
+        border-color: var(--wz-primary);
+        background: var(--wz-primary-soft);
+      }
+      .rf-checks[data-variant='button'] .rf-check:has(input:focus-visible),
+      .rf-checks[data-variant='card'] .rf-check:has(input:focus-visible) {
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--wz-focus) 40%, transparent);
+      }
+      /* §4.5 — searchable combobox: a text input over a floating listbox. */
+      .rf-combo {
+        position: relative;
+      }
+      .rf-combo-list {
+        position: absolute;
+        z-index: 20;
+        left: 0;
+        right: 0;
+        margin: 4px 0 0;
+        padding: 4px;
+        list-style: none;
+        max-height: 240px;
+        overflow-y: auto;
+        background: var(--wz-bg, #fff);
+        border: 1px solid var(--wz-border);
+        border-radius: var(--wz-radius);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+      }
+      .rf-combo-list[hidden] {
+        display: none;
+      }
+      .rf-combo-opt {
+        padding: var(--wz-pad-y) var(--wz-pad-x);
+        border-radius: var(--wz-radius);
+        cursor: pointer;
+      }
+      .rf-combo-opt[data-active],
+      .rf-combo-opt:hover {
+        background: var(--wz-primary-soft);
+      }
+      .rf-combo-opt[aria-selected='true'] {
+        font-weight: 600;
+      }
+      .rf-combo-empty {
+        padding: var(--wz-pad-y) var(--wz-pad-x);
+        color: var(--wz-muted);
+      }
+      /* Multi-file field (file.maxFiles > 1): the dropzone input plus a list of
+         chosen files, each with an image preview / name / size and a remove
+         control. A single-file field renders a bare <input> and none of this. */
+      .rf-filefield {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .rf-file-hint {
+        margin: 0;
+        color: var(--wz-muted);
+        font-size: calc(var(--wz-font-size) * 0.86);
+        overflow-wrap: break-word;
+      }
+      /* Upload progress (B7): an INDETERMINATE bar shown while the form is
+         submitting (uploads use fetch(), which emits no byte progress — so no
+         faked percentages). The fill has a resting 40% width so that when the
+         blanket prefers-reduced-motion rule kills its animation it still reads
+         as a static "in progress" cue (mirrors the busy spinner's fallback). */
+      .rf-file-progress {
+        height: 4px;
+        border-radius: 999px;
+        background: var(--wz-subtle);
+        overflow: hidden;
+      }
+      .rf-file-progress-fill {
+        display: block;
+        width: 40%;
+        height: 100%;
+        border-radius: inherit;
+        background: var(--wz-primary);
+        animation: rf-file-progress 1.2s var(--wz-ease, ease-in-out) infinite;
+      }
+      @keyframes rf-file-progress {
+        0% {
+          margin-left: -40%;
+        }
+        50% {
+          margin-left: 100%;
+        }
+        100% {
+          margin-left: -40%;
+        }
+      }
+      /* Transient "only N files allowed / couldn't add" notice — error-toned, no UA margin. */
+      .rf-file-notice {
+        margin: 0;
+        color: var(--wz-error);
+        font-size: calc(var(--wz-font-size) * 0.86);
+        overflow-wrap: break-word;
+      }
+      .rf-files {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .rf-file {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 8px;
+        border: 1px solid var(--wz-border);
+        border-radius: var(--wz-radius);
+        background: var(--wz-subtle);
+      }
+      .rf-file-thumb {
+        flex: none;
+        width: 32px;
+        height: 32px;
+        object-fit: cover;
+        border-radius: calc(var(--wz-radius) / 2);
+      }
+      .rf-file-thumb-doc {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        color: var(--wz-muted);
+        background: var(--wz-surface);
+      }
+      .rf-file-meta {
+        flex: 1 1 auto;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .rf-file-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: calc(var(--wz-font-size) * 0.93);
+      }
+      .rf-file-size {
+        color: var(--wz-muted);
+        font-size: calc(var(--wz-font-size) * 0.79);
+        font-variant-numeric: tabular-nums;
+      }
+      .rf-file-remove {
+        flex: none;
+        width: 24px;
+        height: 24px;
+        padding: 0;
+        border: none;
+        border-radius: 50%;
+        background: transparent;
+        color: var(--wz-muted);
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+      }
+      .rf-file-remove:hover {
+        color: var(--wz-error);
+        background: var(--wz-error-bg);
       }
       /* Honeypot: visually hidden but focusable-by-bots. */
       .rf-hp {
@@ -463,47 +990,115 @@ export class RatioForm extends LitElement {
         height: 1px;
         overflow: hidden;
       }
+      /* §1.5 — button fill driven by tokens; the solid defaults reproduce today.
+         data-btn-variant flips the tokens per variant (no per-variant block for
+         the shared box). Border width is a token (0 for solid) so solid keeps
+         today's exact height. */
       .rf-submit {
         font: inherit;
         font-size: var(--wz-btn-font);
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        gap: 8px;
+        gap: calc(var(--wz-font-size) * 0.57);
         padding: var(--wz-btn-pad-y) calc(var(--wz-pad-x) + 8px);
-        border: none;
+        min-height: 44px;
+        border: var(--wz-btn-bw) solid var(--wz-btn-border);
         border-radius: var(--wz-btn-radius);
-        background: var(--wz-primary);
-        color: var(--wz-btn-text);
+        background: var(--wz-btn-bg);
+        color: var(--wz-btn-fg);
         cursor: pointer;
         align-self: var(--wz-btn-align);
-        transition: background-color var(--wz-dur) var(--wz-ease);
+        transition:
+          background-color var(--wz-dur) var(--wz-ease),
+          border-color var(--wz-dur) var(--wz-ease);
+      }
+      .rf-submit[data-btn-variant='outline'] {
+        --wz-btn-bg: transparent;
+        --wz-btn-fg: var(--wz-primary);
+        --wz-btn-border: var(--wz-primary);
+        --wz-btn-bw: 1px;
+        --wz-btn-bg-hover: color-mix(in srgb, var(--wz-primary) 12%, var(--wz-bg));
+      }
+      .rf-submit[data-btn-variant='ghost'] {
+        --wz-btn-bg: transparent;
+        --wz-btn-fg: var(--wz-primary);
+        --wz-btn-bg-hover: color-mix(in srgb, var(--wz-primary) 12%, var(--wz-bg));
+      }
+      .rf-submit[data-btn-variant='soft'] {
+        --wz-btn-bg: color-mix(in srgb, var(--wz-primary) 14%, var(--wz-bg));
+        --wz-btn-fg: var(--wz-primary);
+        --wz-btn-bg-hover: color-mix(in srgb, var(--wz-primary) 22%, var(--wz-bg));
       }
       .rf-btn-icon {
         width: 1em;
         height: 1em;
         flex: none;
       }
+      /* §1.8 — submit busy spinner; under prefers-reduced-motion the blanket
+         animation kill (below) freezes it to a static ring — still a visible
+         cue. Colored from the button foreground so every variant reads. */
+      .rf-spinner {
+        width: 1em;
+        height: 1em;
+        flex: none;
+        border: 2px solid color-mix(in srgb, var(--wz-btn-fg) 35%, transparent);
+        border-top-color: var(--wz-btn-fg);
+        border-radius: 50%;
+        animation: rf-spin 0.6s linear infinite;
+      }
+      @keyframes rf-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
       .rf-submit:hover {
-        background: var(--wz-primary-hover);
+        background: var(--wz-btn-bg-hover);
       }
       .rf-submit:active {
-        background: var(--wz-primary-hover);
+        background: var(--wz-btn-bg-hover);
         transform: translateY(1px);
       }
-      .rf-submit[disabled] {
+      /* §1.8 a11y — the button stays focusable while submitting (aria-disabled +
+         aria-busy, not the DOM disabled attribute that drops focus); re-entry is
+         guarded in onSubmit. */
+      .rf-submit[aria-disabled='true'] {
         opacity: 0.6;
         cursor: not-allowed;
+      }
+      .rf-spin {
+        width: 1em;
+        height: 1em;
+        flex: none;
+        border: 2px solid currentColor;
+        border-right-color: transparent;
+        border-radius: 50%;
+        animation: rf-spin 0.6s linear infinite;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .rf-spin {
+          animation-duration: 1.6s;
+        }
+      }
+      @keyframes rf-spin {
+        to {
+          transform: rotate(360deg);
+        }
       }
       /* Rating: an accessible radio group styled as star/heart glyphs. */
       .rf-rating {
         display: flex;
+        flex-wrap: wrap;
         gap: 4px;
       }
       .rf-star {
         position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
         cursor: pointer;
-        font-size: calc(var(--wz-font-size) + 8px);
+        font-size: calc(var(--wz-font-size) * 1.57);
         line-height: 1;
         color: var(--wz-border);
       }
@@ -511,6 +1106,12 @@ export class RatioForm extends LitElement {
         color: var(--wz-primary);
       }
       .rf-star:focus-within {
+        outline: 2px solid var(--wz-focus);
+        outline-offset: var(--wz-focus-offset);
+      }
+      /* multi_select chips carry focus on a 1px-clipped SR-only checkbox, so
+         :focus-within surfaces a keyboard focus ring on the visible pill. */
+      .rf-chip:focus-within {
         outline: 2px solid var(--wz-focus);
         outline-offset: 2px;
       }
@@ -527,21 +1128,190 @@ export class RatioForm extends LitElement {
         width: 1px;
         height: 1px;
       }
+      /* Numbered rating scale (display:'numbers', e.g. 0–10 NPS): each option a themed chip, selected = filled primary. */
+      .rf-rating-num {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 36px;
+        min-height: 36px;
+        padding: 0 6px;
+        border: 1px solid var(--wz-border);
+        border-radius: var(--wz-radius);
+        cursor: pointer;
+        font-size: var(--wz-font-size);
+        line-height: 1;
+        color: var(--wz-fg);
+      }
+      .rf-rating-num[data-on='true'] {
+        background: var(--wz-primary);
+        border-color: var(--wz-primary);
+        color: var(--wz-btn-fg);
+      }
+      .rf-rating-num:focus-within {
+        outline: 2px solid var(--wz-focus);
+        outline-offset: var(--wz-focus-offset);
+      }
+      .rf-rating-num input {
+        position: absolute;
+        opacity: 0;
+        width: 1px;
+        height: 1px;
+      }
+      /* Low/high end labels sit on their own full-width row, anchored to the two ends of the scale. */
+      .rf-rating-labels {
+        flex-basis: 100%;
+        display: flex;
+        justify-content: space-between;
+        margin-top: 4px;
+        font-size: calc(var(--wz-font-size) * 0.86);
+        color: var(--wz-muted);
+      }
+      /* A status screen is a self-contained, centred confirmation column — not
+         the form layout. */
       .rf-status {
-        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: calc(var(--wz-font-size) * 0.86);
+        padding: calc(var(--wz-font-size) * 2) calc(var(--wz-font-size) * 1.71);
         border-radius: var(--wz-radius);
         background: var(--wz-subtle);
         color: var(--wz-muted);
         font-size: var(--wz-font-size);
+        text-align: center;
       }
-      .rf-success {
-        background: color-mix(in srgb, var(--wz-primary) 12%, var(--wz-bg));
+      .rf-status-icon {
+        color: var(--wz-primary);
+        flex: 0 0 auto;
+      }
+      /* A status/ending heading + message wrap long unbroken merchant copy
+         instead of overflowing the (centred, capped) confirmation card. */
+      .rf-status-heading {
+        margin: 0;
+        overflow-wrap: break-word;
+      }
+      .rf-status-msg {
+        margin: 0;
+        line-height: 1.5;
+        overflow-wrap: break-word;
+      }
+      /* Batch 6 — structured end-panel heading sits above the body copy, in the
+         heading font/color; only rendered when the merchant authors one. */
+      .rf-status-heading {
+        margin: 0;
+        font-family: var(--wz-font-heading);
+        font-weight: 700;
+        font-size: var(--wz-fs-h3);
         color: var(--wz-fg);
-        border: 1px solid color-mix(in srgb, var(--wz-primary) 35%, transparent);
+      }
+      /* Batch 6 — the redirect countdown line under the success message. */
+      .rf-countdown {
+        margin: 0;
+        color: var(--wz-muted);
+        font-size: calc(var(--wz-font-size) * 0.93);
+      }
+      /* §1 — success panel driven by the success tokens (default to the primary
+         mix, so today's look is unchanged; recolors when colors.success is set). */
+      .rf-success {
+        background: var(--wz-success-bg);
+        color: var(--wz-success-on);
+        border: 1px solid var(--wz-success-border);
+      }
+      .rf-success .rf-status-icon {
+        color: var(--wz-success);
+      }
+      /* A status screen shrinks the card to a comfortable confirmation width
+         (never wider than the form) and drops the form intro so the message
+         stands alone, centred. Uses the dedicated status cap token so a
+         fluidWidth form (--wz-max-width none) never feeds none into a min(). */
+      :host([data-state]) .rf-card {
+        max-width: var(--wz-status-max-width);
+        text-align: center;
+      }
+      :host([data-state]) .rf-head {
+        display: none;
       }
       .rf-form-error {
         color: var(--wz-error);
-        font-size: calc(var(--wz-font-size) - 1px);
+        font-size: calc(var(--wz-font-size) * 0.93);
+      }
+      /* §steps — multi-step progress indicator: the "Step X of N" label plus a
+         thin proportional track. Only rendered on a form that has a page_break. */
+      .rf-progress {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .rf-progress-text {
+        margin: 0;
+        color: var(--wz-muted);
+        font-size: calc(var(--wz-font-size) * 0.86);
+      }
+      .rf-progressbar {
+        height: 4px;
+        border-radius: 999px;
+        background: var(--wz-subtle);
+        overflow: hidden;
+      }
+      .rf-progressbar-fill {
+        height: 100%;
+        background: var(--wz-primary);
+        border-radius: inherit;
+        transition: width var(--wz-dur) var(--wz-ease);
+      }
+      /* §steps — the Back/Next (or Back/Submit) navigation row. Back sits at the
+         start, the primary action at the end; the buttons reuse .rf-submit. */
+      .rf-nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: calc(var(--wz-font-size) * 0.57);
+        align-items: center;
+      }
+      .rf-nav .rf-next,
+      .rf-nav .rf-submit {
+        margin-left: auto;
+      }
+      .rf-nav .rf-back {
+        margin-left: 0;
+      }
+      /* Batch 6 — optional "Powered by" footer under the card content; only
+         rendered when branding.showPoweredBy is on. A static link to a
+         hardcoded target — no merchant string reaches the href. */
+      .rf-powered {
+        margin: 14px 0 0;
+        text-align: center;
+        color: var(--wz-muted);
+        font-size: calc(var(--wz-font-size) * 0.86);
+      }
+      .rf-powered a {
+        color: var(--wz-link);
+      }
+      /* WCAG 2.5.5 (a11y) — floor the interactive tap targets to 44px on touch
+         devices ONLY, so the deliberately tight desktop density (option rows at
+         1.7em, the 36px number chips, the ~sm input height) is untouched for
+         mouse/precise pointers. */
+      @media (pointer: coarse) {
+        :is(input, select, textarea) {
+          min-height: max(var(--wz-input-min-h), 44px);
+        }
+        /* Preserve the §1.9 opt-out: toggles/stars/number-chip inputs and the
+           file control keep their intrinsic size — the wrapping row/label is the
+           tap target, not the control. */
+        .rf-check input,
+        .rf-star input,
+        .rf-rating-num input,
+        input[type='file'] {
+          min-height: 0;
+        }
+        .rf-check {
+          min-height: 44px;
+        }
+        .rf-rating-num {
+          min-width: 44px;
+          min-height: 44px;
+        }
       }
       /* Reduced motion (§1.7): collapse the duration token to ~0 rather than
          killing transitions outright, so transitionend still fires (floating
@@ -549,6 +1319,11 @@ export class RatioForm extends LitElement {
       @media (prefers-reduced-motion: reduce) {
         :host {
           --wz-dur: 0.01ms;
+          /* Floor the motion role tokens too, so every duration collapses to
+             ~0 (transitionend still fires) when the OS asks for less motion. */
+          --wz-dur-fast: 0.01ms;
+          --wz-dur-normal: 0.01ms;
+          --wz-dur-slow: 0.01ms;
         }
         *,
         *::before,
@@ -584,11 +1359,45 @@ export class RatioForm extends LitElement {
   @state() private status: Status = 'loading';
   @state() private values: Record<string, unknown> = {};
   @state() private fieldErrors: Record<string, string> = {};
+  // Fields the shopper has interacted with (left once). "Reward early, punish
+  // late": we validate a field only after its first blur, then re-check it live
+  // on every change so a fix clears instantly. Non-reactive — fieldErrors drives
+  // the re-render.
+  private readonly touched = new Set<string>();
   @state() private formError = '';
   @state() private hp = '';
+  // §steps — the multi-step page currently shown (0-based). Default 0 ⇒ first
+  // step. Only meaningful when the form has ≥1 page_break (≥2 steps); a form
+  // with no page_break is a single step and never reads this. Advanced by
+  // onNext (after the current step validates) and onBack.
+  @state() private currentStep = 0;
+  // Batch 6 — whole seconds left on the post-submit redirect countdown; 0 hides
+  // it. Only ticked when endings.showRedirectCountdown is on (see maybeRedirect).
+  @state() private redirectRemaining = 0;
 
-  private files: Record<string, File | null> = {};
+  // Per file-field selection. A single-file field holds 0..1 entries; a
+  // multi-file field (maxFiles > 1) holds 0..maxFiles. Uploaded on submit.
+  private files: Record<string, File[]> = {};
   private recaptchaInjected = false;
+  // Number fields currently focused (blur-format / focus-raw display). Owned
+  // here — per form instance — so the display state can't leak across concurrent
+  // embeds or linger when a field is hidden without a blur (cleared on disconnect).
+  private numberFocus = new Set<string>();
+  // Ephemeral select-family UI state (dropdown combobox open/filter; radio/
+  // dropdown/multi_select "Other" free-text mode), keyed by field.key. Owned
+  // here — per form instance — so it can't leak across concurrent embeds; the
+  // submitted value always lives in `values`, never here.
+  private selectUi = new Map<string, SelectUiState>();
+  // §a11y — the terminal status the panel focus was last moved to, so a
+  // re-render in the same state doesn't repeatedly steal focus; reset once the
+  // fillable form returns.
+  private announcedState: Status | null = null;
+
+  override disconnectedCallback(): void {
+    super.disconnectedCallback();
+    this.numberFocus.clear();
+    this.selectUi.clear();
+  }
 
   override connectedCallback(): void {
     super.connectedCallback();
@@ -633,6 +1442,8 @@ export class RatioForm extends LitElement {
     this.appearance = this.previewAppearance;
     // previewState is a subset of Status, so it maps straight through.
     this.status = this.previewState;
+    // Preselect select-family defaults so the preview mirrors the live embed.
+    this.seedDefaultValues();
     // Web fonts still resolve only at document scope, even in preview.
     this.maybeInjectFont();
   }
@@ -656,6 +1467,8 @@ export class RatioForm extends LitElement {
       this.appearance = this.schema.appearance;
       this.status = 'ready';
       this.captureHiddenValues();
+      this.captureDefaultValues();
+      this.seedDefaultValues();
       this.maybeInjectFont();
       this.maybeInjectRecaptcha();
     } catch (err) {
@@ -685,31 +1498,111 @@ export class RatioForm extends LitElement {
     document.head.appendChild(tag);
   }
 
-  /** Seed hidden fields from the page URL (UTM capture etc); no visible DOM. */
+  /**
+   * Seed hidden fields from their configured source — URL param (default),
+   * cookie, referrer, landing URL, timestamp, or a fixed constant (§4). The
+   * resolution + fallback + length-clamp logic is the pure, Zod-free
+   * `resolveHiddenValue` shared with the server so verdicts don't drift. No
+   * visible DOM.
+   */
   private captureHiddenValues(): void {
     const fields = this.schema?.schema ?? [];
     if (!fields.some((f) => f.type === 'hidden')) return;
-    const params = new URLSearchParams(window.location.search);
+    const ctx = {
+      search: window.location.search,
+      cookie: typeof document !== 'undefined' ? document.cookie : '',
+      referrer: typeof document !== 'undefined' ? document.referrer : '',
+      href: window.location.href,
+      now: new Date(),
+    };
     const next = { ...this.values };
     for (const field of fields) {
       if (field.type !== 'hidden') continue;
-      const value = params.get(field.paramName);
+      const value = resolveHiddenValue(field, ctx);
       if (value !== null) next[field.key] = value;
     }
     this.values = next;
   }
 
+  /** Seed field-level defaults into submit state (date `defaultTo: 'today'`), so
+   * an untouched-but-prefilled field is actually submitted and clears required. */
+  private captureDefaultValues(): void {
+    const fields = this.schema?.schema ?? [];
+    const next = { ...this.values };
+    let changed = false;
+    for (const field of fields) {
+      if (
+        field.type === 'date' &&
+        field.validation?.defaultTo === 'today' &&
+        this.isEmpty(next[field.key])
+      ) {
+        next[field.key] = todayISO();
+        changed = true;
+      }
+    }
+    if (changed) this.values = next;
+  }
+
+  /**
+   * Seed select-family default values (§4.5 P0) — preselect a dropdown/radio
+   * option or a multi_select subset when the field is UNTOUCHED (no value yet).
+   * Server never trusts this; the shopper can change it. Mirrors the hidden
+   * seed: only sets keys that are currently unset so it never clobbers input.
+   */
+  private seedDefaultValues(): void {
+    const fields = this.schema?.schema ?? [];
+    const next = { ...this.values };
+    let changed = false;
+    for (const field of fields) {
+      if (next[field.key] !== undefined) continue;
+      if (
+        (field.type === 'dropdown' || field.type === 'radio') &&
+        field.defaultValue !== undefined
+      ) {
+        next[field.key] = field.defaultValue;
+        changed = true;
+      } else if (field.type === 'multi_select' && field.defaultValue !== undefined) {
+        next[field.key] = [...field.defaultValue];
+        changed = true;
+      }
+    }
+    if (changed) this.values = next;
+  }
+
   /**
    * Web fonts inside a shadow root only resolve when loaded at document scope,
-   * so inject one guarded `<link>` per family into `document.head`. The href
-   * comes from a fixed enum-keyed map — the merchant never supplies a URL.
+   * so inject one guarded `<link>` per family into `document.head`. A set
+   * customGoogleFont wins over the preset family; its href is SDK-built from a
+   * re-sanitized name (never a merchant URL), and the preset path still uses
+   * the fixed enum-keyed map — the merchant never supplies a URL either way.
    */
   private maybeInjectFont(): void {
-    const family = this.appearance?.typography?.fontFamily;
-    if (!family || family === 'system') return;
-    const href = GOOGLE_FONT_HREF[family];
+    const typography = this.appearance?.typography;
+    const custom = sanitizeFontName(typography?.customGoogleFont);
+    if (custom) {
+      // id must be whitespace-free (HTML5), so slug the spaces out.
+      this.injectFontLink(
+        `ratio-font-custom-${custom.replace(/ /g, '-')}`,
+        customGoogleFontHref(custom),
+      );
+    } else {
+      const family = typography?.fontFamily;
+      if (family && family !== 'system') {
+        this.injectFontLink(`ratio-font-${family}`, GOOGLE_FONT_HREF[family]);
+      }
+    }
+    // §1.2 — heading/body pairing loads ≤2 more families (deduped by id). Each
+    // uses the same fixed enum-keyed map — the merchant never supplies a URL.
+    for (const role of [typography?.headingFont, typography?.bodyFont]) {
+      if (role && role !== 'system') {
+        this.injectFontLink(`ratio-font-${role}`, GOOGLE_FONT_HREF[role]);
+      }
+    }
+  }
+
+  /** Inject a single deduped stylesheet `<link>` at document scope. */
+  private injectFontLink(id: string, href: string | null): void {
     if (!href) return;
-    const id = `ratio-font-${family}`;
     if (document.getElementById(id)) return;
     const link = document.createElement('link');
     link.id = id;
@@ -718,13 +1611,31 @@ export class RatioForm extends LitElement {
     document.head.appendChild(link);
   }
 
-  /** After a successful submit, follow the form's redirectUrl (if any). */
+  /**
+   * After a successful submit, follow the form's redirectUrl (if any). Batch 6:
+   * the delay honors `endings.redirectDelaySeconds` (absent ⇒ today's
+   * REDIRECT_DELAY_MS), and when `endings.showRedirectCountdown` is on a
+   * whole-second counter ticks down on the success panel. Both are additive —
+   * an un-set form redirects after exactly 1500ms with no countdown, as today.
+   */
   private maybeRedirect(): void {
     const url = this.schema?.redirectUrl;
     if (!url) return;
+    const endings = this.appearance?.endings;
+    const delayMs =
+      typeof endings?.redirectDelaySeconds === 'number'
+        ? endings.redirectDelaySeconds * 1000
+        : REDIRECT_DELAY_MS;
+    if (endings?.showRedirectCountdown) {
+      this.redirectRemaining = Math.ceil(delayMs / 1000);
+      const timer = setInterval(() => {
+        this.redirectRemaining -= 1;
+        if (this.redirectRemaining <= 0) clearInterval(timer);
+      }, 1000);
+    }
     setTimeout(() => {
       window.location.assign(url);
-    }, REDIRECT_DELAY_MS);
+    }, delayMs);
   }
 
   private async recaptchaToken(): Promise<string | undefined> {
@@ -772,6 +1683,73 @@ export class RatioForm extends LitElement {
     return error;
   }
 
+  // ── Multi-step pagination (§steps) ─────────────────────────────
+  /** The current form's fields grouped into steps at each page_break. Recomputed
+   * from the schema on demand (cheap); [[…]] with one group when there are no
+   * page_breaks ⇒ single step ⇒ today's behaviour. */
+  private get steps(): FormField[][] {
+    return splitIntoSteps(this.schema?.schema ?? []);
+  }
+
+  /** ≥2 steps ⇒ the pagination UI (progress + Back/Next) is active. */
+  private get isMultiStep(): boolean {
+    return this.steps.length > 1;
+  }
+
+  /** currentStep clamped to the valid range, so a stale index (e.g. after a
+   * schema swap) never indexes past the last step. */
+  private get stepIndex(): number {
+    return Math.min(Math.max(this.currentStep, 0), this.steps.length - 1);
+  }
+
+  /** True on the final step — the only step that shows honeypot/recaptcha/Submit. */
+  private get onLastStep(): boolean {
+    return this.stepIndex === this.steps.length - 1;
+  }
+
+  /**
+   * Advance to the next step — but ONLY after the current step's fields pass the
+   * SAME client validation used before submit. On failure we flag the fields,
+   * announce the count (role=alert), and move focus to the first invalid control
+   * (the identical invalid-focus path as onSubmit); we do NOT advance. Back never
+   * calls this.
+   */
+  private async onNext(): Promise<void> {
+    const stepFields = this.steps[this.stepIndex] ?? [];
+    const errors: Record<string, string> = { ...this.fieldErrors };
+    let invalidCount = 0;
+    for (const field of stepFields) {
+      // Touch every field so the live re-check keeps flagging it after this pass.
+      this.touched.add(field.key);
+      const error = this.validateField(field);
+      if (error) {
+        errors[field.key] = error;
+        invalidCount += 1;
+      } else {
+        delete errors[field.key];
+      }
+    }
+    this.fieldErrors = errors;
+    if (invalidCount > 0) {
+      this.formError = `Please fix ${invalidCount} ${invalidCount === 1 ? 'field' : 'fields'} and try again.`;
+      await this.updateComplete;
+      const firstInvalid = this.renderRoot.querySelector<HTMLElement>('[aria-invalid="true"]');
+      firstInvalid?.focus();
+      return;
+    }
+    // Valid: clear the summary and advance. The "Step X of N" live region
+    // announces the change (see renderProgress).
+    this.formError = '';
+    this.currentStep = this.stepIndex + 1;
+  }
+
+  /** Go back a step. Never validates (WCAG — moving back must not gate on the
+   * step you are leaving); clears the transient form-error summary. */
+  private onBack(): void {
+    this.formError = '';
+    this.currentStep = Math.max(0, this.stepIndex - 1);
+  }
+
   private async onSubmit(event: Event): Promise<void> {
     event.preventDefault();
     // Preview: run validation so the error rings are viewable, but never POST.
@@ -788,23 +1766,40 @@ export class RatioForm extends LitElement {
     const errors = this.validateAll();
     this.fieldErrors = errors;
     this.formError = '';
-    if (Object.keys(errors).length > 0) return;
+    const errorCount = Object.keys(errors).length;
+    if (errorCount > 0) {
+      // Announce the failure (live region) and move focus to the first invalid
+      // control so keyboard/AT users aren't stranded (WCAG 3.3.1 / 2.4.3).
+      this.formError = `Please fix ${errorCount} ${errorCount === 1 ? 'field' : 'fields'} and try again.`;
+      await this.updateComplete;
+      const firstInvalid = this.renderRoot.querySelector<HTMLElement>('[aria-invalid="true"]');
+      firstInvalid?.focus();
+      return;
+    }
 
     this.status = 'submitting';
     try {
-      // File flow: presign → PUT bytes → attach object keys.
-      const fileKeys: Record<string, string> = {};
+      // File flow: presign → PUT bytes → attach object key(s). Each selected
+      // file gets its own presign+PUT (distinct draft-scoped object key). The
+      // stored shape is pinned to the field's config: a single-file field
+      // attaches a scalar key (byte-identical), a multi-file field an array.
+      const fileKeys: Record<string, string | string[]> = {};
       for (const field of schema.schema) {
         if (field.type !== 'file') continue;
-        const file = this.files[field.key];
-        if (!file) continue;
-        const target = await client.requestUpload(this.formId, {
-          fieldKey: field.key,
-          contentType: file.type,
-          size: file.size,
-        });
-        await client.uploadFile(target, file);
-        fileKeys[field.key] = target.objectKey;
+        const selected = this.files[field.key] ?? [];
+        if (selected.length === 0) continue;
+        const keys: string[] = [];
+        for (const file of selected) {
+          const target = await client.requestUpload(this.formId, {
+            fieldKey: field.key,
+            contentType: file.type,
+            size: file.size,
+          });
+          await client.uploadFile(target, file);
+          keys.push(target.objectKey);
+        }
+        // keys is non-empty (selected.length === 0 skipped above).
+        fileKeys[field.key] = (field.maxFiles ?? 1) > 1 ? keys : (keys[0] as string);
       }
 
       const recaptchaToken = await this.recaptchaToken();
@@ -871,10 +1866,36 @@ export class RatioForm extends LitElement {
       l?.inputVariant && l.inputVariant !== 'outlined' ? l.inputVariant : null,
     );
     this.reflectAttr('data-focus', l?.focusStyle && l.focusStyle !== 'ring' ? l.focusStyle : null);
+    // §1.3 — content alignment / card-vs-flat; the 'left'/'card' defaults reflect
+    // nothing, so an un-themed form is unchanged.
+    this.reflectAttr('data-align', l?.contentAlign === 'center' ? 'center' : null);
+    this.reflectAttr('data-layout', l?.layoutMode === 'flat' ? 'flat' : null);
     // §2.1 — form-wide column count; '1' (today) reflects nothing.
     this.reflectAttr('data-cols', l?.columns && l.columns !== '1' ? l.columns : null);
+    // Dark theme — reflect the opted-in scheme ('dark'/'auto') so the dark
+    // override blocks apply. 'light' (or unset) is today's behavior and reflects
+    // nothing. colorScheme lives on the appearance root, not layout.
+    const scheme = this.appearance?.colorScheme;
+    this.reflectAttr('data-scheme', scheme === 'dark' || scheme === 'auto' ? scheme : null);
     // §2.6 — frosted card only over an image backdrop with a blur radius.
     this.reflectAttr('data-card-blur', this.cardBlurActive ? 'on' : null);
+    // Status screens shrink the card; the form (ready/submitting) keeps full width.
+    const isStatusScreen = this.status !== 'ready' && this.status !== 'submitting';
+    this.reflectAttr('data-state', isStatusScreen ? this.status : null);
+    // §a11y — when a terminal status screen (success/closed/unavailable/error)
+    // first appears, move focus to its live-region panel so a keyboard/SR
+    // shopper is told the outcome; the submit button that had focus is gone by
+    // now. 'loading' is transient and never grabs focus. announcedState guards
+    // against re-focusing on unrelated re-renders and resets once the form
+    // returns, so a later state change announces again.
+    if (isStatusScreen && this.status !== 'loading') {
+      if (this.status !== this.announcedState) {
+        this.announcedState = this.status;
+        (this.renderRoot.querySelector('.rf-status') as HTMLElement | null)?.focus();
+      }
+    } else {
+      this.announcedState = null;
+    }
   }
 
   private reflectAttr(name: string, value: string | null): void {
@@ -930,10 +1951,75 @@ export class RatioForm extends LitElement {
     // is required: a binding directly after a raw-text `</style>` is mis-parsed.
     return html`<style>
         ${unsafeCSS(themeVars(this.appearance))}
+        ${unsafeCSS(this.darkThemeCss())}
+        ${unsafeCSS(this.customFieldCss())}
+        ${unsafeCSS(this.formCustomCss())}
       </style>
       <div class="rf-root">
-        <div class="rf-card">${this.renderHeader()}${this.renderState()}</div>
+        <div class="rf-bg"></div>
+        <div class="rf-card">${this.renderHeader()}${this.renderState()}${this.renderPoweredBy()}</div>
       </div>`;
+  }
+
+  /**
+   * Batch 6 — the optional "Powered by" footer. Rendered only when
+   * branding.showPoweredBy is on; a static link to a hardcoded target, so no
+   * merchant string ever reaches the href (Lit escapes the label regardless).
+   */
+  private renderPoweredBy(): TemplateResult | typeof nothing {
+    if (!this.appearance?.branding?.showPoweredBy) return nothing;
+    return html`<p class="rf-powered">
+      Powered by
+      <a href=${POWERED_BY_URL} target="_blank" rel="noopener noreferrer">Ratio Forms</a>
+    </p>`;
+  }
+
+  /**
+   * Merchant per-field custom CSS. Already sanitized + field-scoped by the
+   * server (see shared `sanitize-field-css`), so each rule is prefixed with its
+   * `[data-field="<key>"]` wrapper and carries no url()/@import/position:fixed/
+   * host selectors — it can only reach its own field's subtree inside the shadow.
+   * Emitted as a string into the theme <style> block (a second bound element
+   * right after `</style>` trips Lit's happy-dom raw-text parse).
+   */
+  private customFieldCss(): string {
+    return (this.schema?.schema ?? [])
+      .map((f) => (f as { customCss?: string }).customCss)
+      .filter((c): c is string => Boolean(c))
+      .join('\n');
+  }
+
+  /**
+   * Merchant FORM-LEVEL custom CSS (appearance.customCss). Already sanitized by
+   * the server (see shared `sanitizeFormCss`), and — unlike per-field CSS — NOT
+   * scoped to a `[data-field]` wrapper, so it can style the whole form
+   * (`.rf-card`, `.rf-submit`, `.rf-field`, …). Emitted AFTER customFieldCss()
+   * so a form-level rule wins over a field-level one at equal specificity.
+   */
+  private formCustomCss(): string {
+    return this.appearance?.customCss ?? '';
+  }
+
+  /**
+   * Dark-theme override CSS. Emitted into the same theme <style> block, AFTER
+   * the light `:host` tokens so it layers on top when active. Two blocks share
+   * the same dark color vars: `:host([data-scheme='dark'])` applies whenever the
+   * merchant forced dark, and the `@media (prefers-color-scheme: dark)` /
+   * `:host([data-scheme='auto'])` pair applies only under the OS dark
+   * preference. Each is keyed to the reflected `data-scheme` value, so only the
+   * active scheme's block ever matches. Light (or unset) reflects no
+   * `data-scheme` and emits neither block, so an un-themed form is byte-identical
+   * to today. Only COLOR tokens are re-declared; every non-color token stays
+   * inherited from the light `:host`.
+   */
+  private darkThemeCss(): string {
+    const scheme = this.appearance?.colorScheme;
+    if (scheme !== 'dark' && scheme !== 'auto') return '';
+    const vars = darkThemeVars(this.appearance);
+    return (
+      `:host([data-scheme='dark']){ ${vars} } ` +
+      `@media (prefers-color-scheme: dark){ :host([data-scheme='auto']){ ${vars} } }`
+    );
   }
 
   /**
@@ -944,13 +2030,44 @@ export class RatioForm extends LitElement {
   private renderHeader(): TemplateResult | typeof nothing {
     const schema = this.schema;
     if (!schema) return nothing;
-    const logo = this.appearance?.logo?.url;
-    const cover = this.appearance?.cover?.url;
+    const logo = this.appearance?.logo;
+    const cover = this.appearance?.cover;
     return html`<div class="rf-head">
-      ${logo ? html`<img class="rf-logo" src=${logo} alt="" />` : nothing}
-      ${cover ? html`<img class="rf-cover" src=${cover} alt="" />` : nothing}
+      ${logo?.url ? this.renderLogo(logo) : nothing}
+      ${cover?.url ? this.renderCover(cover) : nothing}
       <h2 class="rf-title">${schema.name}</h2>
       ${schema.description ? html`<p class="rf-desc">${schema.description}</p>` : nothing}
+    </div>`;
+  }
+
+  /**
+   * Batch 6 — the brand logo. Height comes from the enum→px token (§theme); the
+   * per-logo alignment rides an inline `margin` style composed from the align
+   * enum (SDK-built, never a merchant string) so it beats the contentAlign
+   * host-centering rule. `alt` is the merchant's accessible name (Lit escapes
+   * it); absent/'' ⇒ a decorative image, matching today's empty alt.
+   */
+  private renderLogo(logo: NonNullable<FormAppearance['logo']>): TemplateResult {
+    const align = logo.align ?? 'left';
+    // Fixed enum→margin map — inert CSS, no merchant value reaches it.
+    const marginX =
+      align === 'center'
+        ? 'margin-left:auto;margin-right:auto'
+        : align === 'right'
+          ? 'margin-left:auto;margin-right:0'
+          : 'margin-left:0;margin-right:auto';
+    return html`<img class="rf-logo" src=${logo.url} alt=${logo.alt ?? ''} style=${marginX} />`;
+  }
+
+  /**
+   * Batch 6 — the cover image, wrapped so the SDK-built dark overlay layer and
+   * the optional blur/height (all from bounded-number tokens) clip to the card
+   * radius. With overlay 0, blur 0, and height 180 the output is visually
+   * identical to today's bare `.rf-cover`.
+   */
+  private renderCover(cover: NonNullable<FormAppearance['cover']>): TemplateResult {
+    return html`<div class="rf-cover-wrap">
+      <img class="rf-cover" src=${cover.url} alt=${cover.alt ?? ''} />
     </div>`;
   }
 
@@ -958,23 +2075,106 @@ export class RatioForm extends LitElement {
     switch (this.status) {
       case 'loading':
         return html`<div class="rf-status" data-state="loading">Loading...</div>`;
+      // Batch 6 — each non-success end state renders its structured panel when
+      // the merchant authored `endings.<state>`, else today's exact template
+      // (byte-identical when `endings` is absent).
       case 'closed':
-        return html`<div class="rf-status" data-state="closed">This form is closed.</div>`;
+        return (
+          this.renderEndingPanel('closed') ??
+          html`<div class="rf-status" data-state="closed" role="status" aria-live="polite" tabindex="-1">This form is closed.</div>`
+        );
       case 'unavailable':
-        return html`<div class="rf-status" data-state="unavailable">
-          This form is no longer available.
-        </div>`;
+        return (
+          this.renderEndingPanel('unavailable') ??
+          html`<div class="rf-status" data-state="unavailable" role="status" aria-live="polite" tabindex="-1">
+            This form is no longer available.
+          </div>`
+        );
       case 'error':
-        return html`<div class="rf-status" data-state="error">
-          This form could not be loaded.
-        </div>`;
+        return (
+          this.renderEndingPanel('error') ??
+          html`<div class="rf-status" data-state="error" role="status" aria-live="polite" tabindex="-1">
+            This form could not be loaded.
+          </div>`
+        );
       case 'success':
-        return html`<div class="rf-status rf-success" data-state="success">
-          ${this.schema?.successMessage ?? 'Thank you!'}
-        </div>`;
+        return this.renderSuccessPanel();
       default:
         return this.renderForm();
     }
+  }
+
+  /**
+   * Batch 6 — the post-submit confirmation. Byte-identical to today (the exact
+   * check glyph + successMessage) when no `endings.success` copy is authored and
+   * no countdown is ticking. Otherwise the structured panel: an authored/def
+   * icon, an optional heading, the body chained back to successMessage, and the
+   * live redirect countdown when enabled (E4 back-compat chain E1a).
+   */
+  private renderSuccessPanel(): TemplateResult {
+    const cfg = this.appearance?.endings?.success;
+    const remaining = this.redirectRemaining;
+    if (!cfg && remaining <= 0) {
+      return html`<div class="rf-status rf-success" data-state="success" role="status" aria-live="polite" tabindex="-1">
+        <svg
+          class="rf-status-icon"
+          viewBox="0 0 24 24"
+          width="44"
+          height="44"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="12" r="11" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.35"></circle>
+          <path d="M7 12.4l3.3 3.3L17 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>
+        <p class="rf-status-msg">${this.schema?.successMessage ?? 'Thank you!'}</p>
+      </div>`;
+    }
+    const icon = cfg?.icon ?? DEFAULT_ENDING_ICON.success;
+    const body = cfg?.body ?? this.schema?.successMessage ?? 'Thank you!';
+    return html`<div class="rf-status rf-success" data-state="success" role="status" aria-live="polite" tabindex="-1">
+      ${this.renderEndingIcon(icon)}
+      ${cfg?.heading ? html`<p class="rf-status-heading">${cfg.heading}</p>` : nothing}
+      <p class="rf-status-msg">${body}</p>
+      ${
+        remaining > 0
+          ? html`<p class="rf-countdown" aria-live="polite">Redirecting in ${remaining}s…</p>`
+          : nothing
+      }
+    </div>`;
+  }
+
+  /**
+   * Batch 6 — a structured panel for a non-success end state, or null when the
+   * merchant authored no copy for it (the caller then falls back to today's
+   * exact template). The body chains to the state's built-in default string, so
+   * authoring only an icon/heading never drops the explanatory text.
+   */
+  private renderEndingPanel(
+    state: 'closed' | 'expired' | 'unavailable' | 'error',
+  ): TemplateResult | null {
+    const cfg = this.appearance?.endings?.[state];
+    if (!cfg) return null;
+    const icon = cfg.icon ?? DEFAULT_ENDING_ICON[state];
+    const body = cfg.body ?? DEFAULT_ENDING_BODY[state];
+    return html`<div class="rf-status" data-state=${state} role="status" aria-live="polite" tabindex="-1">
+      ${this.renderEndingIcon(icon)}
+      ${cfg.heading ? html`<p class="rf-status-heading">${cfg.heading}</p>` : nothing}
+      <p class="rf-status-msg">${body}</p>
+    </div>`;
+  }
+
+  /** Batch 6 — a 44×44 end-panel glyph from the curated map; 'none' hides it. */
+  private renderEndingIcon(icon: FormEndingIcon): TemplateResult | typeof nothing {
+    if (icon === 'none') return nothing;
+    return html`<svg
+      class="rf-status-icon"
+      viewBox="0 0 24 24"
+      width="44"
+      height="44"
+      aria-hidden="true"
+    >
+      ${ENDING_ICONS[icon]}
+    </svg>`;
   }
 
   /**
@@ -986,34 +2186,116 @@ export class RatioForm extends LitElement {
   private renderForm(): TemplateResult {
     const schema = this.schema;
     if (!schema) return html`${nothing}`;
+    // §steps — when the form has ≥1 page_break we page through steps: render
+    // ONLY the current step's fields, a progress indicator, and Back/Next; the
+    // honeypot + Submit ride the FINAL step only. A form with no page_break is a
+    // single step ⇒ render every field with Submit, exactly as today (the
+    // progress + nav blocks collapse to nothing).
+    const multi = this.isMultiStep;
+    const steps = this.steps;
+    const stepFields = multi ? (steps[this.stepIndex] ?? []) : schema.schema;
+    const last = this.onLastStep;
     return html`
-      <div class="rf-form" role="form" @keydown=${this.onKeydown}>
-        <div class="rf-fields">${schema.schema.map((field) => this.renderField(field))}</div>
-        <div class="rf-hp" aria-hidden="true">
-          <input
-            type="text"
-            name="_hp"
-            tabindex="-1"
-            autocomplete="off"
-            .value=${this.hp}
-            @input=${(e: Event) => {
-              this.hp = (e.target as HTMLInputElement).value;
-            }}
-          />
-        </div>
+      <div class="rf-form" role="form" @keydown=${this.onKeydown} @focusout=${this.onFieldBlur}>
+        ${multi ? this.renderProgress(this.stepIndex, steps.length) : nothing}
+        <div class="rf-fields">${stepFields.map((field) => this.renderField(field))}</div>
+        ${
+          last
+            ? html`<div class="rf-hp" aria-hidden="true">
+                <input
+                  type="text"
+                  name="_hp"
+                  tabindex="-1"
+                  autocomplete="off"
+                  .value=${this.hp}
+                  @input=${(e: Event) => {
+                    this.hp = (e.target as HTMLInputElement).value;
+                  }}
+                />
+              </div>`
+            : nothing
+        }
         <div class="rf-form-error" role="alert">${this.formError}</div>
-        <button
-          type="button"
-          class="rf-submit"
-          ?disabled=${this.status === 'submitting'}
-          @click=${this.onSubmit}
-        >
-          ${this.renderButtonIcon()}${
-            this.status === 'submitting' ? 'Submitting...' : schema.submitLabel
-          }
-        </button>
+        ${multi ? this.renderNav(schema.submitLabel) : this.renderSubmit(schema.submitLabel)}
       </div>
     `;
+  }
+
+  /**
+   * §steps — the "Step X of N" text (a polite live region, so a step change is
+   * announced to assistive tech) plus a thin proportional bar. Only rendered on
+   * a multi-step form; the optional per-step title rides the current break/step.
+   */
+  private renderProgress(index: number, count: number): TemplateResult {
+    const pct = Math.round(((index + 1) / count) * 100);
+    return html`<div class="rf-progress">
+      <p class="rf-progress-text" role="status" aria-live="polite">Step ${index + 1} of ${count}</p>
+      <div
+        class="rf-progressbar"
+        role="progressbar"
+        aria-valuenow=${index + 1}
+        aria-valuemin="1"
+        aria-valuemax=${count}
+      >
+        <div class="rf-progressbar-fill" style=${`width:${pct}%`}></div>
+      </div>
+    </div>`;
+  }
+
+  /**
+   * §steps — the step navigation row, reusing the .rf-submit button styling.
+   * Back is hidden on step 0 and never validates; Next validates the current
+   * step; the final step swaps Next for the real Submit (honeypot/recaptcha are
+   * on that step too).
+   */
+  private renderNav(submitLabel: string): TemplateResult {
+    return html`<div class="rf-nav">
+      ${
+        this.stepIndex > 0
+          ? html`<button type="button" class="rf-submit rf-back" data-btn-variant="outline" @click=${this.onBack}>
+              Back
+            </button>`
+          : nothing
+      }
+      ${
+        this.onLastStep
+          ? this.renderSubmit(submitLabel)
+          : html`<button type="button" class="rf-submit rf-next" @click=${this.onNext}>Next</button>`
+      }
+    </div>`;
+  }
+
+  /** The real Submit button (final step / single-step form). Extracted so both
+   * the single-step and the multi-step paths render the identical control. */
+  private renderSubmit(submitLabel: string): TemplateResult {
+    return html`<button
+      type="button"
+      class="rf-submit"
+      data-btn-variant=${this.submitVariant}
+      aria-busy=${this.status === 'submitting' ? 'true' : nothing}
+      aria-disabled=${this.status === 'submitting' ? 'true' : nothing}
+      @click=${this.onSubmit}
+    >
+      ${this.status === 'submitting' ? this.renderSubmitLoader() : this.renderButtonIcon()}${
+        this.status === 'submitting' ? 'Submitting...' : submitLabel
+      }
+    </button>`;
+  }
+
+  /** §1.5 — submit fill variant reflected on the button; 'solid' (today) sets
+   * no attribute so the token-flip rules don't apply. */
+  private get submitVariant(): string | typeof nothing {
+    const variant = this.appearance?.layout?.buttonVariant ?? 'solid';
+    return variant === 'solid' ? nothing : variant;
+  }
+
+  /** §1.8 — the busy spinner shown while submitting; 'none' shows text only.
+   * A static-first template (avoids the happy-dom binding-first parse drop);
+   * under prefers-reduced-motion the shared animation kill freezes it. */
+  private renderSubmitLoader(): TemplateResult | typeof nothing {
+    const loader = this.appearance?.layout?.submitLoader ?? 'spinner';
+    if (loader !== 'spinner') return nothing;
+    return html`<span class="rf-spinner" aria-hidden="true"></span>`;
   }
 
   /** Optional leading glyph on the submit button (§1.5); 'none' = no icon. */
@@ -1025,13 +2307,17 @@ export class RatioForm extends LitElement {
     </svg>`;
   }
 
-  /** Enter in a single-line input submits, like a native form would. */
+  /** Enter in a single-line input submits, like a native form would. §steps: on
+   * a non-final step Enter advances (Next) instead — the same key gesture the
+   * on-screen primary button performs, so submit still happens only on the last
+   * step. */
   private onKeydown(event: KeyboardEvent): void {
     if (event.key !== 'Enter') return;
     const target = event.target as HTMLElement;
     if (target.tagName === 'INPUT' && (target as HTMLInputElement).type !== 'checkbox') {
       event.preventDefault();
-      void this.onSubmit(event);
+      if (this.isMultiStep && !this.onLastStep) void this.onNext();
+      else void this.onSubmit(event);
     }
   }
 
@@ -1103,7 +2389,15 @@ export class RatioForm extends LitElement {
     const counted = field as Extract<FormField, { type: 'text' | 'textarea' }>;
     const max = counted.validation?.maxLength;
     if (typeof max !== 'number') return nothing;
-    const len = String(this.values[field.key] ?? '').length;
+    // A textarea with counterUnit:'words' counts words, not characters, for the
+    // numerator (the limit/denominator stays the maxLength char cap).
+    const value = String(this.values[field.key] ?? '');
+    const len =
+      counted.type === 'textarea' && counted.display?.counterUnit === 'words'
+        ? value.trim() === ''
+          ? 0
+          : value.trim().split(/\s+/u).length
+        : value.length;
     return html`<div
       class="rf-counter"
       data-near=${len >= max * 0.9 ? 'true' : nothing}
@@ -1140,41 +2434,149 @@ export class RatioForm extends LitElement {
     return html`<span class="rf-required"> ${mark === 'text' ? 'Required' : '*'}</span>`;
   }
 
-  /** Render a content block (§1.3): heading, divider, paragraph, or image. */
+  /** Render a content block (§1.3 / §4.15): heading, divider, paragraph, or
+   * image. Appearance keys (§4.15) are optional/defaulted so an unstyled block
+   * renders exactly as before; every value comes from a bounded enum/int (or a
+   * re-checked https url), so nothing dynamic reaches an inline style or href. */
   private renderBlock(field: ContentBlockField): TemplateResult {
+    // page_break (§steps) is a step SEPARATOR — it renders nothing in the form
+    // body (splitIntoSteps already drops it from the rendered step groups; this
+    // guard keeps renderBlock total over ContentBlockField as a backstop).
+    if (field.type === 'page_break') return html`${nothing}`;
+    // Heading returns early: the optional eyebrow and the <h> tag are two
+    // children of the statically-wrapped block div. Visual size drives
+    // font-size via data-size (decoupled from the semantic level); both the
+    // eyebrow and heading bind as textContent — never innerHTML.
+    if (field.type === 'heading') {
+      const eyebrow = field.eyebrow
+        ? html`<span class="rf-eyebrow">${field.eyebrow}</span>`
+        : nothing;
+      const body =
+        field.level === 'h3'
+          ? html`<h3 class="rf-heading" data-size=${field.size}>${field.text}</h3>`
+          : html`<h2 class="rf-heading" data-size=${field.size}>${field.text}</h2>`;
+      return html`<div
+        class="rf-field rf-block"
+        data-field=${field.key}
+        data-width=${field.width ?? 'full'}
+        data-align=${field.align}
+      >
+        ${eyebrow}${body}
+      </div>`;
+    }
     let inner: TemplateResult;
     switch (field.type) {
-      case 'heading':
-        // textContent binding — never innerHTML.
-        inner =
-          field.level === 'h3'
-            ? html`<h3 class="rf-heading">${field.text}</h3>`
-            : html`<h2 class="rf-heading">${field.text}</h2>`;
+      case 'divider': {
+        // variant flips the border-style (or drops the rule for 'spacer');
+        // spacing is a bounded int, so an inline px value is injection-free. A
+        // spacer carries its gap as an explicit height; a rule as vertical margin.
+        const style =
+          field.variant === 'spacer'
+            ? `height:${field.spacing ?? 24}px`
+            : field.spacing != null
+              ? `margin:${field.spacing}px 0`
+              : nothing;
+        inner = html`<hr class="rf-divider" data-variant=${field.variant} style=${style} />`;
         break;
-      case 'divider':
-        inner = html`<hr class="rf-divider" />`;
-        break;
+      }
       case 'paragraph':
         inner = html`<p class="rf-paragraph">${field.text}</p>`;
         break;
-      case 'image':
+      case 'image': {
         // src via the audited https asset flow (validated in the schema),
         // loading=lazy, capped width.
-        inner = html`<img
+        const img = html`<img
           class="rf-block-img"
           src=${field.url}
           alt=${field.alt ?? ''}
           loading="lazy"
         />`;
+        // linkUrl (re-checked https, mirroring the accent hex guard) wraps the
+        // image in a new-tab, noopener link; otherwise the bare image renders.
+        const media =
+          field.linkUrl && HTTPS_URL_RE.test(field.linkUrl)
+            ? html`<a
+                class="rf-block-link"
+                href=${field.linkUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                >${img}</a
+              >`
+            : img;
+        const caption = field.caption
+          ? html`<figcaption class="rf-figcaption">${field.caption}</figcaption>`
+          : nothing;
+        // <figure> carries align + size via data-*; the CSS caps width (size)
+        // and aligns the figure with auto margins (align).
+        inner = html`<figure
+          class="rf-figure"
+          data-align=${field.align}
+          data-size=${field.size ?? nothing}
+        >
+          ${media}${caption}
+        </figure>`;
+        break;
+      }
+      case 'html':
+        // Raw, merchant-authored HTML rendered as-is via `unsafeHTML` — NO
+        // sanitization (a deliberate product decision by the owner). This
+        // renders markup / embeds / iframes; a top-level inline <script> set
+        // via innerHTML does NOT auto-execute, so pasted markup renders inert.
+        inner = html`<div class="rf-html">${unsafeHTML(field.html)}</div>`;
         break;
     }
-    return html`<div class="rf-field rf-block" data-field=${field.key} data-width=${field.width ?? 'full'}>
+    // data-align on the wrapper aligns paragraph text (inherited text-align);
+    // the image aligns itself via the figure's margins and the divider spans
+    // full width, so both leave the wrapper unset.
+    const align = field.type === 'paragraph' ? field.align : nothing;
+    return html`<div
+      class="rf-field rf-block"
+      data-field=${field.key}
+      data-width=${field.width ?? 'full'}
+      data-align=${align}
+    >
       ${inner}
     </div>`;
   }
 
   private setValue(key: string, value: unknown): void {
     this.values = { ...this.values, [key]: value };
+    // Live re-check once a field is touched or already flagged, so a fix clears
+    // the error immediately (and a newly-invalid value re-flags without a submit).
+    if (this.touched.has(key) || this.fieldErrors[key]) {
+      const field = (this.schema?.schema ?? []).find((f) => f.key === key);
+      if (field) this.recheckField(field);
+    }
+  }
+
+  /** Validate the field focus just left (its first blur → it becomes touched). */
+  private onFieldBlur(event: FocusEvent): void {
+    const target = event.target as HTMLElement | null;
+    const wrapper = target?.closest('[data-field]');
+    const key = wrapper?.getAttribute('data-field');
+    if (!key) return;
+    // Grouped fields (radio / multi_select / checkbox-set / rating) fire a
+    // focusout every time focus hops between their OWN options. Bailing when
+    // the incoming focus (relatedTarget) is still inside this same wrapper
+    // keeps the required/min error from flashing mid-selection; we only fall
+    // through to validate once focus has truly left the field. A null
+    // relatedTarget (focus left the document / crossed the shadow boundary)
+    // counts as "left the field", so it validates like a single control.
+    const nextFocus = event.relatedTarget as Node | null;
+    if (nextFocus && wrapper?.contains(nextFocus)) return;
+    const field = (this.schema?.schema ?? []).find((f) => f.key === key);
+    if (!field || isContentBlock(field)) return;
+    this.touched.add(key);
+    this.recheckField(field);
+  }
+
+  /** Re-run one field's validator and patch its entry in `fieldErrors`. */
+  private recheckField(field: FormField): void {
+    const error = this.validateField(field);
+    const next = { ...this.fieldErrors };
+    if (error) next[field.key] = error;
+    else delete next[field.key];
+    this.fieldErrors = next;
   }
 
   private renderControl(field: ControlField): TemplateResult {
@@ -1200,11 +2602,17 @@ export class RatioForm extends LitElement {
       describedBy,
       values: this.values,
       files: this.files,
+      // Drives the file field's indeterminate upload bar: the presign+PUT flow
+      // runs while the form is submitting (see onSubmit), so the bar shows then
+      // and clears when status leaves 'submitting' (success / error re-render).
+      uploading: this.status === 'submitting',
       onInput,
       setValue: (key, value) => this.setValue(key, value),
       ph: (f, fallback) => this.ph(f, fallback),
       adorn: (f, control) => this.adorn(f, control),
       requestUpdate: () => this.requestUpdate(),
+      numberFocus: this.numberFocus,
+      selectUi: this.selectUi,
     };
     const mod = fieldControls[field.type] as FieldControlModule<ControlField['type']>;
     return mod.render(field, ctx);

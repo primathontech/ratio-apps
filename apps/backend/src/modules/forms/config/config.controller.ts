@@ -8,11 +8,7 @@ import { FormsMerchantTokenGuard } from '../guards';
 import { FormsConfigService } from './config.service';
 import { type UpdateConfigDto, updateConfigDtoSchema } from './forms-config.dto';
 
-/**
- * Merchant settings (TRD §2): GET returns the redacted shape
- * (`hasRecaptchaSecret`, never the secret); PUT accepts the write-only
- * secret (blank/absent = keep stored).
- */
+/** Merchant settings (TRD §2): GET returns the redacted shape; PUT accepts the write-only secret. */
 @Controller('forms/api')
 export class FormsConfigController {
   constructor(private readonly config: FormsConfigService) {}

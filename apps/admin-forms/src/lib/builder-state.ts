@@ -45,6 +45,24 @@ export interface AppearancePatch {
   /** Present (incl. `undefined`) = set/clear the logo; absent = leave it. */
   logo?: FormAppearance['logo'];
   cover?: FormAppearance['cover'];
+  // Batch 6 — form-wide branding toggles (shallow-merged onto the current
+  // branding, like colors/layout).
+  branding?: Partial<FormAppearance['branding']>;
+  // Batch 6 — structured end states. Shallow-merged one level (each state panel
+  // is composed whole by the caller); `undefined` clears the whole object, an
+  // absent key leaves it — same set/clear posture as logo/cover.
+  endings?: FormAppearance['endings'];
+  // Form-level raw custom CSS — set/cleared wholesale (a single string), same
+  // posture as logo/cover: `undefined` clears it, an absent key leaves it.
+  customCss?: FormAppearance['customCss'];
+  // Dark mode — the color scheme is a single enum, set/cleared wholesale like
+  // customCss: `undefined` (or 'light') restores today's single-palette behavior.
+  colorScheme?: FormAppearance['colorScheme'];
+  // Optional dark-palette overrides (same shape as `colors`, every token
+  // optional). Shallow-merged onto the current dark palette like colors/endings,
+  // so a single-token edit never drops the rest; `undefined` clears the whole
+  // dark palette, an absent key leaves it.
+  colorsDark?: FormAppearance['colorsDark'];
 }
 
 export interface BuilderState {
@@ -78,6 +96,7 @@ export type BuilderAction =
   | { type: 'updateField'; key: string; patch: Partial<FormField> }
   | { type: 'updateMeta'; patch: Partial<BuilderMeta> }
   | { type: 'updateAppearance'; patch: AppearancePatch }
+  | { type: 'replaceAppearance'; appearance: FormAppearance }
   | { type: 'selectField'; key: string | null }
   | { type: 'markSaved' };
 
@@ -119,6 +138,10 @@ export const FIELD_TYPE_LABELS: Record<FormFieldType, string> = {
   divider: 'Divider',
   paragraph: 'Text block',
   image: 'Image',
+  html: 'Custom HTML',
+  // Layout separator (§1.3) — splits the form's fields into wizard steps; no
+  // submitted value, only an optional step title.
+  page_break: 'Page break',
 };
 
 /**
@@ -153,13 +176,42 @@ export function makeField(fieldType: FormFieldType, existing: readonly FormField
   // placeholder the merchant replaces in the property panel.
   switch (fieldType) {
     case 'heading':
-      return { key, type: 'heading', text: 'Section heading', level: 'h2', width: 'full' };
+      // §4.15 appearance defaults reproduce today's rendering (md ≈ prior h2).
+      return {
+        key,
+        type: 'heading',
+        text: 'Section heading',
+        level: 'h2',
+        size: 'md',
+        align: 'left',
+        width: 'full',
+      };
     case 'divider':
-      return { key, type: 'divider', width: 'full' };
+      return { key, type: 'divider', variant: 'line', width: 'full' };
     case 'paragraph':
-      return { key, type: 'paragraph', text: 'Add a short description here.', width: 'full' };
+      return {
+        key,
+        type: 'paragraph',
+        text: 'Add a short description here.',
+        align: 'left',
+        width: 'full',
+      };
     case 'image':
-      return { key, type: 'image', url: 'https://cdn.example.com/image.png', width: 'full' };
+      return {
+        key,
+        type: 'image',
+        url: 'https://cdn.example.com/image.png',
+        align: 'left',
+        width: 'full',
+      };
+    case 'html':
+      // Display-only raw-HTML block; seeds a small placeholder the merchant
+      // replaces in the property panel. Rendered as-is (no sanitization).
+      return { key, type: 'html', html: '<p>Your custom HTML</p>', width: 'full' };
+    case 'page_break':
+      // Layout separator: carries no submitted value and no label — just an
+      // optional step title, absent by default (mirrors `divider`).
+      return { key, type: 'page_break', width: 'full' };
   }
   // showCounter carries a schema default (false), so it is a required output
   // key on every collectable field type — seed it here (§2.3).
@@ -178,9 +230,23 @@ export function makeField(fieldType: FormFieldType, existing: readonly FormField
     case 'phone':
       return { ...base, type: 'phone' };
     case 'dropdown':
-      return { ...base, type: 'dropdown', options: ['Option 1'] };
+      return {
+        ...base,
+        type: 'dropdown',
+        options: [
+          { value: 'option-1', label: 'Option 1' },
+          { value: 'option-2', label: 'Option 2' },
+        ],
+      };
     case 'multi_select':
-      return { ...base, type: 'multi_select', options: ['Option 1'] };
+      return {
+        ...base,
+        type: 'multi_select',
+        options: [
+          { value: 'option-1', label: 'Option 1' },
+          { value: 'option-2', label: 'Option 2' },
+        ],
+      };
     case 'date':
       return { ...base, type: 'date' };
     case 'file':
@@ -193,7 +259,14 @@ export function makeField(fieldType: FormFieldType, existing: readonly FormField
         },
       };
     case 'radio':
-      return { ...base, type: 'radio', options: ['Option 1'] };
+      return {
+        ...base,
+        type: 'radio',
+        options: [
+          { value: 'option-1', label: 'Option 1' },
+          { value: 'option-2', label: 'Option 2' },
+        ],
+      };
     case 'checkbox':
       return { ...base, type: 'checkbox' };
     case 'number':
@@ -320,9 +393,40 @@ export function builderReducer(state: BuilderState, action: BuilderAction): Buil
         // logo/cover are set/cleared wholesale; an absent key leaves them as-is.
         logo: 'logo' in patch ? patch.logo : base.logo,
         cover: 'cover' in patch ? patch.cover : base.cover,
+        // Batch 6 — branding shallow-merges over the default so an old form
+        // (stored before branding existed) still yields a defined toggle.
+        branding: { ...DEFAULT_APPEARANCE.branding, ...base.branding, ...patch.branding },
+        // Batch 6 — endings: merge onto the current object, `undefined` clears,
+        // an absent key leaves it. The nested per-state panel is composed whole
+        // by the caller, so a one-level merge is enough.
+        endings:
+          'endings' in patch
+            ? patch.endings === undefined
+              ? undefined
+              : { ...base.endings, ...patch.endings }
+            : base.endings,
+        // Form-level custom CSS is a single string, set/cleared wholesale.
+        customCss: 'customCss' in patch ? patch.customCss : base.customCss,
+        // Dark mode — colorScheme is set/cleared wholesale like customCss.
+        colorScheme: 'colorScheme' in patch ? patch.colorScheme : base.colorScheme,
+        // Dark palette merges onto the current object (like colors/endings):
+        // `undefined` clears it, an absent key leaves it, an object shallow-merges
+        // so a single-token edit keeps the previously-set dark tokens.
+        colorsDark:
+          'colorsDark' in patch
+            ? patch.colorsDark === undefined
+              ? undefined
+              : { ...base.colorsDark, ...patch.colorsDark }
+            : base.colorsDark,
       };
       return { ...state, meta: { ...state.meta, appearance }, dirty: true };
     }
+
+    case 'replaceAppearance':
+      // Wholesale replace (preset apply / JSON import): the whole appearance is
+      // swapped, so optional keys absent from the new object are DROPPED rather
+      // than lingering from the previous form (unlike updateAppearance's merge).
+      return { ...state, meta: { ...state.meta, appearance: action.appearance }, dirty: true };
 
     case 'selectField':
       if (action.key !== null && !state.fields.some((f) => f.key === action.key)) return state;

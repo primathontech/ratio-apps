@@ -1,15 +1,20 @@
+import { S3Client } from '@aws-sdk/client-s3';
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
+import { EmailService } from '../../core/email/email.service';
 import { createAppProviders } from '../../core/factories/app-module.factory';
 import { QueueService } from '../../core/queue/queue.service';
+import { S3Service } from '../../core/storage/s3.service';
 import { FormsConfigController } from './config/config.controller';
 import { FormsConfigService } from './config/config.service';
 import type { FormsDatabase } from './db/types';
-import { DeliverySweeperService } from './delivery/delivery-sweeper.service';
-import { FormsEmailService } from './delivery/email.service';
-import { FormsEmailWorker } from './delivery/email.worker';
-import { WebhookDeliveryService } from './delivery/webhook-delivery.service';
-import { WebhookDeliveryWorker } from './delivery/webhook-delivery.worker';
+import { FormsBounceController } from './outbound/bounce.controller';
+import { FormsBounceService } from './outbound/bounce.service';
+import { DeliverySweeperService } from './outbound/delivery-sweeper.service';
+import { FormsEmailService } from './outbound/email.service';
+import { FormsEmailWorker } from './outbound/email.worker';
+import { WebhookDeliveryService } from './outbound/webhook-delivery.service';
+import { WebhookDeliveryWorker } from './outbound/webhook-delivery.worker';
 import { FormsController } from './forms/forms.controller';
 import { FormsService } from './forms/forms.service';
 import { FormsBootstrap } from './forms.bootstrap';
@@ -37,13 +42,9 @@ import { UploadsController } from './uploads/uploads.controller';
 import { FormsAppUninstalledHandler } from './webhooks/app-uninstalled.handler';
 import { FormsWebhooksController } from './webhooks/webhooks.controller';
 
-// Re-export guards so external consumers (e.g. e2e setup) can import from
-// the barrel; controllers internal to this module pull from ./guards.
+// Re-export guards from the barrel for external consumers (e.g. e2e setup).
 export { FormsMerchantTokenGuard, FormsWebhookSignatureGuard } from './guards';
-// Re-export the tokens from the module barrel so existing
-// `import { FORMS_MERCHANTS } from './forms.module'` call sites keep
-// working. The symbols themselves live in `./tokens.ts` to break the
-// circular import between this file and its sibling services/guards.
+// Re-export tokens from the barrel; symbols live in ./tokens.ts to break the circular import.
 export {
   FORMS_CRYPTO,
   FORMS_MERCHANTS,
@@ -52,18 +53,9 @@ export {
   FORMS_WEBHOOKS,
 } from './tokens';
 
-/**
- * Forms feature module.
- *
- * Nothing crosses modules by design — per-module DB isolation. The Crypto /
- * Ratio / Merchants / OAuth / Webhooks providers are built by the shared
- * `createAppProviders` factory; everything else (config + sdk services,
- * controllers, bootstrap, handler, guards) is wired here directly because
- * those pieces are app-specific.
- */
+/** Forms feature module; per-module DB isolation, shared providers via createAppProviders. */
 @Module({
-  // ScheduleModule.forRoot() powers the minute delivery-sweeper cron
-  // (google reconcile precedent — forRoot() is idempotent across modules).
+  // ScheduleModule.forRoot() powers the minute delivery-sweeper cron (idempotent across modules).
   imports: [FormsKyselyModule, ScheduleModule.forRoot()],
   controllers: [
     FormsConfigController,
@@ -76,6 +68,7 @@ export {
     FormsOAuthController,
     FormsWebhooksController,
     FormsMerchantsController,
+    FormsBounceController,
   ],
   providers: [
     FormsConfigService,
@@ -84,30 +77,36 @@ export {
     FormsEmbedService,
     FormsBootstrap,
     FormsAppUninstalledHandler,
-    // Public intake chain (TRD §2): rate limit → form state → spam →
-    // schema validation → idempotency → persist + delivery rows.
+    // Public intake chain (TRD §2): rate limit → form state → spam → validation → idempotency → persist.
     SubmitRateLimitService,
     FormsRecaptchaService,
     SchemaValidatorService,
     IdempotencyService,
     SubmissionsService,
     CsvExportService,
+    // Core S3 transport pinned to FORMS_S3_REGION (default ap-south-1) so forms S3 isn't bound to bare AWS_REGION (local SQS emulator).
+    {
+      provide: S3Service,
+      useFactory: () =>
+        new S3Service(
+          new S3Client({ region: process.env.FORMS_S3_REGION?.trim() || 'ap-south-1' }),
+        ),
+    },
     FormsS3Service,
-    // Async CSV export: POST enqueues a job → self-gated worker streams the
-    // CSV into S3 via lib-storage → GET polls for the signed download URL.
+    // Async CSV export: POST enqueues → worker streams CSV to S3 → GET polls for the signed URL.
     ExportJobService,
     FormsExportWorker,
-    // Delivery engine: minute sweeper (DB is the scheduler) → SQS →
-    // self-gated workers → executors.
+    // Delivery engine: minute sweeper (DB is the scheduler) → SQS → self-gated workers → executors.
     QueueService,
+    EmailService,
     WebhookDeliveryService,
     FormsEmailService,
+    // Inbound SES/SNS bounce endpoint → markBounced (PRD AC9).
+    FormsBounceService,
     WebhookDeliveryWorker,
     FormsEmailWorker,
     DeliverySweeperService,
-    // Guards are concrete @Injectable classes that defer to the per-module
-    // factories internally (see ./guards.ts). They are class-shaped so
-    // controllers can reference them in @UseGuards(GuardClass).
+    // Class-shaped guards so controllers can reference them in @UseGuards (see ./guards.ts).
     FormsWebhookSignatureGuard,
     FormsMerchantTokenGuard,
     ...createAppProviders<FormsDatabase>(
@@ -126,7 +125,6 @@ export {
       },
     ),
   ],
-  // Nothing crosses modules by design — per-module DB isolation.
   exports: [],
 })
 export class FormsModule {}

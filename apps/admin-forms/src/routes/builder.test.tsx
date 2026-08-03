@@ -87,6 +87,7 @@ describe('BuilderScreen', () => {
     expect(screen.getByRole('button', { name: 'Paragraph' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'File upload' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Text block' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Custom HTML' })).toBeInTheDocument();
   });
 
   it('Save PUTs a payload that parses with formInputSchema', async () => {
@@ -206,6 +207,25 @@ describe('BuilderScreen', () => {
     });
   });
 
+  it('adds a Custom HTML content block whose panel edits raw html and saves it (§1.3)', async () => {
+    routeApi(makeForm());
+    renderWithProviders(<BuilderScreen formId="form_1" />);
+    await screen.findByText('Full name');
+    fireEvent.click(screen.getByRole('button', { name: 'Custom HTML' }));
+    // Its property panel edits raw HTML and has no collectable-field "Label".
+    const htmlInput = await screen.findByLabelText('Custom HTML');
+    expect(screen.queryByLabelText('Field label')).not.toBeInTheDocument();
+    fireEvent.change(htmlInput, { target: { value: '<h2>Read our terms</h2>' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => {
+      const put = mockedApi.mock.calls.find((c) => c[0] === 'PUT' && c[1] === '/api/forms/form_1');
+      const parsed = formInputSchema.safeParse(put?.[2]);
+      expect(parsed.success).toBe(true);
+      const block = parsed.success && parsed.data.schema.find((f) => f.type === 'html');
+      expect(block && 'html' in block && block.html).toBe('<h2>Read our terms</h2>');
+    });
+  });
+
   it('saves per-field adornments (prefix, help text, counter) for a text field (§2.3)', async () => {
     routeApi(makeForm());
     renderWithProviders(<BuilderScreen formId="form_1" />);
@@ -276,14 +296,13 @@ describe('BuilderScreen', () => {
     renderWithProviders(<BuilderScreen formId="form_1" />);
     await screen.findByText('Full name');
     fireEvent.click(screen.getByRole('button', { name: 'Phone' }));
-    // Phone is in neither shared set: it owns its +91 chip and has no maxLength.
+    // Phone is in neither shared set: it owns its dial chip and has no maxLength.
     await screen.findByLabelText('Field label');
     expect(screen.queryByLabelText('Prefix')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Show character counter')).not.toBeInTheDocument();
-    // The type-specific note is a subtle inline hint, not a padded Alert box.
-    expect(
-      screen.getByText('Accepts Indian mobile numbers only (+91, 10 digits).'),
-    ).toBeInTheDocument();
+    // Phone's type-specific panel is now the multi-country dial-code selector
+    // (defaults to India only), not a padded Alert box.
+    expect(screen.getAllByLabelText('Allowed countries').length).toBeGreaterThan(0);
   });
 
   it('pins a per-field input variant through Advanced style and saves it (§2.2)', async () => {

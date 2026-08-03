@@ -1,8 +1,8 @@
-import { appearanceSchema, type FormAppearance } from '@ratio-app/shared';
+import { appearanceSchema, type FormAppearance, type FormField } from '@ratio-app/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import './form-renderer';
 import { FormsClient, type PublicFormSchema } from '../client';
-import { RATIO_FORM_TAG, RatioForm } from './form-renderer';
+import { RATIO_FORM_TAG, RatioForm, splitIntoSteps } from './form-renderer';
 
 /** A fully-defaulted appearance with optional group overrides + font family. */
 function appearanceWith(
@@ -36,14 +36,20 @@ function kitchenSinkSchema(overrides: Partial<PublicFormSchema> = {}): PublicFor
         type: 'dropdown',
         label: 'Topic',
         required: false,
-        options: ['Sales', 'Support'],
+        options: [
+          { value: 'Sales', label: 'Sales' },
+          { value: 'Support', label: 'Support' },
+        ],
       },
       {
         key: 'interests',
         type: 'multi_select',
         label: 'Interests',
         required: false,
-        options: ['A', 'B'],
+        options: [
+          { value: 'A', label: 'A' },
+          { value: 'B', label: 'B' },
+        ],
       },
       { key: 'visit_date', type: 'date', label: 'Visit date', required: false },
       {
@@ -205,6 +211,17 @@ describe('ratio-form client-side validation', () => {
     expect(posts).toHaveLength(0);
   });
 
+  it('announces a summary (role=alert) and focuses the first invalid field on failed submit', async () => {
+    const { el } = await mount();
+    await submit(el);
+    await el.updateComplete;
+    const summary = shadow(el).querySelector('.rf-form-error');
+    expect(summary?.getAttribute('role')).toBe('alert');
+    expect(summary?.textContent ?? '').toMatch(/fix/i);
+    // Focus moved into the shadow root, onto the first invalid control.
+    expect(shadow(el).activeElement?.getAttribute('aria-invalid')).toBe('true');
+  });
+
   it('validates email format and +91 10-digit phone', async () => {
     const { el } = await mount();
     setInput(el, 'full_name', 'Asha');
@@ -268,6 +285,38 @@ describe('ratio-form submit flow', () => {
     expect(shadow(el).querySelector('[data-state="success"]')?.textContent).toContain(
       'Thanks — got it!',
     );
+    // The host reflects the status so the card shrinks to hug the message.
+    expect(el.getAttribute('data-state')).toBe('success');
+    // Success transition is announced to assistive tech.
+    expect(shadow(el).querySelector('[data-state="success"]')?.getAttribute('role')).toBe('status');
+  });
+
+  it('date defaultTo:"today" seeds submit state — an untouched field submits and clears required', async () => {
+    const schema = kitchenSinkSchema({
+      schema: [
+        {
+          key: 'visit_date',
+          type: 'date',
+          label: 'Visit date',
+          required: true,
+          validation: { defaultTo: 'today' },
+        },
+      ] as PublicFormSchema['schema'],
+    });
+    const { el, fetchImpl } = await mount({ schema: { status: 200, body: { data: schema } } });
+    await submit(el);
+    const post = fetchImpl.mock.calls.find((c) => String(c[0]).endsWith('/submissions'));
+    // Required passed without the user touching the field, and today was sent.
+    expect(post).toBeDefined();
+    const body = JSON.parse(String((post?.[1] as RequestInit).body));
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    expect(body.fields.visit_date).toBe(today);
+  });
+
+  it('does not reflect data-state while the fillable form is showing', async () => {
+    const { el } = await mount();
+    expect(el.getAttribute('data-state')).toBeNull();
   });
 
   it('disables the submit button after the first click (submit-once)', async () => {
@@ -305,7 +354,11 @@ describe('ratio-form submit flow', () => {
     button.click();
     await flush(2);
     await el.updateComplete;
-    expect(button.disabled).toBe(true);
+    // Busy state uses aria-disabled/aria-busy (not native disabled) so the
+    // button keeps keyboard focus while submitting.
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    expect(button.getAttribute('aria-busy')).toBe('true');
+    expect(button.disabled).toBe(false);
     // A second submit while in flight must not POST again.
     button.click();
     await flush(2);
@@ -365,8 +418,10 @@ describe('ratio-form submit flow', () => {
     expect(shadow(el).querySelector('[data-error-for="email"]')?.textContent).toContain(
       'valid email',
     );
-    // Form stays interactive for a retry.
-    expect((shadow(el).querySelector('.rf-submit') as HTMLButtonElement).disabled).toBe(false);
+    // Form stays interactive for a retry (no busy state after the error).
+    const retryBtn = shadow(el).querySelector('.rf-submit') as HTMLButtonElement;
+    expect(retryBtn.getAttribute('aria-disabled')).not.toBe('true');
+    expect(retryBtn.getAttribute('aria-busy')).not.toBe('true');
   });
 
   it('surfaces a friendly message on 429 rate limiting', async () => {
@@ -386,7 +441,16 @@ function p0FieldsSchema(overrides: Partial<PublicFormSchema> = {}): PublicFormSc
     id: 'form_p0',
     name: 'P0 fields',
     schema: [
-      { key: 'plan', type: 'radio', label: 'Plan', required: true, options: ['Free', 'Pro'] },
+      {
+        key: 'plan',
+        type: 'radio',
+        label: 'Plan',
+        required: true,
+        options: [
+          { value: 'Free', label: 'Free' },
+          { value: 'Pro', label: 'Pro' },
+        ],
+      },
       {
         key: 'qty',
         type: 'number',
@@ -465,9 +529,7 @@ describe('ratio-form P0 field types', () => {
 
     setInput(el, 'qty', '99');
     await submit(el);
-    expect(shadow(el).querySelector('[data-error-for="qty"]')?.textContent).toContain(
-      '10 or less',
-    );
+    expect(shadow(el).querySelector('[data-error-for="qty"]')?.textContent).toContain('10 or less');
   });
 
   it('submits radio value + boolean consent on success', async () => {
@@ -559,6 +621,142 @@ describe('ratio-form theming', () => {
       schema: { status: 200, body: { data: kitchenSinkSchema({ appearance: centered }) } },
     });
     expect(shadow(el).querySelector('style')?.textContent).toContain('--wz-btn-align: center');
+  });
+});
+
+describe('ratio-form dark theme (colorScheme + colorsDark)', () => {
+  const darkAppearance = (scheme: 'light' | 'dark' | 'auto'): FormAppearance =>
+    appearanceSchema.parse({
+      colorScheme: scheme,
+      colors: { background: '#ffffff', text: '#1a1a1a' },
+      colorsDark: { background: '#0b0b0b', text: '#f5f5f5' },
+    });
+
+  it('reflects colorScheme:dark onto the host as data-scheme', async () => {
+    const { el } = await mount({
+      schema: {
+        status: 200,
+        body: { data: kitchenSinkSchema({ appearance: darkAppearance('dark') }) },
+      },
+    });
+    expect(el.getAttribute('data-scheme')).toBe('dark');
+  });
+
+  it('reflects colorScheme:auto onto the host as data-scheme', async () => {
+    const { el } = await mount({
+      schema: {
+        status: 200,
+        body: { data: kitchenSinkSchema({ appearance: darkAppearance('auto') }) },
+      },
+    });
+    expect(el.getAttribute('data-scheme')).toBe('auto');
+  });
+
+  it('reflects nothing for colorScheme:light (today’s behavior)', async () => {
+    const { el } = await mount({
+      schema: {
+        status: 200,
+        body: { data: kitchenSinkSchema({ appearance: darkAppearance('light') }) },
+      },
+    });
+    expect(el.hasAttribute('data-scheme')).toBe(false);
+  });
+
+  it('reflects nothing when colorScheme is unset', async () => {
+    const { el } = await mount({
+      schema: {
+        status: 200,
+        body: { data: kitchenSinkSchema({ appearance: appearanceWith() }) },
+      },
+    });
+    expect(el.hasAttribute('data-scheme')).toBe(false);
+  });
+
+  it('emits the dark :host block AND the prefers-color-scheme auto block when scheme is set', async () => {
+    const { el } = await mount({
+      schema: {
+        status: 200,
+        body: { data: kitchenSinkSchema({ appearance: darkAppearance('dark') }) },
+      },
+    });
+    const style = shadow(el).querySelector('style')?.textContent ?? '';
+    // The forced-dark block, carrying the dark color overrides.
+    expect(style).toContain(":host([data-scheme='dark'])");
+    expect(style).toContain('--wz-bg: #0b0b0b');
+    expect(style).toContain('--wz-fg: #f5f5f5');
+    // The OS-driven auto block wraps the SAME vars under prefers-color-scheme.
+    expect(style).toContain('@media (prefers-color-scheme: dark)');
+    expect(style).toContain(":host([data-scheme='auto'])");
+  });
+
+  it('emits neither dark block for light/unset, and the light tokens are unchanged', async () => {
+    const light = await mount({
+      schema: {
+        status: 200,
+        body: { data: kitchenSinkSchema({ appearance: darkAppearance('light') }) },
+      },
+    });
+    const lightStyle = shadow(light.el).querySelector('style')?.textContent ?? '';
+    expect(lightStyle).not.toContain('data-scheme');
+    expect(lightStyle).not.toContain('prefers-color-scheme');
+    // The light :host tokens still render today's values.
+    expect(lightStyle).toContain('--wz-bg: #ffffff');
+
+    const unset = await mount();
+    const unsetStyle = shadow(unset.el).querySelector('style')?.textContent ?? '';
+    expect(unsetStyle).not.toContain('data-scheme');
+    expect(unsetStyle).not.toContain('prefers-color-scheme');
+  });
+});
+
+describe('ratio-form form-level custom CSS (appearance.customCss)', () => {
+  it('injects form-level custom CSS into the shadow <style>', async () => {
+    const appearance = appearanceWith({ customCss: '.rf-submit { letter-spacing: 3px; }' });
+    const { el } = await mount({
+      schema: { status: 200, body: { data: kitchenSinkSchema({ appearance }) } },
+    });
+    const style = shadow(el).querySelector('style');
+    expect(style?.textContent).toContain('.rf-submit');
+    expect(style?.textContent).toMatch(/letter-spacing:\s*3px/);
+  });
+
+  it('injects nothing when appearance.customCss is absent', async () => {
+    const { el } = await mount({
+      schema: {
+        status: 200,
+        body: { data: kitchenSinkSchema({ appearance: appearanceWith({}) }) },
+      },
+    });
+    const style = shadow(el).querySelector('style');
+    // A value only our custom rule would introduce must not appear.
+    expect(style?.textContent).not.toMatch(/letter-spacing:\s*3px/);
+  });
+
+  it('emits form-level CSS AFTER per-field CSS so it can override at equal specificity', async () => {
+    const appearance = appearanceWith({ customCss: '/* FORM-LEVEL */ .rf-submit { opacity: 1; }' });
+    const withField: PublicFormSchema = {
+      id: 'form_css',
+      name: 'CSS order',
+      schema: [
+        {
+          key: 'email',
+          type: 'email',
+          label: 'Email',
+          required: false,
+          // Server-sanitized shape: already field-scoped under [data-field].
+          customCss: '/* FIELD-LEVEL */ [data-field="email"] input { color: teal; }',
+        },
+      ] as PublicFormSchema['schema'],
+      submitLabel: 'Go',
+      successMessage: 'Done',
+      spamProtection: 'honeypot',
+      appearance,
+    };
+    const { el } = await mount({ schema: { status: 200, body: { data: withField } } });
+    const text = shadow(el).querySelector('style')?.textContent ?? '';
+    expect(text).toContain('FIELD-LEVEL');
+    expect(text).toContain('FORM-LEVEL');
+    expect(text.indexOf('FORM-LEVEL')).toBeGreaterThan(text.indexOf('FIELD-LEVEL'));
   });
 });
 
@@ -680,6 +878,23 @@ describe('ratio-form web fonts', () => {
     expect(document.head.querySelectorAll('#ratio-font-inter')).toHaveLength(1);
   });
 
+  it('injects a document-level <link> built from a custom Google font name', async () => {
+    await mount({
+      schema: {
+        status: 200,
+        body: {
+          data: kitchenSinkSchema({
+            appearance: appearanceWith({ typography: { customGoogleFont: 'Figtree' } }),
+          }),
+        },
+      },
+    });
+    const link = document.getElementById('ratio-font-custom-Figtree') as HTMLLinkElement | null;
+    expect(link).toBeTruthy();
+    expect(link?.rel).toBe('stylesheet');
+    expect(link?.href).toContain('family=Figtree');
+  });
+
   it('injects no font link for the system default', async () => {
     await mount();
     expect(document.head.querySelector('link[id^="ratio-font-"]')).toBeNull();
@@ -773,6 +988,157 @@ describe('ratio-form themed ending + redirect', () => {
       timeoutSpy.mockRestore();
       Object.defineProperty(window, 'location', { configurable: true, value: original });
     }
+  });
+});
+
+describe('ratio-form Batch 6 — structured endings', () => {
+  it('renders a structured success panel (icon + heading + body) from endings.success', async () => {
+    const withEnding = kitchenSinkSchema({
+      appearance: appearanceWith({
+        endings: { success: { icon: 'check', heading: 'All set!', body: 'We got your details.' } },
+      }),
+    });
+    const { el } = await mount({ schema: { status: 200, body: { data: withEnding } } });
+    setInput(el, 'full_name', 'Asha Rao');
+    setInput(el, 'email', 'asha@example.com');
+    await submit(el);
+    const panel = shadow(el).querySelector('[data-state="success"]');
+    expect(panel?.querySelector('.rf-status-heading')?.textContent).toContain('All set!');
+    expect(panel?.querySelector('.rf-status-msg')?.textContent).toContain('We got your details.');
+    expect(panel?.querySelector('.rf-status-icon')).toBeTruthy();
+  });
+
+  it('chains an authored success panel back to successMessage when the body is unset', async () => {
+    const withEnding = kitchenSinkSchema({
+      successMessage: 'Legacy thanks',
+      appearance: appearanceWith({ endings: { success: { heading: 'Done' } } }),
+    });
+    const { el } = await mount({ schema: { status: 200, body: { data: withEnding } } });
+    setInput(el, 'full_name', 'Asha Rao');
+    setInput(el, 'email', 'asha@example.com');
+    await submit(el);
+    const panel = shadow(el).querySelector('[data-state="success"]');
+    expect(panel?.querySelector('.rf-status-msg')?.textContent).toContain('Legacy thanks');
+  });
+
+  it('leaves the success panel unchanged (no heading) when endings is absent', async () => {
+    const { el } = await mount();
+    setInput(el, 'full_name', 'Asha Rao');
+    setInput(el, 'email', 'asha@example.com');
+    await submit(el);
+    const panel = shadow(el).querySelector('[data-state="success"]');
+    expect(panel?.querySelector('.rf-status-heading')).toBeNull();
+    expect(panel?.querySelector('.rf-status-msg')?.textContent).toContain('Thanks — got it!');
+  });
+
+  it('honors endings.redirectDelaySeconds for the redirect delay', async () => {
+    const assign = vi.fn();
+    const original = window.location;
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...original, assign },
+    });
+    // Record every scheduled delay — flush()'s own setTimeout(0) calls run
+    // after the redirect is scheduled, so assert the redirect delay is present.
+    const delays: number[] = [];
+    const timeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+      cb: () => void,
+      ms?: number,
+    ) => {
+      delays.push(ms ?? 0);
+      cb();
+      return 0;
+    }) as typeof setTimeout);
+    try {
+      const withDelay = kitchenSinkSchema({
+        redirectUrl: 'https://example.com/thanks',
+        appearance: appearanceWith({ endings: { redirectDelaySeconds: 5 } }),
+      });
+      const { el } = await mount({ schema: { status: 200, body: { data: withDelay } } });
+      setInput(el, 'full_name', 'Asha Rao');
+      setInput(el, 'email', 'asha@example.com');
+      await submit(el);
+      expect(assign).toHaveBeenCalledWith('https://example.com/thanks');
+      expect(delays).toContain(5000);
+    } finally {
+      timeoutSpy.mockRestore();
+      Object.defineProperty(window, 'location', { configurable: true, value: original });
+    }
+  });
+
+  it('shows a redirect countdown on the success panel when enabled', async () => {
+    const assign = vi.fn();
+    const original = window.location;
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...original, assign },
+    });
+    // Timeout fires immediately (no real delay); interval never ticks, so the
+    // initial countdown value stays put for the assertion.
+    const timeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((cb: () => void) => {
+      cb();
+      return 0;
+    }) as typeof setTimeout);
+    const intervalSpy = vi
+      .spyOn(globalThis, 'setInterval')
+      .mockImplementation((() => 0) as unknown as typeof setInterval);
+    try {
+      const withCountdown = kitchenSinkSchema({
+        redirectUrl: 'https://example.com/thanks',
+        appearance: appearanceWith({
+          endings: { redirectDelaySeconds: 3, showRedirectCountdown: true },
+        }),
+      });
+      const { el } = await mount({ schema: { status: 200, body: { data: withCountdown } } });
+      setInput(el, 'full_name', 'Asha Rao');
+      setInput(el, 'email', 'asha@example.com');
+      await submit(el);
+      expect(shadow(el).querySelector('.rf-countdown')?.textContent).toContain('3');
+    } finally {
+      timeoutSpy.mockRestore();
+      intervalSpy.mockRestore();
+      Object.defineProperty(window, 'location', { configurable: true, value: original });
+    }
+  });
+});
+
+describe('ratio-form Batch 6 — branding', () => {
+  it('renders the logo with its size/align/alt from branding', async () => {
+    const withLogo = kitchenSinkSchema({
+      appearance: appearanceWith({
+        logo: { url: 'https://cdn.example.com/logo.png', size: 'lg', align: 'center', alt: 'Acme' },
+      }),
+    });
+    const { el } = await mount({ schema: { status: 200, body: { data: withLogo } } });
+    const logo = shadow(el).querySelector('img.rf-logo') as HTMLImageElement;
+    expect(logo.getAttribute('alt')).toBe('Acme');
+    expect(logo.getAttribute('style')).toContain('margin-left:auto');
+    expect(logo.getAttribute('style')).toContain('margin-right:auto');
+  });
+
+  it('wraps the cover image so overlay/blur/height can apply', async () => {
+    const withCover = kitchenSinkSchema({
+      appearance: appearanceWith({
+        cover: { url: 'https://cdn.example.com/cover.jpg', height: 240, overlay: 0.4, blur: 6 },
+      }),
+    });
+    const { el } = await mount({ schema: { status: 200, body: { data: withCover } } });
+    const root = shadow(el);
+    expect(root.querySelector('.rf-cover-wrap')).toBeTruthy();
+    expect(root.querySelector('.rf-cover-wrap img.rf-cover')?.getAttribute('src')).toBe(
+      'https://cdn.example.com/cover.jpg',
+    );
+  });
+
+  it('renders the powered-by footer only when branding.showPoweredBy is on', async () => {
+    const off = await mount();
+    expect(shadow(off.el).querySelector('.rf-powered')).toBeNull();
+    const on = kitchenSinkSchema({
+      appearance: appearanceWith({ branding: { showPoweredBy: true } }),
+    });
+    const { el } = await mount({ schema: { status: 200, body: { data: on } } });
+    expect(shadow(el).querySelector('.rf-powered')).toBeTruthy();
+    expect(shadow(el).querySelector('.rf-powered a')?.getAttribute('href')).toContain('https://');
   });
 });
 
@@ -1033,6 +1399,31 @@ describe('ratio-form preview mode', () => {
     expect(RATIO_FORM_TAG).toBe('ratio-form');
     expect(customElements.get(RATIO_FORM_TAG)).toBeTruthy();
   });
+
+  it('renders structured closed/error panels from endings copy (Batch 6)', async () => {
+    const appearance = appearanceWith({
+      endings: {
+        closed: { icon: 'lock', heading: 'Closed', body: 'Come back later.' },
+        error: { heading: 'Oops', body: 'Please retry.' },
+      },
+    });
+    const closed = await mountPreview({ appearance, state: 'closed' });
+    const cp = shadow(closed.el).querySelector('[data-state="closed"]');
+    expect(cp?.querySelector('.rf-status-heading')?.textContent).toContain('Closed');
+    expect(cp?.querySelector('.rf-status-msg')?.textContent).toContain('Come back later.');
+    expect(cp?.querySelector('.rf-status-icon')).toBeTruthy();
+    const err = await mountPreview({ appearance, state: 'error' });
+    expect(
+      shadow(err.el).querySelector('[data-state="error"] .rf-status-heading')?.textContent,
+    ).toContain('Oops');
+  });
+
+  it('falls back to today’s closed text when endings is absent (Batch 6)', async () => {
+    const closed = await mountPreview({ state: 'closed' });
+    const cp = shadow(closed.el).querySelector('[data-state="closed"]');
+    expect(cp?.querySelector('.rf-status-heading')).toBeNull();
+    expect(cp?.textContent).toContain('This form is closed');
+  });
 });
 
 describe('ratio-form input variant (§1.2)', () => {
@@ -1141,7 +1532,16 @@ describe('ratio-form floating labels (§1.4)', () => {
       id: 'form_float',
       name: 'Mixed floating',
       schema: [
-        { key: 'topic', type: 'dropdown', label: 'Topic', required: false, options: ['A', 'B'] },
+        {
+          key: 'topic',
+          type: 'dropdown',
+          label: 'Topic',
+          required: false,
+          options: [
+            { value: 'A', label: 'A' },
+            { value: 'B', label: 'B' },
+          ],
+        },
         { key: 'phone', type: 'phone', label: 'Phone', required: false },
         { key: 'consent', type: 'checkbox', label: 'I agree', required: false },
         { key: 'score', type: 'rating', label: 'Rating', required: false, max: 5, icon: 'star' },
@@ -1304,6 +1704,7 @@ describe('ratio-form content blocks (§1.3)', () => {
           alt: 'Banner',
           width: 'full',
         },
+        { key: 'embed', type: 'html', html: '<b>hi</b><img src=x>', width: 'full' },
         { key: 'name', type: 'text', label: 'Name', required: true, width: 'full' },
       ] as PublicFormSchema['schema'],
       submitLabel: 'Go',
@@ -1327,6 +1728,16 @@ describe('ratio-form content blocks (§1.3)', () => {
     expect(root.querySelector('[data-field="sec"] .rf-label')).toBeNull();
   });
 
+  it('renders a custom HTML block as raw markup (unsafeHTML, no sanitization)', async () => {
+    const { el } = await mount({ schema: { status: 200, body: { data: blocksSchema() } } });
+    const root = shadow(el);
+    const block = root.querySelector('[data-field="embed"] .rf-html');
+    expect(block).toBeTruthy();
+    // The merchant markup is rendered into the shadow verbatim: <b> and <img>.
+    expect(block?.querySelector('b')?.textContent).toBe('hi');
+    expect(block?.querySelector('img')).toBeTruthy();
+  });
+
   it('never validates or submits a value for content blocks', async () => {
     const { el, fetchImpl } = await mount({
       schema: { status: 200, body: { data: blocksSchema() } },
@@ -1339,6 +1750,107 @@ describe('ratio-form content blocks (§1.3)', () => {
     const body = JSON.parse(String((post?.[1] as RequestInit).body));
     // Only the real field is in the payload — no heading/paragraph/divider/image keys.
     expect(body.fields).toEqual({ name: 'Asha Rao' });
+  });
+});
+
+describe('ratio-form content-block appearance (§4.15)', () => {
+  // A schema exercising each new styling key across the four blocks.
+  function styledSchema(): PublicFormSchema {
+    return {
+      id: 'form_styled_blocks',
+      name: 'Styled blocks',
+      schema: [
+        {
+          key: 'sec',
+          type: 'heading',
+          text: 'Your details',
+          level: 'h3',
+          eyebrow: 'Step 1',
+          size: 'lg',
+          align: 'center',
+          width: 'full',
+        },
+        {
+          key: 'intro',
+          type: 'paragraph',
+          text: 'Tell us a little about yourself.',
+          align: 'right',
+          width: 'full',
+        },
+        { key: 'hr1', type: 'divider', variant: 'dashed', spacing: 32, width: 'full' },
+        { key: 'gap', type: 'divider', variant: 'spacer', spacing: 48, width: 'full' },
+        {
+          key: 'banner',
+          type: 'image',
+          url: 'https://cdn.example.com/banner.png',
+          alt: 'Banner',
+          align: 'center',
+          size: 'md',
+          caption: 'Our storefront',
+          linkUrl: 'https://example.com/shop',
+          width: 'full',
+        },
+      ] as PublicFormSchema['schema'],
+      submitLabel: 'Go',
+      successMessage: 'Done',
+      spamProtection: 'honeypot',
+    };
+  }
+
+  it('reflects heading eyebrow, size, and alignment in the shadow DOM', async () => {
+    const { el } = await mount({ schema: { status: 200, body: { data: styledSchema() } } });
+    const root = shadow(el);
+    // Semantic tag follows `level`; visual size is decoupled onto data-size.
+    const heading = root.querySelector('h3.rf-heading');
+    expect(heading?.getAttribute('data-size')).toBe('lg');
+    expect(root.querySelector('.rf-eyebrow')?.textContent).toContain('Step 1');
+    // Alignment lives on the block wrapper (inherited text-align).
+    expect(root.querySelector('[data-field="sec"]')?.getAttribute('data-align')).toBe('center');
+  });
+
+  it('reflects paragraph alignment on the block wrapper', async () => {
+    const { el } = await mount({ schema: { status: 200, body: { data: styledSchema() } } });
+    expect(shadow(el).querySelector('[data-field="intro"]')?.getAttribute('data-align')).toBe(
+      'right',
+    );
+  });
+
+  it('reflects divider variant + spacing (rule margin vs spacer height)', async () => {
+    const { el } = await mount({ schema: { status: 200, body: { data: styledSchema() } } });
+    const root = shadow(el);
+    const rule = root.querySelector('[data-field="hr1"] hr.rf-divider') as HTMLElement;
+    expect(rule.getAttribute('data-variant')).toBe('dashed');
+    // A rule takes spacing as vertical margin.
+    expect(rule.style.margin).toBe('32px 0px');
+    const spacer = root.querySelector('[data-field="gap"] hr.rf-divider') as HTMLElement;
+    expect(spacer.getAttribute('data-variant')).toBe('spacer');
+    // A spacer takes spacing as an explicit height.
+    expect(spacer.style.height).toBe('48px');
+  });
+
+  it('wraps the image in a figure with align/size, a caption, and an https link', async () => {
+    const { el } = await mount({ schema: { status: 200, body: { data: styledSchema() } } });
+    const root = shadow(el);
+    const figure = root.querySelector('[data-field="banner"] figure.rf-figure') as HTMLElement;
+    expect(figure.getAttribute('data-align')).toBe('center');
+    expect(figure.getAttribute('data-size')).toBe('md');
+    expect(root.querySelector('figcaption.rf-figcaption')?.textContent).toContain('Our storefront');
+    const link = root.querySelector('a.rf-block-link') as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe('https://example.com/shop');
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer');
+    // The image sits inside the link.
+    expect(link.querySelector('img.rf-block-img')).toBeTruthy();
+  });
+
+  it('renders a bare image (no link) when linkUrl is absent', async () => {
+    const schema = styledSchema();
+    const img = schema.schema.find((f) => f.key === 'banner') as Record<string, unknown>;
+    img.linkUrl = undefined;
+    const { el } = await mount({ schema: { status: 200, body: { data: schema } } });
+    const root = shadow(el);
+    expect(root.querySelector('a.rf-block-link')).toBeNull();
+    expect(root.querySelector('[data-field="banner"] img.rf-block-img')).toBeTruthy();
   });
 });
 
@@ -1371,6 +1883,29 @@ function staticCss(): string {
     .map((s) => s.cssText)
     .join('\n');
 }
+
+describe('ratio-form SDK theming polish', () => {
+  it('names the host container so @container queries can target it (rf)', () => {
+    const css = staticCss();
+    expect(css).toContain('container-type: inline-size');
+    expect(css).toContain('container-name: rf');
+  });
+
+  it('floors interactive tap targets to 44px on coarse pointers only (WCAG 2.5.5)', () => {
+    const css = staticCss();
+    // The floor is gated on touch devices, so the tight desktop density stays.
+    expect(css).toContain('@media (pointer: coarse)');
+    // Inputs floor to 44px without dropping below their configured min-height.
+    expect(css).toContain('min-height: max(var(--wz-input-min-h), 44px)');
+    // The number-scale chip widens to a 44px square target (unique to the
+    // coarse block — no other rule sets a 44px min-width).
+    expect(css).toContain('min-width: 44px');
+    // The coarse floor slices out of the same stylesheet, after the tight
+    // desktop base (.rf-check keeps its 1.7em base row height for precise
+    // pointers).
+    expect(css).toContain('min-height: 1.7em');
+  });
+});
 
 describe('ratio-form multi-column layout (§2.1)', () => {
   it('reflects data-cols for 2 / auto and sets nothing for the single-column default', async () => {
@@ -1620,6 +2155,36 @@ describe('ratio-form adornment capability matrix (§2.3)', () => {
     expect(root.querySelector('[data-field="name"] .rf-counter')?.textContent).toContain('0/30');
     expect(root.querySelector('[data-field="about"] .rf-counter')?.textContent).toContain('0/40');
   });
+
+  it('counts words (not characters) for a textarea with counterUnit:words', async () => {
+    const wordsSchema: PublicFormSchema = {
+      id: 'form_words',
+      name: 'Words',
+      schema: [
+        {
+          key: 'essay',
+          type: 'textarea',
+          label: 'Essay',
+          required: false,
+          width: 'full',
+          showCounter: true,
+          validation: { maxLength: 100 },
+          display: { counterUnit: 'words' },
+        },
+      ] as PublicFormSchema['schema'],
+      submitLabel: 'Go',
+      successMessage: 'Done',
+      spamProtection: 'honeypot',
+    };
+    const { el } = await mount({ schema: { status: 200, body: { data: wordsSchema } } });
+    const counter = () => shadow(el).querySelector('[data-field="essay"] .rf-counter');
+    // Empty ⇒ 0 words.
+    expect(counter()?.textContent).toContain('0/100');
+    // Two words, despite surrounding/extra whitespace and >2 characters.
+    setInput(el, 'essay', '  hello   world  ');
+    await el.updateComplete;
+    expect(counter()?.textContent).toContain('2/100');
+  });
 });
 
 describe('ratio-form micro-animations (§2.4)', () => {
@@ -1790,5 +2355,617 @@ describe('ratio-form checkbox + file aria wiring (P2-8)', () => {
     const file = shadow(el).querySelector('input[name="resume"]') as HTMLInputElement;
     expect(file.getAttribute('aria-invalid')).toBe('true');
     expect(file.getAttribute('aria-describedby')).toBe('rf-err-resume');
+  });
+});
+
+describe('ratio-form Batch 5 (visual-payoff theming)', () => {
+  it('reflects data-btn-variant on the submit button; solid sets nothing', async () => {
+    const outline = await mount({
+      schema: {
+        status: 200,
+        body: {
+          data: kitchenSinkSchema({
+            appearance: appearanceWith({ layout: { buttonVariant: 'outline' } }),
+          }),
+        },
+      },
+    });
+    expect(shadow(outline.el).querySelector('.rf-submit')?.getAttribute('data-btn-variant')).toBe(
+      'outline',
+    );
+
+    const solid = await mount();
+    expect(shadow(solid.el).querySelector('.rf-submit')?.hasAttribute('data-btn-variant')).toBe(
+      false,
+    );
+  });
+
+  it('reflects data-align / data-layout on the host; defaults reflect nothing', async () => {
+    const centered = await mount({
+      schema: {
+        status: 200,
+        body: {
+          data: kitchenSinkSchema({
+            appearance: appearanceWith({ layout: { contentAlign: 'center', layoutMode: 'flat' } }),
+          }),
+        },
+      },
+    });
+    expect(centered.el.getAttribute('data-align')).toBe('center');
+    expect(centered.el.getAttribute('data-layout')).toBe('flat');
+
+    const plain = await mount();
+    expect(plain.el.hasAttribute('data-align')).toBe(false);
+    expect(plain.el.hasAttribute('data-layout')).toBe(false);
+  });
+
+  it('ships the button-variant token-flip, flat, align, spinner, and bg-layer rules', () => {
+    const css = staticCss();
+    expect(css).toContain(".rf-submit[data-btn-variant='outline'] {");
+    expect(css).toContain(".rf-submit[data-btn-variant='ghost'] {");
+    expect(css).toContain(".rf-submit[data-btn-variant='soft'] {");
+    expect(css).toContain(":host([data-layout='flat']) .rf-card {");
+    expect(css).toContain(":host([data-align='center']) .rf-head {");
+    // Dedicated filterable background layer + spinner.
+    expect(css).toContain('.rf-bg {');
+    expect(css).toContain('filter: var(--wz-bg-filter)');
+    expect(css).toContain('.rf-spinner {');
+    expect(css).toContain('@keyframes rf-spin');
+    // Placeholder + focus-offset token wired.
+    expect(css).toContain('::placeholder');
+    expect(css).toContain('outline-offset: var(--wz-focus-offset)');
+  });
+
+  it('renders the bg layer as a sibling above which the card still sits', async () => {
+    const { el } = await mount();
+    const root = shadow(el);
+    expect(root.querySelector('.rf-root > .rf-bg')).toBeTruthy();
+    expect(root.querySelector('.rf-root > .rf-card')).toBeTruthy();
+  });
+
+  it('shows the spinner + aria-busy while submitting, then clears on success', async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fetchImpl = vi.fn((url: string) => {
+      if (String(url).endsWith('/submissions')) {
+        return gate.then(
+          () =>
+            ({
+              ok: true,
+              status: 200,
+              text: () => Promise.resolve(JSON.stringify({ data: { submissionId: 's' } })),
+            }) as unknown as Response,
+        );
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve(JSON.stringify({ data: kitchenSinkSchema() })),
+      } as unknown as Response);
+    }) as unknown as typeof fetch & ReturnType<typeof vi.fn>;
+
+    const el = document.createElement('ratio-form') as RatioForm;
+    el.formId = 'form_1';
+    el.client = new FormsClient({ apiBase: '/forms' }, fetchImpl);
+    document.body.appendChild(el);
+    await flush();
+    await el.updateComplete;
+    setInput(el, 'full_name', 'Asha Rao');
+    setInput(el, 'email', 'asha@example.com');
+
+    const button = shadow(el).querySelector('.rf-submit') as HTMLButtonElement;
+    button.click();
+    await flush(2);
+    await el.updateComplete;
+    // In flight: a spinner glyph is present and the busy label shows.
+    expect(button.querySelector('.rf-spinner')).toBeTruthy();
+    expect(button.textContent).toContain('Submitting...');
+    expect(button.getAttribute('aria-busy')).toBe('true');
+
+    release?.();
+    await flush();
+    await el.updateComplete;
+    expect(shadow(el).querySelector('[data-state="success"]')).toBeTruthy();
+  });
+
+  it('caps the status/ending card with the fluidWidth-safe token, not min(…,none)', () => {
+    const css = staticCss();
+    // The status card consumes the dedicated bounded token so a fluidWidth form
+    // (--wz-max-width: none) never resolves to the invalid min(26rem, none).
+    expect(css).toContain(':host([data-state]) .rf-card {');
+    expect(css).toContain('max-width: var(--wz-status-max-width)');
+    expect(css).not.toContain('max-width: min(26rem, var(--wz-max-width))');
+  });
+
+  it('breaks long unbroken copy on every text-bearing surface (no page overflow)', () => {
+    const css = staticCss();
+    // Each listed surface wraps long unbroken names/labels/options/messages.
+    for (const rule of [
+      '.rf-title {',
+      '.rf-desc {',
+      '.rf-label {',
+      '.rf-paragraph {',
+      '.rf-status-heading {',
+      '.rf-status-msg {',
+      '.rf-check {',
+      '.rf-chip {',
+    ]) {
+      const start = css.indexOf(rule);
+      expect(start, `${rule} present`).toBeGreaterThanOrEqual(0);
+      const block = css.slice(start, css.indexOf('}', start));
+      expect(block, `${rule} has overflow-wrap`).toContain('overflow-wrap: break-word');
+    }
+  });
+
+  it('omits the spinner when submitLoader is none', async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fetchImpl = vi.fn((url: string) => {
+      if (String(url).endsWith('/submissions')) {
+        return gate.then(
+          () =>
+            ({
+              ok: true,
+              status: 200,
+              text: () => Promise.resolve(JSON.stringify({ data: { submissionId: 's' } })),
+            }) as unknown as Response,
+        );
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        text: () =>
+          Promise.resolve(
+            JSON.stringify({
+              data: kitchenSinkSchema({
+                appearance: appearanceWith({ layout: { submitLoader: 'none' } }),
+              }),
+            }),
+          ),
+      } as unknown as Response);
+    }) as unknown as typeof fetch & ReturnType<typeof vi.fn>;
+
+    const el = document.createElement('ratio-form') as RatioForm;
+    el.formId = 'form_1';
+    el.client = new FormsClient({ apiBase: '/forms' }, fetchImpl);
+    document.body.appendChild(el);
+    await flush();
+    await el.updateComplete;
+    setInput(el, 'full_name', 'Asha Rao');
+    setInput(el, 'email', 'asha@example.com');
+
+    const button = shadow(el).querySelector('.rf-submit') as HTMLButtonElement;
+    button.click();
+    await flush(2);
+    await el.updateComplete;
+    expect(button.querySelector('.rf-spinner')).toBeNull();
+    expect(button.textContent).toContain('Submitting...');
+    release?.();
+    await flush();
+  });
+});
+
+describe('ratio-form status a11y announcement (§a11y)', () => {
+  it('announces a successful submit via a focused live region', async () => {
+    const { el } = await mount();
+    setInput(el, 'full_name', 'Asha Rao');
+    setInput(el, 'email', 'asha@example.com');
+    await submit(el);
+    const panel = shadow(el).querySelector('[data-state="success"]') as HTMLElement;
+    // A live region a screen reader will read out when the panel swaps in.
+    expect(panel.getAttribute('role')).toBe('status');
+    expect(panel.getAttribute('aria-live')).toBe('polite');
+    // Programmatically focusable, and focus is moved here after the state swap
+    // (the submit button that had focus is gone), so a keyboard/SR shopper lands
+    // on the confirmation instead of losing focus to the body.
+    expect(panel.getAttribute('tabindex')).toBe('-1');
+    expect(shadow(el).activeElement).toBe(panel);
+  });
+
+  it('marks the closed / unavailable / error panels as focused live regions too', async () => {
+    for (const [route, state] of [
+      [{ status: 403, body: { error_code: 'form_inactive' } }, 'closed'],
+      [{ status: 404, body: { error_code: 'form_not_available' } }, 'unavailable'],
+      [{ status: 500, body: { error_code: 'boom' } }, 'error'],
+    ] as const) {
+      const { el } = await mount({ schema: route });
+      const panel = shadow(el).querySelector(`[data-state="${state}"]`) as HTMLElement;
+      expect(panel.getAttribute('role')).toBe('status');
+      expect(panel.getAttribute('aria-live')).toBe('polite');
+      expect(panel.getAttribute('tabindex')).toBe('-1');
+      expect(shadow(el).activeElement).toBe(panel);
+    }
+  });
+
+  it('does not grab focus while the fillable form is showing or during loading', async () => {
+    const { el } = await mount();
+    // Ready form: no status panel, focus not stolen into a status region.
+    expect(shadow(el).querySelector('.rf-status')).toBeNull();
+    expect(shadow(el).activeElement).toBeNull();
+  });
+
+  it('defers a group field until focus leaves it, but a text field still blurs', async () => {
+    // Make the multi_select required so an empty group has an error to (not) show.
+    const base = kitchenSinkSchema();
+    const requiredInterests = {
+      ...base,
+      schema: base.schema.map((f) =>
+        (f as { key: string }).key === 'interests' ? { ...f, required: true } : f,
+      ) as PublicFormSchema['schema'],
+    };
+    const { el } = await mount({ schema: { status: 200, body: { data: requiredInterests } } });
+
+    expect(
+      shadow(el).querySelectorAll('[data-field="interests"] input[name="interests"]'),
+    ).toHaveLength(2);
+    const optA = shadow(el).querySelector(
+      '[data-field="interests"] input[value="A"]',
+    ) as HTMLInputElement;
+    const optB = shadow(el).querySelector(
+      '[data-field="interests"] input[value="B"]',
+    ) as HTMLInputElement;
+
+    // Tabbing from option A to option B stays inside the same group wrapper, so
+    // the required error must NOT flash mid-selection (relatedTarget in-field).
+    optA.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: optB }));
+    await flush();
+    expect(shadow(el).querySelector('[data-error-for="interests"]')).toBeFalsy();
+
+    // Focus leaving the group entirely (relatedTarget outside the wrapper) does
+    // surface the required error.
+    const outside = shadow(el).querySelector('[name="email"]') as HTMLInputElement;
+    optB.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: outside }));
+    await flush();
+    expect(shadow(el).querySelector('[data-error-for="interests"]')).toBeTruthy();
+
+    // A single-control text field still validates on its own blur (no
+    // relatedTarget → treated as "left the field").
+    const name = shadow(el).querySelector('[name="full_name"]') as HTMLInputElement;
+    name.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+    await flush();
+    expect(shadow(el).querySelector('[data-error-for="full_name"]')).toBeTruthy();
+  });
+});
+
+describe('ratio-form per-field custom CSS', () => {
+  // The server has already sanitized + field-scoped this (see the backend
+  // getPublicSchema tests); the widget injects it verbatim into the shadow.
+  const SCOPED_CSS = '[data-field="topic"] select { color: rgb(1,2,3); }';
+
+  /** kitchen-sink schema with `customCss` attached to the `topic` field. */
+  function withFieldCss(css: string): PublicFormSchema {
+    const base = kitchenSinkSchema();
+    const schema = base.schema.map((f) =>
+      (f as { key: string }).key === 'topic' ? { ...f, customCss: css } : f,
+    );
+    return { ...base, schema: schema as PublicFormSchema['schema'] };
+  }
+
+  it("injects a field's scoped customCss into a <style> in the shadow root", async () => {
+    const { el } = await mount({
+      schema: { status: 200, body: { data: withFieldCss(SCOPED_CSS) } },
+    });
+    const styles = Array.from(shadow(el).querySelectorAll('style'));
+    const combined = styles.map((s) => s.textContent ?? '').join('\n');
+    // The exact pre-sanitized, scoped rule is present in the shadow's CSS.
+    expect(combined).toContain(SCOPED_CSS);
+    expect(combined).toContain('[data-field="topic"] select');
+    expect(combined).toContain('rgb(1,2,3)');
+    // It rides in a dedicated <style>, separate from the theme-token block.
+    expect(styles.some((s) => (s.textContent ?? '').includes(SCOPED_CSS))).toBe(true);
+  });
+
+  it('injects nothing extra when no field carries customCss', async () => {
+    const withCss = await mount({
+      schema: { status: 200, body: { data: withFieldCss(SCOPED_CSS) } },
+    });
+    const withoutCss = await mount({
+      schema: { status: 200, body: { data: kitchenSinkSchema() } },
+    });
+    const styleText = (r: { el: RatioForm }) =>
+      Array.from(shadow(r.el).querySelectorAll('style'))
+        .map((s) => s.textContent ?? '')
+        .join('\n');
+    // Field CSS appears only when some field carries it (it rides in the theme
+    // <style> block); with none, no field-scoped rule is present.
+    expect(styleText(withCss)).toContain('[data-field="topic"]');
+    expect(styleText(withoutCss)).not.toContain('[data-field="topic"]');
+    expect(styleText(withoutCss)).not.toContain('rgb(1,2,3)');
+  });
+});
+
+describe('ratio-form file field — multi-file (maxFiles)', () => {
+  /** A single multi-file field form (maxFiles: 3). */
+  function multiSchema(maxFiles = 3): PublicFormSchema {
+    return {
+      id: 'form_m',
+      name: 'Docs',
+      schema: [
+        {
+          key: 'docs',
+          type: 'file',
+          label: 'Docs',
+          required: false,
+          maxFiles,
+          validation: { allowedMimeTypes: ['application/pdf'], maxBytes: 1024 },
+        },
+      ] as PublicFormSchema['schema'],
+      submitLabel: 'Send',
+      successMessage: 'Thanks!',
+      spamProtection: 'honeypot',
+    };
+  }
+
+  /** Fetch that mints a DISTINCT object key per presign so the array is visible. */
+  function multiFetch(schema: PublicFormSchema) {
+    let n = 0;
+    return vi.fn((url: string, init?: RequestInit) => {
+      const respond = (status: number, body: unknown) =>
+        Promise.resolve({
+          ok: status >= 200 && status < 300,
+          status,
+          text: () => Promise.resolve(JSON.stringify(body)),
+        } as unknown as Response);
+      if (init?.method === 'PUT') return Promise.resolve({ ok: true, status: 200 } as Response);
+      if (url.endsWith('/uploads')) {
+        n += 1;
+        return respond(200, {
+          data: { uploadUrl: 'https://s3/put', objectKey: `m/form_m/d${n}/docs` },
+        });
+      }
+      if (url.endsWith('/submissions')) return respond(200, { data: { submissionId: 'sub_1' } });
+      return respond(200, { data: schema });
+    }) as unknown as typeof fetch & ReturnType<typeof vi.fn>;
+  }
+
+  async function mountMulti(maxFiles = 3) {
+    const schema = multiSchema(maxFiles);
+    const fetchImpl = multiFetch(schema);
+    const el = document.createElement('ratio-form') as RatioForm;
+    el.formId = 'form_m';
+    el.client = new FormsClient({ apiBase: '/forms' }, fetchImpl);
+    document.body.appendChild(el);
+    await flush();
+    await el.updateComplete;
+    return { el, fetchImpl };
+  }
+
+  function attach(el: RatioForm, files: File[]): void {
+    const input = shadow(el).querySelector('input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { value: files, configurable: true });
+    input.dispatchEvent(new Event('change'));
+  }
+
+  const pdf = (name: string, size = 128) =>
+    new File([new ArrayBuffer(size)], name, { type: 'application/pdf' });
+
+  it('renders a multiple-select input and a row per chosen file with a remove control', async () => {
+    const { el } = await mountMulti();
+    const input = shadow(el).querySelector('input[type="file"]') as HTMLInputElement;
+    expect(input.multiple).toBe(true);
+    attach(el, [pdf('a.pdf'), pdf('b.pdf')]);
+    await el.updateComplete;
+    expect(shadow(el).querySelectorAll('.rf-file')).toHaveLength(2);
+    expect(shadow(el).querySelectorAll('.rf-file-remove')).toHaveLength(2);
+    expect(shadow(el).querySelector('.rf-file-hint')?.textContent).toContain('2/3');
+  });
+
+  it('uploads each file and POSTs an ARRAY of object keys for the multi-file field', async () => {
+    const { el, fetchImpl } = await mountMulti();
+    attach(el, [pdf('a.pdf'), pdf('b.pdf')]);
+    await el.updateComplete;
+    const button = shadow(el).querySelector('.rf-submit') as HTMLButtonElement;
+    button.click();
+    await flush();
+    await el.updateComplete;
+    const presigns = fetchImpl.mock.calls.filter((c) => String(c[0]).endsWith('/uploads'));
+    expect(presigns).toHaveLength(2);
+    const post = fetchImpl.mock.calls.find((c) => String(c[0]).endsWith('/submissions'));
+    const body = JSON.parse(String((post?.[1] as RequestInit).body));
+    expect(body.files.docs).toEqual(['m/form_m/d1/docs', 'm/form_m/d2/docs']);
+  });
+
+  it('remove drops one file from the list', async () => {
+    const { el } = await mountMulti();
+    attach(el, [pdf('a.pdf'), pdf('b.pdf')]);
+    await el.updateComplete;
+    (shadow(el).querySelector('.rf-file-remove') as HTMLButtonElement).click();
+    await el.updateComplete;
+    expect(shadow(el).querySelectorAll('.rf-file')).toHaveLength(1);
+  });
+
+  it('caps selection at maxFiles', async () => {
+    const { el } = await mountMulti(2);
+    attach(el, [pdf('a.pdf'), pdf('b.pdf'), pdf('c.pdf')]);
+    await el.updateComplete;
+    expect(shadow(el).querySelectorAll('.rf-file')).toHaveLength(2);
+  });
+
+  it('rejects an over-size file at add time (named, never added) and uploads nothing', async () => {
+    const { el, fetchImpl } = await mountMulti();
+    attach(el, [pdf('big.pdf', 4096)]);
+    await el.updateComplete;
+    // The bad file is rejected on selection: it never becomes an accepted row,
+    // and the shopper gets a named, per-file reason instead of a submit-only
+    // anonymous field error.
+    expect(shadow(el).querySelectorAll('.rf-file')).toHaveLength(0);
+    const notice = shadow(el).querySelector('.rf-file-notice');
+    expect(notice?.textContent).toContain('big.pdf');
+    expect(notice?.textContent).toContain('at most');
+    const button = shadow(el).querySelector('.rf-submit') as HTMLButtonElement;
+    button.click();
+    await flush();
+    await el.updateComplete;
+    expect(fetchImpl.mock.calls.some((c) => String(c[0]).endsWith('/uploads'))).toBe(false);
+  });
+});
+
+describe('ratio-form inline validation (blur + live re-check)', () => {
+  it('validates a field on blur, then clears the error live once fixed', async () => {
+    const { el } = await mount();
+    const input = shadow(el).querySelector('[name="email"]') as HTMLInputElement;
+    // Untouched required field shows no error yet.
+    expect(shadow(el).querySelector('[data-error-for="email"]')).toBeFalsy();
+    // Leaving it empty (blur) surfaces the error.
+    input.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+    await flush();
+    expect(shadow(el).querySelector('[data-error-for="email"]')).toBeTruthy();
+    // Typing a valid value clears it live — no submit.
+    setInput(el, 'email', 'shopper@example.com');
+    await flush();
+    expect(shadow(el).querySelector('[data-error-for="email"]')).toBeFalsy();
+  });
+
+  it('does not flag an untouched field before its first blur', async () => {
+    const { el } = await mount();
+    // full_name is required but untouched → no error until blur or submit.
+    expect(shadow(el).querySelector('[data-error-for="full_name"]')).toBeFalsy();
+  });
+});
+
+/** A 2-step form: text `a` (required) → page_break → text `b` (required). */
+function twoStepSchema(overrides: Partial<PublicFormSchema> = {}): PublicFormSchema {
+  return {
+    id: 'form_steps',
+    name: 'Stepped',
+    schema: [
+      { key: 'a', type: 'text', label: 'A', required: true },
+      { key: 'pb1', type: 'page_break', title: 'Second' },
+      { key: 'b', type: 'text', label: 'B', required: true },
+    ] as PublicFormSchema['schema'],
+    submitLabel: 'Send it',
+    successMessage: 'Done',
+    spamProtection: 'honeypot',
+    ...overrides,
+  };
+}
+
+async function clickBtn(el: RatioForm, selector: string): Promise<void> {
+  (shadow(el).querySelector(selector) as HTMLButtonElement | null)?.click();
+  await flush();
+  await el.updateComplete;
+}
+
+describe('splitIntoSteps (pure step-splitting helper)', () => {
+  const f = (key: string): FormField => ({ key, type: 'text', label: key }) as FormField;
+  const pb = (): FormField => ({ key: 'pb', type: 'page_break' }) as FormField;
+
+  it('a form with ZERO page_breaks is a single step (today’s behaviour)', () => {
+    const steps = splitIntoSteps([f('a'), f('b'), f('c')]);
+    expect(steps).toHaveLength(1);
+    expect(steps[0]?.map((x) => x.key)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('one page_break splits into two steps, dropping the break itself', () => {
+    const steps = splitIntoSteps([f('a'), pb(), f('b'), f('c')]);
+    expect(steps.map((s) => s.map((x) => x.key))).toEqual([['a'], ['b', 'c']]);
+    // The page_break separator never appears inside a rendered step group.
+    expect(steps.flat().some((x) => x.type === 'page_break')).toBe(false);
+  });
+
+  it('two page_breaks split into three steps', () => {
+    const steps = splitIntoSteps([f('a'), pb(), f('b'), pb(), f('c'), f('d')]);
+    expect(steps.map((s) => s.map((x) => x.key))).toEqual([['a'], ['b'], ['c', 'd']]);
+  });
+
+  it('an empty schema still yields one (empty) step', () => {
+    expect(splitIntoSteps([])).toEqual([[]]);
+  });
+});
+
+describe('ratio-form multi-step pagination (§steps)', () => {
+  it('renders ONLY the first step’s fields + progress, and no page_break DOM', async () => {
+    const { el } = await mount({ schema: { status: 200, body: { data: twoStepSchema() } } });
+    const root = shadow(el);
+    // Step 1 field present, step 2 field not yet rendered.
+    expect(root.querySelector('input[name="a"]')).toBeTruthy();
+    expect(root.querySelector('input[name="b"]')).toBeNull();
+    // The page_break renders nothing in the body.
+    expect(root.querySelector('[data-field="pb1"]')).toBeNull();
+    // Progress "Step 1 of 2" + a proportional bar.
+    expect(root.querySelector('.rf-progress-text')?.textContent).toContain('Step 1 of 2');
+    expect(root.querySelector('.rf-progressbar-fill')).toBeTruthy();
+    // Next present; Submit + Back absent on the first step.
+    expect(root.querySelector('.rf-next')).toBeTruthy();
+    expect(root.querySelector('.rf-back')).toBeNull();
+    expect(root.querySelector('.rf-submit:not(.rf-next):not(.rf-back)')).toBeNull();
+  });
+
+  it('Next validates ONLY the current step and blocks (focus first invalid) when invalid', async () => {
+    const { el } = await mount({ schema: { status: 200, body: { data: twoStepSchema() } } });
+    // `a` is empty → Next must not advance.
+    await clickBtn(el, '.rf-next');
+    const root = shadow(el);
+    expect(root.querySelector('[data-error-for="a"]')?.textContent).toContain('required');
+    // Still on step 1 (step 2 field never rendered).
+    expect(root.querySelector('input[name="b"]')).toBeNull();
+    expect(root.querySelector('.rf-progress-text')?.textContent).toContain('Step 1 of 2');
+    // The same invalid-focus path as submit moved focus to the invalid control.
+    expect(root.activeElement?.getAttribute('aria-invalid')).toBe('true');
+  });
+
+  it('Next advances after the current step is valid; Submit shows only on the last step', async () => {
+    const { el } = await mount({ schema: { status: 200, body: { data: twoStepSchema() } } });
+    setInput(el, 'a', 'hello');
+    await clickBtn(el, '.rf-next');
+    const root = shadow(el);
+    // Now on step 2: field b rendered, a unmounted, progress advanced.
+    expect(root.querySelector('input[name="b"]')).toBeTruthy();
+    expect(root.querySelector('input[name="a"]')).toBeNull();
+    expect(root.querySelector('.rf-progress-text')?.textContent).toContain('Step 2 of 2');
+    // Back now available; Next gone; the real Submit is present with its label.
+    expect(root.querySelector('.rf-back')).toBeTruthy();
+    expect(root.querySelector('.rf-next')).toBeNull();
+    const submit = root.querySelector('.rf-submit:not(.rf-back)') as HTMLButtonElement;
+    expect(submit?.textContent).toContain('Send it');
+  });
+
+  it('Back returns to the previous step without validating', async () => {
+    const { el } = await mount({ schema: { status: 200, body: { data: twoStepSchema() } } });
+    setInput(el, 'a', 'hello');
+    await clickBtn(el, '.rf-next');
+    // On step 2 with b empty — Back must go back regardless (no validation gate).
+    await clickBtn(el, '.rf-back');
+    const root = shadow(el);
+    expect(root.querySelector('input[name="a"]')).toBeTruthy();
+    expect(root.querySelector('input[name="b"]')).toBeNull();
+    expect(root.querySelector('.rf-progress-text')?.textContent).toContain('Step 1 of 2');
+    // Going back did not raise an error on the step-2 field it left.
+    expect(root.querySelector('[data-error-for="b"]')).toBeNull();
+  });
+
+  it('the honeypot + Submit ride the final step only, and page_break submits no value', async () => {
+    const { el, fetchImpl } = await mount({
+      schema: { status: 200, body: { data: twoStepSchema() } },
+    });
+    // Step 1 has no honeypot input (it lives on the last step).
+    expect(shadow(el).querySelector('.rf-hp')).toBeNull();
+    setInput(el, 'a', 'first');
+    await clickBtn(el, '.rf-next');
+    // Last step now carries the honeypot.
+    expect(shadow(el).querySelector('.rf-hp')).toBeTruthy();
+    setInput(el, 'b', 'second');
+    await clickBtn(el, '.rf-submit:not(.rf-back)');
+    const post = fetchImpl.mock.calls.find((c) => String(c[0]).endsWith('/submissions'));
+    expect(post).toBeDefined();
+    const body = JSON.parse(String((post?.[1] as RequestInit).body));
+    // Both real fields submitted; the page_break key never appears.
+    expect(body.fields).toEqual({ a: 'first', b: 'second' });
+    expect('pb1' in body.fields).toBe(false);
+  });
+
+  it('a zero-page_break form is unchanged: no progress, no nav, Submit renders inline', async () => {
+    const { el } = await mount();
+    const root = shadow(el);
+    expect(root.querySelector('.rf-progress')).toBeNull();
+    expect(root.querySelector('.rf-nav')).toBeNull();
+    expect(root.querySelector('.rf-next')).toBeNull();
+    expect(root.querySelector('.rf-back')).toBeNull();
+    // The single Submit still sits directly in the form column.
+    expect(root.querySelector('.rf-form > .rf-submit')).toBeTruthy();
   });
 });

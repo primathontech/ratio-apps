@@ -61,7 +61,9 @@ describe('FormsSdkService — /forms/sdk/:merchantId.js (wizzy storefront patter
       for (const merchant of [null, { id: 'mer_1', isActive: false }]) {
         const service = makeService(merchant);
         const { reply, headers } = makeReply();
-        await expect(service.render('mer_1', reply as never, 'http://localhost:3000')).rejects.toThrow(NotFoundException);
+        await expect(
+          service.render('mer_1', reply as never, 'http://localhost:3000'),
+        ).rejects.toThrow(NotFoundException);
         expect(headers['cache-control']).toBeUndefined();
       }
     });

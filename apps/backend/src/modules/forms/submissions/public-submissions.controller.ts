@@ -8,11 +8,7 @@ import {
   SubmissionsService,
 } from './submissions.service';
 
-/**
- * Transport shape only — the REAL validation happens server-side against the
- * form's persisted schema (SchemaValidatorService). Extra top-level keys are
- * rejected here; unknown FIELD keys are rejected by the validator.
- */
+/** Transport shape only (extra top-level keys rejected here); the real validation is server-side in SchemaValidatorService. */
 export const publicSubmissionBodySchema = z
   .object({
     fields: z.record(z.string(), z.unknown()),
@@ -30,15 +26,7 @@ const bodyPipe = new ZodValidationPipe(
   publicSubmissionBodySchema as unknown as ZodType<PublicSubmissionBody>,
 );
 
-/**
- * PUBLIC intake endpoints (TRD §2) — deliberately NO merchant guard: these
- * are called by shopper browsers via the storefront SDK. The merchant is
- * resolved SERVER-side from the form id; nothing merchant-identifying is
- * accepted from the client.
- *
- * Protection chain (AC6) — edge rate limit (main.ts 10/min bucket) runs
- * before Nest; the rest runs in order inside `SubmissionsService.submitPublic`.
- */
+/** Public intake endpoints (TRD §2, AC6) — deliberately NO merchant guard: the merchant is resolved server-side from the form id, nothing merchant-identifying is accepted from the client. */
 @Controller('forms/public/v1/forms')
 export class PublicSubmissionsController {
   constructor(private readonly submissions: SubmissionsService) {}
@@ -57,8 +45,7 @@ export class PublicSubmissionsController {
     @Req() req: FastifyRequest,
     @Headers('x-forms-session') session?: string,
   ): Promise<PublicSubmissionResult> {
-    // Idempotency scope preference: explicit body sessionId → SDK header →
-    // client IP (SubmissionsService falls back to `meta.ip` when unset).
+    // Idempotency scope preference: body sessionId → SDK header → client IP (service falls back to `meta.ip`).
     const sessionKey = body.sessionId ?? session;
     return this.submissions.submitPublic(formId, body, {
       ip: req.ip,

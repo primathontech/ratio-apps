@@ -52,18 +52,25 @@ export default defineConfig({
   base: './',
   plugins: [tanstackRouter({ target: 'react', autoCodeSplitting: true }), react()],
   resolve: {
-    alias: {
-      '@': resolve(__dirname, 'src'),
-      '@shared': resolve(__dirname, '../../packages/shared/src'),
-      // The SDK renderer embedded via the `?sdk` import pulls the shared
-      // capability matrix (§2.3) from the Zod-free form-adornments module. Its
-      // dist is CommonJS, whose named exports rollup can't statically trace, so
-      // point that specifier at the ESM source (mirrors forms-sdk/vite.config.ts).
-      '@ratio-app/shared/schemas/form-adornments': resolve(
-        __dirname,
-        '../../packages/shared/src/schemas/form-adornments.ts',
-      ),
-    },
+    // Array form so we can regex-map the Zod-free shared runtime modules the
+    // embedded SDK renderer (`?sdk`) pulls in. Their dist is CommonJS, whose
+    // named exports rollup can't statically trace, so point those specifiers at
+    // the ESM source (mirrors forms-sdk/vite.config.ts). `@shared` before `@`.
+    alias: [
+      { find: '@shared', replacement: resolve(__dirname, '../../packages/shared/src') },
+      {
+        find: /^@ratio-app\/shared\/schemas\/form-adornments$/,
+        replacement: resolve(__dirname, '../../packages/shared/src/schemas/form-adornments.ts'),
+      },
+      // Per-field Zod-free constants modules (text formats, phone/checkbox/email/
+      // hidden runtime maps + the shared `_shared/select-constants`) the SDK
+      // field renderers import. `[\w-]*constants` also matches select-constants.
+      {
+        find: /^@ratio-app\/shared\/schemas\/fields\/([^/]+)\/([\w-]*constants)$/,
+        replacement: resolve(__dirname, '../../packages/shared/src/schemas/fields/$1/$2.ts'),
+      },
+      { find: '@', replacement: resolve(__dirname, 'src') },
+    ],
   },
   server: {
     port: 5173,

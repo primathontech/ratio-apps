@@ -8,8 +8,14 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { sanitizeFieldCss, sanitizeFormCss } from '@ratio-app/shared/schemas/custom-css';
+import {
+  HIDDEN_DEFAULT_SOURCE,
+  type SubmissionContext,
+} from '@ratio-app/shared/schemas/fields/hidden/constants';
 import type { FormAppearance, FormField } from '@ratio-app/shared/schemas/form-schema';
 import { type Kysely, sql } from 'kysely';
+import { parseJsonColumn, parseJsonColumnOrNull } from '../../../core/db/json';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
 import type {
   FormRow,
@@ -22,12 +28,22 @@ import { FORMS_DB_TOKEN } from '../kysely.module';
 import { FormsRecaptchaService } from '../spam/recaptcha.service';
 import { SubmitRateLimitService } from '../spam/submit-rate-limit.service';
 import { FormsS3Service } from '../uploads/s3.service';
+import {
+  FILE_SNIFF_BYTES,
+  FORM_FILE_ALLOWED_MIME_TYPES,
+  validateFileType,
+} from './fields/file/sniff';
+import { validateFileExists } from './fields/file/validate';
 import { IdempotencyService } from './idempotency.service';
 import { SchemaValidatorService } from './schema-validator.service';
 
+/** Max concurrent S3 HEADs when re-checking accepted files at submit time (P2-2). */
+const FILE_EXISTS_CONCURRENCY = 10;
+
 export interface PublicSubmissionInput {
   fields: Record<string, unknown>;
-  files?: Record<string, string> | undefined;
+  /** field key → S3 object key, or an array of keys for a multi-file field. */
+  files?: Record<string, string | string[]> | undefined;
   /** SDK-minted session id (idempotency scope; controller may pass it via meta). */
   sessionId?: string | undefined;
   recaptchaToken?: string | undefined;
@@ -64,7 +80,8 @@ export interface SubmissionListItem {
   id: string;
   formId: string;
   data: Record<string, unknown>;
-  files: Record<string, string>;
+  /** field key → object key (single-file) or object key array (multi-file). */
+  files: Record<string, string | string[]>;
   recaptchaScore: number | null;
   createdAt: Date;
 }
@@ -77,8 +94,10 @@ export interface SubmissionListResult {
 }
 
 export interface SubmissionDetail extends SubmissionListItem {
-  /** field key → 7-day signed GET URL for each uploaded file. */
-  fileUrls: Record<string, string>;
+  /** field key → 7-day signed GET URL(s), shape mirrors `files`. */
+  fileUrls: Record<string, string | string[]>;
+  /** Hidden-field provenance captured at submit time (§4, `context_json`); empty when no hidden fields. */
+  context: SubmissionContext;
 }
 
 /** The parts of the loaded form+config public flows need downstream. */
@@ -88,23 +107,14 @@ export interface ActiveFormContext {
   schema: FormField[];
 }
 
-/**
- * Submission intake + admin reads (TRD §2).
- *
- * `submitPublic` runs the PublicFormGuard chain IN ORDER — (1) app-level
- * rate limit → 429, (2) form state / kill switch → 403, (3) spam check
- * (silent success on reject, PRD F7), (4) server-side schema validation →
- * 422, (5) idempotency, (6) insert + enqueue delivery/email rows. Each layer
- * short-circuits before the next is consulted (AC6).
- *
- * PII: submission field values never reach a log line — log payloads carry
- * ids and counters only.
- */
+/** Submission intake + admin reads (TRD §2); `submitPublic` runs the guard chain in order and each layer short-circuits (AC6). PII: field values never reach a log line. */
 @Injectable()
 export class SubmissionsService {
   private readonly logger = new Logger(SubmissionsService.name);
-  /** Lightweight in-memory metric of silently-rejected spam per form (PRD F7). */
+  /** In-memory metric of silently-rejected spam per form (PRD F7); bounded (see REJECTED_COUNTERS_MAX) so a stream of distinct formIds can't leak memory. */
   private readonly rejectedCounters = new Map<string, number>();
+  /** Max distinct forms the silent-reject metric tracks; oldest is evicted first (FIFO on Map insertion order). Full metrics are deferred — this only caps the leak. */
+  private static readonly REJECTED_COUNTERS_MAX = 10_000;
 
   constructor(
     @Inject(FORMS_DB_TOKEN) private readonly handle: KyselyClient<FormsDatabase>,
@@ -114,8 +124,6 @@ export class SubmissionsService {
     private readonly idempotency: IdempotencyService,
     private readonly s3: FormsS3Service,
   ) {}
-
-  // ─── public intake ────────────────────────────────────────────────────────
 
   async submitPublic(
     formId: string,
@@ -170,33 +178,52 @@ export class SubmissionsService {
       });
     }
 
-    // (4b) confirm each accepted file object actually exists — every key
-    // segment (merchantId/formId/fieldKey) is public, so a well-formed but
-    // fabricated key would otherwise store a phantom reference. One HEAD per
-    // file (P2-2).
-    for (const [fieldKey, objectKey] of Object.entries(validated.files)) {
-      if (!(await this.s3.exists(objectKey))) {
-        throw new UnprocessableEntityException({
-          message: 'submission validation failed',
-          error_code: 'SUBMISSION_INVALID',
-          details: { fields: { [fieldKey]: 'uploaded file not found' } },
-          safeForClient: true,
-        });
+    // (4b) HEAD each accepted file: key segments are public, so a fabricated key would store a phantom reference (P2-2). Bounded-concurrency so many files don't serialize into one slow round-trip per key. Each check also carries the field's allowed types for the byte-sniff in (4c).
+    const fileChecks: Array<{
+      fieldKey: string;
+      objectKey: string;
+      allowedMimeTypes: readonly string[];
+    }> = [];
+    for (const [fieldKey, value] of Object.entries(validated.files)) {
+      const field = ctx.schema.find(
+        (f): f is Extract<FormField, { type: 'file' }> => f.key === fieldKey && f.type === 'file',
+      );
+      const allowedMimeTypes = field?.validation?.allowedMimeTypes ?? [
+        ...FORM_FILE_ALLOWED_MIME_TYPES,
+      ];
+      for (const objectKey of Array.isArray(value) ? value : [value]) {
+        fileChecks.push({ fieldKey, objectKey, allowedMimeTypes });
       }
+    }
+    const missing = await this.firstMissingFile(fileChecks);
+    if (missing) {
+      throw new UnprocessableEntityException({
+        message: 'submission validation failed',
+        error_code: 'SUBMISSION_INVALID',
+        details: { fields: { [missing.fieldKey]: missing.error } },
+        safeForClient: true,
+      });
+    }
+
+    // (4c) Byte-level content-type verification (P2-3): the presign only signs the CLIENT-DECLARED type, so a caller can declare `image/png` and PUT an executable/PDF. Now that each object exists, read its head bytes and reject when the sniffed type isn't in the field's allowlist. Same bounded-concurrency + first-error shape as the existence pass.
+    const mismatch = await this.firstTypeMismatch(fileChecks);
+    if (mismatch) {
+      throw new UnprocessableEntityException({
+        message: 'submission validation failed',
+        error_code: 'SUBMISSION_INVALID',
+        details: { fields: { [mismatch.fieldKey]: mismatch.error } },
+        safeForClient: true,
+      });
     }
 
     // (5) idempotency key: sha256(formId : session-or-ip : 5s bucket).
     const idempotencyKey = this.idempotency.computeKey(formId, meta.sessionKey ?? meta.ip);
 
-    // (6) insert + enqueue the delivery/email rows (the sweeper drains them)
-    // in ONE transaction: a partial failure (submission stored but a delivery
-    // row throws) would otherwise leave a stored-but-undeliverable submission
-    // whose retry lands in the 5s idempotency bucket and 409s forever. Wrapping
-    // both writes makes the unit atomic — either the submission and its
-    // deliveries all commit, or nothing does and the client's retry re-inserts
-    // cleanly (P3-1).
+    // (6) insert + enqueue in ONE transaction so a stored-but-undeliverable submission can't 409 its own retry forever (P3-1).
     const submissionId = SubmissionsService.mintSubmissionId();
     const hasFiles = Object.keys(validated.files).length > 0;
+    const context = SubmissionsService.buildContext(ctx.schema, validated.data);
+    const hasContext = Object.keys(context).length > 0;
     try {
       await this.handle.db.transaction().execute(async (trx) => {
         await trx
@@ -207,6 +234,7 @@ export class SubmissionsService {
             merchantId: ctx.form.merchantId,
             dataJson: JSON.stringify(validated.data),
             filesJson: hasFiles ? JSON.stringify(validated.files) : null,
+            contextJson: hasContext ? JSON.stringify(context) : null,
             recaptchaScore,
             idempotencyKey,
           })
@@ -215,13 +243,7 @@ export class SubmissionsService {
       });
     } catch (err) {
       if (this.idempotency.isDuplicateKeyError(err)) {
-        // Same (form, session-or-ip, 5s bucket) — the second submission is
-        // REJECTED (PRD F10 / TDD AC6): the UNIQUE column is the dedup
-        // mechanism, and the client sees an explicit 409 so double-clicks
-        // don't silently mint what looks like a second submission. Because the
-        // original insert + enqueue were atomic, that first submission is fully
-        // delivered — so we return its id (not a bare conflict) to let a client
-        // that lost the first response reconcile instead of losing it (P3-2).
+        // Duplicate (form, session-or-ip, 5s bucket) → 409, returning the original id so a client that lost the first response can reconcile (PRD F10 / P3-2).
         const originalId = await this.findSubmissionIdByKey(ctx.form.merchantId, idempotencyKey);
         throw new HttpException(
           {
@@ -266,7 +288,13 @@ export class SubmissionsService {
         error_code: 'form_inactive',
       });
     }
-    const schema = SubmissionsService.parseSchema(form.schemaJson);
+    // Sanitize + field-scope merchant custom CSS on the read path so the widget only ever receives shadow-safe, scoped CSS.
+    const schema = parseJsonColumn<FormField[]>(form.schemaJson).map((field) => {
+      const raw = (field as { customCss?: string }).customCss;
+      if (!raw) return field;
+      const clean = sanitizeFieldCss(raw, `[data-field="${field.key}"]`).css;
+      return { ...field, customCss: clean || undefined };
+    });
     if (schema.length === 0) {
       // Misconfigured — an empty form must not render (PRD 10.10.6).
       throw new NotFoundException({
@@ -278,7 +306,13 @@ export class SubmissionsService {
       form.spamProtection === 'recaptcha'
         ? (config.recaptchaSiteKey ?? process.env.FORMS_RECAPTCHA_SHARED_SITE_KEY?.trim() ?? null)
         : null;
-    const appearance = SubmissionsService.parseAppearance(form.appearanceJson);
+    // Sanitize form-level custom CSS on the same read path. Unlike per-field CSS
+    // it is NOT scoped to a `[data-field]` wrapper (it styles the whole form);
+    // the css-tree allow-list (sanitizeFormCss) is the shadow-safe boundary.
+    const rawAppearance = parseJsonColumnOrNull<FormAppearance>(form.appearanceJson);
+    const appearance = rawAppearance?.customCss
+      ? { ...rawAppearance, customCss: sanitizeFormCss(rawAppearance.customCss).css || undefined }
+      : rawAppearance;
     return {
       id: form.id,
       name: form.name,
@@ -293,11 +327,7 @@ export class SubmissionsService {
     };
   }
 
-  /**
-   * Shared form-state gate for the public submit + upload endpoints:
-   * missing/deleted or kill-switched → 403 `form_unavailable`; not active →
-   * 403 `form_inactive`.
-   */
+  /** Shared form-state gate for public submit + upload: missing/deleted/kill-switched → 403 `form_unavailable`, not active → 403 `form_inactive`. */
   async loadActiveForm(formId: string): Promise<ActiveFormContext> {
     const form = await this.handle.db
       .selectFrom('forms')
@@ -324,15 +354,13 @@ export class SubmissionsService {
         error_code: 'form_inactive',
       });
     }
-    return { form, config, schema: SubmissionsService.parseSchema(form.schemaJson) };
+    return { form, config, schema: parseJsonColumn<FormField[]>(form.schemaJson) };
   }
 
   /** Observability hook for the silent-reject metric (PRD F7). */
   rejectedCount(formId: string): number {
     return this.rejectedCounters.get(formId) ?? 0;
   }
-
-  // ─── admin reads ──────────────────────────────────────────────────────────
 
   async list(
     merchantId: string,
@@ -374,11 +402,15 @@ export class SubmissionsService {
       });
     }
     const item = this.toListItem(row);
-    const fileUrls: Record<string, string> = {};
-    for (const [fieldKey, objectKey] of Object.entries(item.files)) {
-      fileUrls[fieldKey] = await this.s3.signedGetUrl(objectKey);
+    const fileUrls: Record<string, string | string[]> = {};
+    for (const [fieldKey, value] of Object.entries(item.files)) {
+      fileUrls[fieldKey] = Array.isArray(value)
+        ? await Promise.all(value.map((key) => this.s3.signedGetUrl(key)))
+        : await this.s3.signedGetUrl(value);
     }
-    return { ...item, fileUrls };
+    const context =
+      parseJsonColumnOrNull<SubmissionContext>(row.contextJson) ?? ({} as SubmissionContext);
+    return { ...item, fileUrls, context };
   }
 
   /** Delivery log for a form (webhook status view). */
@@ -421,7 +453,7 @@ export class SubmissionsService {
       .where('status', '=', 'failed')
       .executeTakeFirst();
     if (Number(result?.numUpdatedRows ?? 0) === 0) {
-      // Cross-merchant, missing, or not in `failed` — indistinguishable 404.
+      // Cross-merchant, missing, or not `failed` — indistinguishable 404.
       throw new NotFoundException({
         message: 'failed delivery not found',
         error_code: 'DELIVERY_NOT_FOUND',
@@ -430,10 +462,7 @@ export class SubmissionsService {
     return { status: 'pending' };
   }
 
-  /**
-   * Merchant-scoped form lookup that INCLUDES soft-deleted forms —
-   * submissions (and their CSV export) outlive the form (AC4/AC8).
-   */
+  /** Merchant-scoped form lookup that INCLUDES soft-deleted forms — submissions outlive the form (AC4/AC8). */
   async requireOwnForm(merchantId: string, formId: string): Promise<FormRow> {
     const form = await this.handle.db
       .selectFrom('forms')
@@ -448,19 +477,61 @@ export class SubmissionsService {
     return form;
   }
 
-  // ─── internals ────────────────────────────────────────────────────────────
+  /** First accepted file (in submit order) whose object is absent, or null if all exist. Shares the single existence check with the field validator via `validateFileExists` (one error string). HEADs run in bounded-concurrency batches (≤ FILE_EXISTS_CONCURRENCY) and stop at the first batch with a miss; the returned `{fieldKey, error}` drives the 422. */
+  private async firstMissingFile(
+    checks: Array<{ fieldKey: string; objectKey: string }>,
+  ): Promise<{ fieldKey: string; error: string } | null> {
+    for (let i = 0; i < checks.length; i += FILE_EXISTS_CONCURRENCY) {
+      const batch = checks.slice(i, i + FILE_EXISTS_CONCURRENCY);
+      const results = await Promise.all(
+        batch.map(async (check) => ({
+          check,
+          error: await validateFileExists(check.objectKey, this.s3),
+        })),
+      );
+      const miss = results.find((r) => r.error !== null);
+      if (miss?.error) return { fieldKey: miss.check.fieldKey, error: miss.error };
+    }
+    return null;
+  }
+
+  /** First accepted file whose STORED bytes don't match its field's type allowlist (spoofed content-type, P2-3), or null when every file's magic bytes check out. Mirrors {@link firstMissingFile}: reads only the head bytes ({@link FILE_SNIFF_BYTES}) per key, bounded-concurrency batches, stops at the first batch with a mismatch, and returns `{fieldKey, error}` to drive the 422. */
+  private async firstTypeMismatch(
+    checks: Array<{ fieldKey: string; objectKey: string; allowedMimeTypes: readonly string[] }>,
+  ): Promise<{ fieldKey: string; error: string } | null> {
+    for (let i = 0; i < checks.length; i += FILE_EXISTS_CONCURRENCY) {
+      const batch = checks.slice(i, i + FILE_EXISTS_CONCURRENCY);
+      const results = await Promise.all(
+        batch.map(async (check) => ({
+          check,
+          error: validateFileType(
+            check.allowedMimeTypes,
+            await this.s3.readHeadBytes(check.objectKey, FILE_SNIFF_BYTES),
+          ),
+        })),
+      );
+      const bad = results.find((r) => r.error !== null);
+      if (bad?.error) return { fieldKey: bad.check.fieldKey, error: bad.error };
+    }
+    return null;
+  }
 
   private honeypotTripped(input: PublicSubmissionInput): boolean {
     return typeof input._hp === 'string' && input._hp.trim() !== '';
   }
 
-  /**
-   * PRD F7: suspected bots get a 200 with a fake submission id — nothing is
-   * stored, nothing is delivered; only a counter (and an id-free log line)
-   * records that it happened.
-   */
+  /** PRD F7: suspected bots get a 200 with a fake submission id — nothing stored or delivered, only a counter + id-free log line. */
   private silentReject(formId: string): PublicSubmissionResult {
-    this.rejectedCounters.set(formId, (this.rejectedCounters.get(formId) ?? 0) + 1);
+    const next = (this.rejectedCounters.get(formId) ?? 0) + 1;
+    if (
+      !this.rejectedCounters.has(formId) &&
+      this.rejectedCounters.size >= SubmissionsService.REJECTED_COUNTERS_MAX
+    ) {
+      // Evict the oldest tracked form (Map keeps insertion order) before adding a new one.
+      const oldest = this.rejectedCounters.keys().next().value;
+      if (oldest !== undefined) this.rejectedCounters.delete(oldest);
+    }
+    this.rejectedCounters.set(formId, next);
     this.logger.log({
       msg: 'submission silently rejected (spam)',
       formId,
@@ -469,11 +540,7 @@ export class SubmissionsService {
     return { submissionId: SubmissionsService.mintSubmissionId() };
   }
 
-  /**
-   * Email-log + webhook-delivery rows; the minute sweeper drains them. Runs
-   * on the caller's executor (the submit transaction) so the rows commit
-   * atomically with the submission (P3-1).
-   */
+  /** Email-log + webhook-delivery rows (minute sweeper drains them); runs on the caller's transaction so rows commit atomically with the submission (P3-1). */
   private async enqueueDeliveries(
     db: Kysely<FormsDatabase>,
     ctx: ActiveFormContext,
@@ -536,28 +603,29 @@ export class SubmissionsService {
     return {
       id: row.id,
       formId: row.formId,
-      data: SubmissionsService.parseJson<Record<string, unknown>>(row.dataJson) ?? {},
-      files: SubmissionsService.parseJson<Record<string, string>>(row.filesJson) ?? {},
+      data: parseJsonColumn<Record<string, unknown>>(row.dataJson),
+      files: parseJsonColumnOrNull<Record<string, string | string[]>>(row.filesJson) ?? {},
       recaptchaScore: row.recaptchaScore === null ? null : Number(row.recaptchaScore),
       createdAt: row.createdAt,
     };
   }
 
-  private static parseJson<T>(value: T | string | null): T | null {
-    if (value === null) return null;
-    return typeof value === 'string' ? (JSON.parse(value) as T) : value;
-  }
-
-  private static parseSchema(value: FormField[] | string): FormField[] {
-    return typeof value === 'string' ? (JSON.parse(value) as FormField[]) : value;
-  }
-
-  /** Nullable — un-themed forms serve no `appearance` and render with SDK defaults. */
-  private static parseAppearance(
-    value: FormAppearance | string | null,
-  ): FormAppearance | undefined {
-    if (value == null) return undefined;
-    return typeof value === 'string' ? (JSON.parse(value) as FormAppearance) : value;
+  /** Hidden-field provenance (§4, `context_json`): source + raw value for each resolved hidden field; unset `source` defaults to `url_param`, mirroring the resolver. */
+  private static buildContext(
+    schema: FormField[],
+    data: Record<string, unknown>,
+  ): SubmissionContext {
+    const context: SubmissionContext = {};
+    for (const field of schema) {
+      if (field.type !== 'hidden') continue;
+      const value = data[field.key];
+      if (value === undefined) continue;
+      context[field.key] = {
+        source: field.source ?? HIDDEN_DEFAULT_SOURCE,
+        value: String(value),
+      };
+    }
+    return context;
   }
 
   /** `sub_<random>` via node:crypto — also used for the fake spam-reject id. */

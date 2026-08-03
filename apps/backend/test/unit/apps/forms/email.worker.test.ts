@@ -1,12 +1,12 @@
 import { Logger } from '@nestjs/common';
 import { FORMS_EMAIL_RETRY_DELAY_MS } from '@ratio-app/shared/constants/forms-events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { EmailService } from '../../../../src/core/email/email.service';
 import type { FormEmailLogRow } from '../../../../src/modules/forms/db/types';
-import { createDefaultEmailClient } from '../../../../src/modules/forms/delivery/email.client';
-import { FormsEmailService } from '../../../../src/modules/forms/delivery/email.service';
-import { FormsEmailWorker } from '../../../../src/modules/forms/delivery/email.worker';
+import { FormsEmailService } from '../../../../src/modules/forms/outbound/email.service';
+import { FormsEmailWorker } from '../../../../src/modules/forms/outbound/email.worker';
 import { makeFakeHandle, type Row } from './fixtures/fake-db';
-import { FakeEmailClient, FakeQueueService } from './fixtures/fakes';
+import { FakeEmailService, FakeQueueService } from './fixtures/fakes';
 import { configRow, contactForm, emailLogRow, MERCHANT_ID, submissionRow } from './fixtures/forms';
 
 const seedRows = (log: Row = emailLogRow()): Record<string, Row[]> => ({
@@ -18,9 +18,9 @@ const seedRows = (log: Row = emailLogRow()): Record<string, Row[]> => ({
 
 function setup(seed: Record<string, Row[]>, script: Array<'ok' | 'fail'> = ['ok']) {
   const fake = makeFakeHandle(seed);
-  const client = new FakeEmailClient();
+  const client = new FakeEmailService();
   client.script = script;
-  const executor = new FormsEmailService(fake.handle, client);
+  const executor = new FormsEmailService(fake.handle, client.asEmailService());
   return { fake, client, executor };
 }
 
@@ -93,29 +93,20 @@ describe('FormsEmailService — the notification state machine (AC9)', () => {
   });
 });
 
-describe('createDefaultEmailClient — provider resolution', () => {
-  const savedFrom = process.env.FORMS_EMAIL_FROM;
+describe('core EmailService no-op (EMAIL_FROM unset)', () => {
+  const savedFrom = process.env.EMAIL_FROM;
 
   afterEach(() => {
-    if (savedFrom === undefined) delete process.env.FORMS_EMAIL_FROM;
-    else process.env.FORMS_EMAIL_FROM = savedFrom;
+    if (savedFrom === undefined) delete process.env.EMAIL_FROM;
+    else process.env.EMAIL_FROM = savedFrom;
   });
 
-  it('FORMS_EMAIL_FROM unset → no-op client that warns exactly once', async () => {
-    delete process.env.FORMS_EMAIL_FROM;
-    const warn = vi.fn();
-    const client = createDefaultEmailClient({ warn } as never);
-    await client.send({ to: 'a@b.c', from: 'x@y.z', subject: 's', text: 't' });
-    await client.send({ to: 'a@b.c', from: 'x@y.z', subject: 's', text: 't' });
-    expect(warn).toHaveBeenCalledTimes(1);
-  });
-
-  it('no-op default still lets the executor mark rows sent (local dev)', async () => {
-    delete process.env.FORMS_EMAIL_FROM;
+  it('unconfigured email → send is a no-op that still lets the executor mark rows sent', async () => {
+    delete process.env.EMAIL_FROM;
     vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
     vi.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
     const fake = makeFakeHandle(seedRows());
-    const executor = new FormsEmailService(fake.handle); // no injected client
+    const executor = new FormsEmailService(fake.handle, new EmailService());
     await executor.execute(fake.tables.form_email_log?.[0] as FormEmailLogRow);
     expect(fake.tables.form_email_log?.[0]?.status).toBe('sent');
   });
@@ -140,9 +131,9 @@ describe('FormsEmailWorker — SQS drain (TDD §3.7)', () => {
   function makeWorker(seed: Record<string, Row[]>, script: Array<'ok' | 'fail'> = ['ok']) {
     const fake = makeFakeHandle(seed);
     const queue = new FakeQueueService();
-    const client = new FakeEmailClient();
+    const client = new FakeEmailService();
     client.script = script;
-    const executor = new FormsEmailService(fake.handle, client);
+    const executor = new FormsEmailService(fake.handle, client.asEmailService());
     const worker = new FormsEmailWorker(queue.asQueueService(), executor, fake.handle);
     return { worker, queue, fake, client };
   }

@@ -5,7 +5,7 @@ import { FormsExportWorker } from '../../../../src/modules/forms/submissions/for
 import { SubmissionsService } from '../../../../src/modules/forms/submissions/submissions.service';
 import { FormsS3Service } from '../../../../src/modules/forms/uploads/s3.service';
 import { makeFakeHandle, type Row } from './fixtures/fake-db';
-import { FakeQueueService, FakeS3Presigner, FakeS3Uploader } from './fixtures/fakes';
+import { FakeQueueService, FakeS3Service } from './fixtures/fakes';
 import { contactForm, MERCHANT_ID, submissionRow } from './fixtures/forms';
 
 function setup(seed: Record<string, Row[]>) {
@@ -16,11 +16,11 @@ function setup(seed: Record<string, Row[]>) {
     ...([{}, {}, {}, {}, {}] as any[]),
   );
   const csv = new CsvExportService(fake.handle, submissions);
-  const uploader = new FakeS3Uploader();
-  const s3 = new FormsS3Service(new FakeS3Presigner(), uploader);
+  const core = new FakeS3Service();
+  const s3 = new FormsS3Service(core.asS3Service());
   const queue = new FakeQueueService();
   const worker = new FormsExportWorker(queue.asQueueService(), csv, s3, fake.handle);
-  return { worker, queue, fake, uploader };
+  return { worker, queue, fake, uploader: core };
 }
 
 const pendingJob = (overrides: Row = {}): Row => ({
@@ -116,7 +116,7 @@ describe('FormsExportWorker — SQS drain → S3 stream', () => {
       form_submissions: twoSubmissions(),
       form_export_jobs: [pendingJob()],
     });
-    uploader.fail = true;
+    uploader.failUpload = true;
     queue.toReceive.push([{ body: { jobId: 'exp_1' }, receiptHandle: 'r1' }]);
 
     await worker.drainOnce();
@@ -186,7 +186,7 @@ describe('FormsExportWorker — SQS drain → S3 stream', () => {
       form_submissions: twoSubmissions(),
       form_export_jobs: [pendingJob()],
     });
-    bad.uploader.fail = true;
+    bad.uploader.failUpload = true;
     bad.queue.toReceive.push([{ body: { jobId: 'exp_1' }, receiptHandle: 'r1' }]);
     await bad.worker.drainOnce();
 

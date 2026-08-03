@@ -7,7 +7,7 @@ import {
   FormsS3Service,
 } from '../../../../src/modules/forms/uploads/s3.service';
 import { makeFakeHandle, type Row } from './fixtures/fake-db';
-import { FakeQueueService, FakeS3Presigner } from './fixtures/fakes';
+import { FakeQueueService, FakeS3Service } from './fixtures/fakes';
 import { contactForm, MERCHANT_ID, OTHER_MERCHANT_ID } from './fixtures/forms';
 
 function setup(seed: Record<string, Row[]>) {
@@ -18,10 +18,10 @@ function setup(seed: Record<string, Row[]>) {
     ...([{}, {}, {}, {}, {}] as any[]),
   );
   const queue = new FakeQueueService();
-  const presigner = new FakeS3Presigner();
-  const s3 = new FormsS3Service(presigner);
+  const core = new FakeS3Service();
+  const s3 = new FormsS3Service(core.asS3Service());
   const service = new ExportJobService(fake.handle, submissions, queue.asQueueService(), s3);
-  return { service, fake, queue, presigner };
+  return { service, fake, queue, core };
 }
 
 const savedEnv = {
@@ -98,18 +98,18 @@ describe('ExportJobService — async CSV export orchestration', () => {
   });
 
   it('getJob returns status only while pending/processing (no download URL)', async () => {
-    const { service, presigner } = setup({
+    const { service, core } = setup({
       form_export_jobs: [
         { id: 'exp_1', formId: 'form_contact', merchantId: MERCHANT_ID, status: 'processing' },
       ],
     });
     const view = await service.getJob(MERCHANT_ID, 'form_contact', 'exp_1');
     expect(view).toEqual({ status: 'processing' });
-    expect(presigner.gets).toHaveLength(0);
+    expect(core.gets).toHaveLength(0);
   });
 
   it('getJob on a ready job mints a 1-hour signed download URL from the s3_key', async () => {
-    const { service, presigner } = setup({
+    const { service, core } = setup({
       form_export_jobs: [
         {
           id: 'exp_1',
@@ -125,9 +125,9 @@ describe('ExportJobService — async CSV export orchestration', () => {
     expect(view.status).toBe('ready');
     expect(view.rowCount).toBe(42);
     expect(view.downloadUrl).toBe('https://fake-s3/m_1/form_contact/exports/exp_1.csv?sig=get');
-    expect(presigner.gets[0]).toMatchObject({
+    expect(core.gets[0]).toMatchObject({
       key: 'm_1/form_contact/exports/exp_1.csv',
-      expiresInSeconds: FORMS_EXPORT_GET_EXPIRY_SECONDS,
+      expiresSeconds: FORMS_EXPORT_GET_EXPIRY_SECONDS,
     });
   });
 

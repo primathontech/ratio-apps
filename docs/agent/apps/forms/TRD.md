@@ -48,7 +48,7 @@ running in-process in dev and in `main.worker.ts` (svc-worker) in prod, consumin
 SQS via `core/queue/queue.service.ts`.
 
 **Retry scheduling (design decision):** SQS `DelaySeconds` caps at 15 min, but
-retries are 5m/20m/1h. Therefore the **DB is the scheduler**: delivery rows carry
+retries are 5m/20m. Therefore the **DB is the scheduler**: delivery rows carry
 `next_retry_at`; a `@nestjs/schedule` cron (every minute, precedent: google's
 `reconcile.service.ts`) enqueues due `pending` rows to SQS; the worker attempts
 and updates the row. "Failed after 3 attempts" = `status:'failed'` row (the
@@ -174,8 +174,8 @@ file fields as signed URLs (7-day).
   `FORMS_WEBHOOK_WORKER_ENABLED`, `FORMS_EMAIL_WORKER_ENABLED`,
   `FORMS_WEBHOOK_QUEUE_URL`, `FORMS_EMAIL_QUEUE_URL`, `FORMS_S3_BUCKET`,
   `FORMS_S3_REGION`, `FORMS_RECAPTCHA_SHARED_SECRET`,
-  `FORMS_RECAPTCHA_SHARED_SITE_KEY`, `FORMS_EMAIL_FROM`
-  (`noreply@ratio.store`), `FORMS_EMAIL_PROVIDER_API_KEY`.
+  `FORMS_RECAPTCHA_SHARED_SITE_KEY`. Email sends through the shared
+  `core/email` service — see the core `EMAIL_FROM` / `EMAIL_REGION` env.
 - **Security:** inbound webhook HMAC (core); OAuth tokens + reCAPTCHA secret
   AES-256-GCM at rest; public endpoints never receive/return other merchants'
   data (form → merchant resolved server-side); presigned uploads constrained

@@ -122,6 +122,43 @@ const baseEnv = z.object({
   // Declared here so @nestjs/config keeps it on process.env (unknown keys are
   // stripped by the validate() step).
   FACEBOOK_CAPI_BASE_URL: z.string().url().default('https://graph.facebook.com/v21.0'),
+
+  // ─── loyalty app: Core Loyalty admin tooling ──────────────────────────────
+  // LOYALTY_WORKER_ENABLED gates the module's SQS consumers (bulk ops, exports)
+  // and the maintenance tick (balance sweep + daily snapshot). Consumers are
+  // idempotent and the snapshot is Redis-locked, so >1 flagged replica is safe.
+  LOYALTY_WORKER_ENABLED: z.enum(['true', 'false']).default('false'),
+  // S3 bucket for generated export CSVs (bucket owned by IaC). Optional in
+  // baseEnv; the exports worker fails the job cleanly when unset.
+  LOYALTY_EXPORT_S3_BUCKET: emptyAsUndefined(z.string().min(1)),
+  // Parallel Core credit/debit calls per bulk batch; tune to Core rate limits.
+  LOYALTY_BULK_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(5),
+  // SQS visibility timeout (seconds) for bulk/export messages — keep ABOVE the
+  // worst-case batch processing time so in-flight batches don't redeliver.
+  LOYALTY_BULK_VISIBILITY: z.coerce.number().int().min(30).default(300),
+
+  // ─── core email (SES) ─────────────────────────────────────────────────────
+  // Verified SES sender identity. Unset → EmailService no-ops (dev default).
+  EMAIL_FROM: emptyAsUndefined(z.string().email()),
+  // Local S3-compatible endpoint override (MinIO), mirroring SQS_ENDPOINT.
+  S3_ENDPOINT: emptyAsUndefined(z.string().url()),
+
+  // forms app: declared for boot validation; workers/queue resolvers still read
+  // process.env.FORMS_* at call time (validate() strips only unknown keys).
+  FORMS_S3_BUCKET: emptyAsUndefined(z.string().min(1)),
+  FORMS_S3_REGION: emptyAsUndefined(z.string().min(1)).default('ap-south-1'),
+  FORMS_SDK_DIST: emptyAsUndefined(z.string().min(1)),
+  FORMS_RECAPTCHA_SHARED_SITE_KEY: emptyAsUndefined(z.string().min(1)),
+  FORMS_RECAPTCHA_SHARED_SECRET: emptyAsUndefined(z.string().min(1)),
+  FORMS_WEBHOOK_QUEUE_URL: emptyAsUndefined(z.string().min(1)),
+  FORMS_EMAIL_QUEUE_URL: emptyAsUndefined(z.string().min(1)),
+  FORMS_EXPORT_QUEUE_URL: emptyAsUndefined(z.string().min(1)),
+  FORMS_WEBHOOK_WORKER_ENABLED: z.enum(['true', 'false']).default('false'),
+  FORMS_EMAIL_WORKER_ENABLED: z.enum(['true', 'false']).default('false'),
+  FORMS_EXPORT_WORKER_ENABLED: z.enum(['true', 'false']).default('false'),
+  FORMS_WEBHOOK_VISIBILITY: z.coerce.number().int().min(30).default(120),
+  FORMS_EMAIL_VISIBILITY: z.coerce.number().int().min(30).default(120),
+  FORMS_EXPORT_VISIBILITY: z.coerce.number().int().min(30).default(300),
 });
 
 // builds the schema for a given module subset (baseEnv + each module's RATIO_<UPPER>_* block)

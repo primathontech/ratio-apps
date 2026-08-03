@@ -1,5 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { type FormField, isCollectableFieldType } from '@ratio-app/shared/schemas/form-schema';
+import { csvEscape } from '../../../core/common/csv';
+import { parseJsonColumn, parseJsonColumnOrNull } from '../../../core/db/json';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
 import type { FormsDatabase } from '../db/types';
 import { FORMS_DB_TOKEN } from '../kysely.module';
@@ -19,23 +21,7 @@ interface ExportCursor {
   id: string;
 }
 
-/**
- * Full-history CSV export (AC8): streams in `EXPORT_BATCH_SIZE` pages — never
- * buffers the whole table. Header = the form schema's field keys +
- * `submitted_at`; values escaped per RFC 4180 (quotes doubled; any value
- * containing a comma, quote, or newline is quoted).
- *
- * Pages by KEYSET on `(createdAt, id)` rather than LIMIT/OFFSET, so the cost
- * of reaching page N is independent of N (O(n) over the whole export instead
- * of O(n²)): each batch resumes from the previous batch's last key via
- * `(createdAt, id) > (lastCreatedAt, lastId)`. `id` is the tiebreaker for rows
- * sharing a `createdAt` millisecond, which keeps the ordering total (no row
- * skipped or duplicated at a batch boundary).
- *
- * Works for soft-deleted forms too — submissions outlive the form (AC4).
- * Returns the number of data rows written (header excluded) — the async
- * export job records this as `row_count`.
- */
+/** Full-history CSV export (AC8, RFC 4180), streamed in `EXPORT_BATCH_SIZE` pages by keyset on `(createdAt, id)` so page-N cost is O(n) not O(n²) and `id` keeps ordering total across batch boundaries; returns the data-row count. */
 @Injectable()
 export class CsvExportService {
   constructor(
@@ -46,16 +32,11 @@ export class CsvExportService {
   async export(merchantId: string, formId: string, sink: CsvSink): Promise<number> {
     // Includes soft-deleted forms (requireOwnForm has no deleted_at filter).
     const form = await this.submissions.requireOwnForm(merchantId, formId);
-    const schema: FormField[] =
-      typeof form.schemaJson === 'string'
-        ? (JSON.parse(form.schemaJson) as FormField[])
-        : form.schemaJson;
-    // Content blocks (heading/divider/paragraph/image) carry a key but never
-    // produce a data_json entry — filter them so the CSV shape matches the
-    // webhook/validator contract instead of emitting phantom empty columns.
+    const schema = parseJsonColumn<FormField[]>(form.schemaJson);
+    // Content blocks carry a key but no data_json entry — filter them so the CSV has no phantom empty columns.
     const keys = schema.filter((f) => isCollectableFieldType(f.type)).map((f) => f.key);
 
-    await sink.write(`${[...keys, 'submitted_at'].map(CsvExportService.escape).join(',')}\n`);
+    await sink.write(`${[...keys, 'submitted_at'].map(csvEscape).join(',')}\n`);
 
     let cursor: ExportCursor | null = null;
     let rowCount = 0;
@@ -67,9 +48,7 @@ export class CsvExportService {
         .where('merchantId', '=', merchantId);
       if (cursor) {
         const c = cursor;
-        // (createdAt, id) > (c.createdAt, c.id) — decomposed into OR/AND so it
-        // works uniformly across engines (MySQL supports row-value tuples, but
-        // this form keeps the query plan predictable on the composite key).
+        // (createdAt, id) > (c.createdAt, c.id) decomposed into OR/AND to keep the composite-key query plan predictable.
         query = query.where((eb) =>
           eb.or([
             eb('createdAt', '>', c.createdAt),
@@ -83,12 +62,12 @@ export class CsvExportService {
         .limit(EXPORT_BATCH_SIZE)
         .execute();
       for (const row of rows) {
-        const data = CsvExportService.parse<Record<string, unknown>>(row.dataJson) ?? {};
-        const files = CsvExportService.parse<Record<string, string>>(row.filesJson) ?? {};
-        const cells = keys.map((key) =>
-          CsvExportService.escape(CsvExportService.cell(data[key] ?? files[key])),
-        );
-        cells.push(CsvExportService.escape(new Date(row.createdAt).toISOString()));
+        const data = parseJsonColumn<Record<string, unknown>>(row.dataJson);
+        // A multi-file field's value is a key array; `cell` joins with '; ' into one cell.
+        const files =
+          parseJsonColumnOrNull<Record<string, string | string[]>>(row.filesJson) ?? {};
+        const cells = keys.map((key) => csvEscape(CsvExportService.cell(data[key] ?? files[key])));
+        cells.push(csvEscape(new Date(row.createdAt).toISOString()));
         await sink.write(`${cells.join(',')}\n`);
         rowCount += 1;
       }
@@ -99,24 +78,11 @@ export class CsvExportService {
     return rowCount;
   }
 
-  private static parse<T>(value: T | string | null): T | null {
-    if (value === null) return null;
-    return typeof value === 'string' ? (JSON.parse(value) as T) : value;
-  }
-
   /** Flatten a submitted value to one CSV cell. */
   private static cell(value: unknown): string {
     if (value === undefined || value === null) return '';
     if (Array.isArray(value)) return value.map(String).join('; ');
     if (typeof value === 'object') return JSON.stringify(value);
     return String(value);
-  }
-
-  /** RFC 4180: quote when the value carries a comma, quote, or newline. */
-  private static escape(value: string): string {
-    if (/[",\n\r]/.test(value)) {
-      return `"${value.replace(/"/g, '""')}"`;
-    }
-    return value;
   }
 }

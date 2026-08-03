@@ -36,6 +36,13 @@ export const FORM_FIELD_WIDTHS = ['full', 'half'] as const;
 
 export type FormFieldWidth = (typeof FORM_FIELD_WIDTHS)[number];
 
+// Text/box alignment shared by the content blocks (§4.15): heading, paragraph,
+// and image. 'left' reproduces today's rendering. A bounded enum so only these
+// three literals ever reach a text-align / margin value — never a raw string.
+export const FORM_BLOCK_ALIGNMENTS = ['left', 'center', 'right'] as const;
+
+export type FormBlockAlignment = (typeof FORM_BLOCK_ALIGNMENTS)[number];
+
 // Asset URL for hosted images (content-block image, logo/cover, background) —
 // https-only, same posture as webhookUrl/linkUrl so nothing dynamic (http,
 // data:, javascript:) reaches an <img src> or CSS url().
@@ -59,6 +66,22 @@ export const hexColor = z
 // per-field override (§2.2) may pin one field to a different variant.
 export const FORM_INPUT_VARIANTS = ['outlined', 'filled', 'underlined'] as const;
 export type FormInputVariant = (typeof FORM_INPUT_VARIANTS)[number];
+
+/**
+ * Hard cap on a field's raw custom CSS. Defined here (Zod-side, css-tree-free)
+ * so the schema bounds it without pulling the sanitizer/parser into the widget;
+ * the `sanitize-field-css` module re-exports it for the sanitizer.
+ */
+export const MAX_FIELD_CSS_LENGTH = 2000;
+
+/**
+ * Hard cap on a form's raw FORM-LEVEL custom CSS (appearance.customCss). Larger
+ * than the per-field cap because one form-level block styles the whole form
+ * (card, submit, every field) rather than a single field. Same rationale as
+ * above: kept here (Zod-side, css-tree-free) so the appearance schema bounds it
+ * without pulling the sanitizer into the widget bundle.
+ */
+export const MAX_FORM_CSS_LENGTH = 5000;
 
 /** Shared per-field basics — every field type carries these. */
 export const baseFieldShape = {
@@ -89,6 +112,11 @@ export const baseFieldShape = {
   // the humanized default for ANY failure on this field (required/pattern/
   // format/bounds); absent ⇒ the humanized default is shown.
   errorMessage: z.string().max(500).optional(),
+  // Raw merchant-authored CSS to make this field resemble their storefront.
+  // Stored raw + bounded; the server sanitizes + field-scopes it on the embed
+  // read path (see sanitize-field-css) so the widget only ever injects safe,
+  // shadow-contained CSS. Absent ⇒ nothing injected ⇒ unchanged.
+  customCss: z.string().max(MAX_FIELD_CSS_LENGTH).optional(),
 };
 
 // Content blocks share only key + width — no label/required/validation. Keeping
@@ -291,10 +319,55 @@ export const minMaxConsistent = (v: {
 
 export const MIN_MAX_MESSAGE = { message: 'minLength must be less than or equal to maxLength' };
 
-/** dropdown / multi_select / radio choices — at least one non-empty option. */
+/**
+ * A select choice for dropdown / radio / multi_select. `value` is what the
+ * submission stores; `label` is what the shopper sees — they may differ.
+ */
+export const optionSchema = z.object({
+  value: z.string().min(1, { message: 'option value cannot be empty' }).max(255),
+  label: z.string().min(1, { message: 'option label cannot be empty' }).max(255),
+});
+export type FormOption = z.infer<typeof optionSchema>;
+
+/** All submittable option values, in order (server validation + SDK render). */
+export function optionValues(options: readonly FormOption[]): string[] {
+  return options.map((o) => o.value);
+}
+
+/** Upper bound on choices per select field — shared by the schema and the admin editor so they can't drift. */
+export const MAX_OPTIONS = 200;
+
+/**
+ * Shared "Other free-text" opt-in for the select family (dropdown / radio /
+ * multi_select). Both keys are OPTIONAL so forms saved before this enrichment
+ * stay valid; absent ⇒ no "Other" choice (today's behavior). `otherLabel`
+ * defaults to `FORM_SELECT_OTHER_DEFAULT_LABEL` at render time when unset.
+ * When `allowOther` is on, the backend + SDK validators accept a bounded,
+ * non-empty value outside the option set (the typed "Other" text).
+ */
+export const selectOtherShape = {
+  allowOther: z.boolean().optional(),
+  otherLabel: z.string().min(1, { message: 'other label cannot be empty' }).max(60).optional(),
+};
+
+/** dropdown / multi_select / radio choices — ≥1, ≤MAX_OPTIONS, unique values. */
 export const optionsSchema = z
-  .array(z.string().min(1, { message: 'options cannot be empty strings' }))
-  .min(1, { message: 'at least one option is required' });
+  .array(optionSchema)
+  .min(1, { message: 'at least one option is required' })
+  .max(MAX_OPTIONS, { message: `at most ${MAX_OPTIONS} options` })
+  .superRefine((options, ctx) => {
+    const seen = new Set<string>();
+    options.forEach((option, i) => {
+      if (seen.has(option.value)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `duplicate option value: ${option.value}`,
+          path: [i, 'value'],
+        });
+      }
+      seen.add(option.value);
+    });
+  });
 
 export const numberMinMaxConsistent = (v: {
   min?: number | undefined;

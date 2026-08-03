@@ -30,6 +30,10 @@ export const FORM_FIELD_TYPES = [
   'divider',
   'paragraph',
   'image',
+  'html',
+  // page_break (§steps) — a display-only separator that splits the form's
+  // fields into multi-step pages. Submits no data, like the blocks above.
+  'page_break',
 ] as const;
 
 export type FormFieldType = (typeof FORM_FIELD_TYPES)[number];
@@ -41,22 +45,61 @@ export type FormFieldType = (typeof FORM_FIELD_TYPES)[number];
 // helpers) live in ./fields/_shared/base and are re-exported here so the public
 // surface of this module is unchanged. Field-owned constants are likewise
 // re-exported next to the field schemas.
-import { FORM_INPUT_VARIANTS, hexColor, httpsAssetUrl } from './fields/_shared/base';
+import {
+  FORM_INPUT_VARIANTS,
+  hexColor,
+  httpsAssetUrl,
+  MAX_FORM_CSS_LENGTH,
+} from './fields/_shared/base';
 import { fieldSchemaMembers } from './fields/registry';
 
 export {
+  FORM_BLOCK_ALIGNMENTS,
   FORM_FIELD_WIDTHS,
   FORM_INPUT_VARIANTS,
+  type FormBlockAlignment,
   type FormFieldWidth,
   type FormInputVariant,
   formFieldKeySchema,
 } from './fields/_shared/base';
 export {
+  FORM_SELECT_OTHER_DEFAULT_LABEL,
+  FORM_SELECT_OTHER_MAX_LENGTH,
+  FORM_SELECT_OTHER_SENTINEL,
+} from './fields/_shared/select-constants';
+export { FORM_DIVIDER_VARIANTS, type FormDividerVariant } from './fields/divider/schema';
+export {
   FORM_FILE_ALLOWED_MIME_TYPES,
   FORM_FILE_MAX_BYTES,
+  FORM_FILE_MAX_FILES,
   type FormFileAllowedMimeType,
 } from './fields/file/schema';
-export { FORM_HEADING_LEVELS, type FormHeadingLevel } from './fields/heading/schema';
+export {
+  FORM_HEADING_LEVELS,
+  FORM_HEADING_SIZES,
+  type FormHeadingLevel,
+  type FormHeadingSize,
+} from './fields/heading/schema';
+export { FORM_IMAGE_SIZES, type FormImageSize } from './fields/image/schema';
+export {
+  FORM_NUMBER_CURRENCIES,
+  FORM_NUMBER_LOCALES,
+  FORM_NUMBER_MAX_DECIMALS,
+  FORM_NUMBER_STYLES,
+  type FormNumberCurrency,
+  type FormNumberFormat,
+  type FormNumberLocale,
+  type FormNumberStyle,
+} from './fields/number/schema';
+export { FORM_PAGE_BREAK_TITLE_MAX_LENGTH } from './fields/page_break/schema';
+export {
+  RADIO_LAYOUTS,
+  RADIO_MAX_GRID_COLUMNS,
+  RADIO_MIN_GRID_COLUMNS,
+  RADIO_VARIANTS,
+  type RadioLayout,
+  type RadioVariant,
+} from './fields/radio/schema';
 export { FORM_RATING_ICONS, type FormRatingIcon } from './fields/rating/schema';
 export {
   FORM_TEXTAREA_DEFAULT_MAX_LENGTH,
@@ -84,6 +127,10 @@ export const FORM_NON_COLLECTABLE_FIELD_TYPES = [
   'divider',
   'paragraph',
   'image',
+  'html',
+  // page_break is display-only too — it marks a step boundary and submits no
+  // value, so the CSV export and the server validator strip it like a divider.
+  'page_break',
 ] as const;
 
 export type FormNonCollectableFieldType = (typeof FORM_NON_COLLECTABLE_FIELD_TYPES)[number];
@@ -116,6 +163,36 @@ export const formFieldsSchema = z
         });
       }
       seen.add(field.key);
+
+      // Select-family default (P0 select depth): a preselected value must be one
+      // of the field's option values. Enforced here rather than on the field
+      // member so the discriminated-union members stay plain ZodObjects (a
+      // superRefine wraps them in ZodEffects, which the union rejects).
+      if (
+        (field.type === 'dropdown' || field.type === 'radio') &&
+        field.defaultValue !== undefined
+      ) {
+        const values = field.options.map((o) => o.value);
+        if (!values.includes(field.defaultValue)) {
+          ctx.addIssue({
+            code: 'custom',
+            message: 'default value must be one of the options',
+            path: [index, 'defaultValue'],
+          });
+        }
+      }
+      if (field.type === 'multi_select' && field.defaultValue !== undefined) {
+        const values = new Set(field.options.map((o) => o.value));
+        field.defaultValue.forEach((v, di) => {
+          if (!values.has(v)) {
+            ctx.addIssue({
+              code: 'custom',
+              message: 'default value must be one of the options',
+              path: [index, 'defaultValue', di],
+            });
+          }
+        });
+      }
     });
   });
 
@@ -142,8 +219,40 @@ export const FORM_BUTTON_SHAPES = ['sharp', 'rounded', 'pill'] as const;
 export const FORM_DENSITIES = ['compact', 'comfortable', 'spacious'] as const;
 // 'floating' (§1.4): label rests inside the input, animates up on focus/fill.
 export const FORM_LABEL_POSITIONS = ['top', 'left', 'floating'] as const;
-export const FORM_SHADOWS = ['none', 'sm', 'md'] as const;
+// Card drop shadow scale (§1.6). 'sm' = today; 'lg'/'xl' extend the elevation
+// scale (added in the theme.ts SHADOWS map).
+export const FORM_SHADOWS = ['none', 'sm', 'md', 'lg', 'xl'] as const;
 export const FORM_BUTTON_ALIGNMENTS = ['left', 'center', 'right'] as const;
+
+// §1.5 — submit button fill; 'solid' = today (primary bg, buttonText fg).
+export const FORM_BUTTON_VARIANTS = ['solid', 'outline', 'ghost', 'soft'] as const;
+export type FormButtonVariant = (typeof FORM_BUTTON_VARIANTS)[number];
+
+// §1.3 — content/heading alignment inside the card; 'left' = today.
+export const FORM_CONTENT_ALIGNS = ['left', 'center'] as const;
+export type FormContentAlign = (typeof FORM_CONTENT_ALIGNS)[number];
+
+// §1.3 — card vs flat surface; 'card' = today (bordered, shadowed surface).
+export const FORM_LAYOUT_MODES = ['card', 'flat'] as const;
+export type FormLayoutMode = (typeof FORM_LAYOUT_MODES)[number];
+
+// §1.2 — modular type-scale ratio driving the heading role tokens. Optional:
+// unset ⇒ today's additive title/h2/h3 sizes, unchanged.
+export const FORM_TYPE_SCALES = ['minor-third', 'major-third', 'perfect-fourth'] as const;
+export type FormTypeScale = (typeof FORM_TYPE_SCALES)[number];
+
+// §1.8 — transition speed scale; 'normal' = today's 0.12s (when animations on).
+export const FORM_MOTION_SPEEDS = ['slow', 'normal', 'fast'] as const;
+export type FormMotionSpeed = (typeof FORM_MOTION_SPEEDS)[number];
+
+// §1.8 — easing curve preset; 'standard' = today's cubic-bezier(0.4,0,0.2,1).
+export const FORM_EASINGS = ['standard', 'linear', 'emphasized', 'spring'] as const;
+export type FormEasing = (typeof FORM_EASINGS)[number];
+
+// §1.8 — submit busy indicator; 'spinner' = animated ring (a static ring under
+// prefers-reduced-motion), 'none' = label text only.
+export const FORM_SUBMIT_LOADERS = ['spinner', 'none'] as const;
+export type FormSubmitLoader = (typeof FORM_SUBMIT_LOADERS)[number];
 
 // Form-wide column count (§2.1): '1' = today's single column. '2'/'auto'
 // reflect to a host data-cols attribute and drive a container-query grid;
@@ -193,6 +302,37 @@ export type FormGradientDir = (typeof FORM_GRADIENT_DIRS)[number];
 export const FORM_BG_IMAGE_FITS = ['cover', 'contain', 'repeat'] as const;
 export type FormBgImageFit = (typeof FORM_BG_IMAGE_FITS)[number];
 
+// ── Ending states (Batch 6) ────────────────────────────────────
+// Curated end-panel glyph. A fixed inline-SVG map in the SDK is keyed by this
+// enum (never a URL), so nothing dynamic reaches the panel. 'check' is today's
+// success glyph; 'none' hides the icon.
+export const FORM_ENDING_ICONS = ['none', 'check', 'info', 'warning', 'lock', 'clock'] as const;
+export type FormEndingIcon = (typeof FORM_ENDING_ICONS)[number];
+
+// The end screens that carry structured copy. 'success' is the post-submit
+// confirmation; closed/unavailable/error mirror the SDK's existing Status
+// screens. 'expired' is reserved for a scheduled/time-boxed form — authorable
+// now, wired once a backend "expired" reason flag exists (catalog E11).
+export const FORM_ENDING_STATES = ['success', 'closed', 'expired', 'unavailable', 'error'] as const;
+export type FormEndingState = (typeof FORM_ENDING_STATES)[number];
+
+// ── Branding (Batch 6) ─────────────────────────────────────────
+// Logo display size — a fixed enum→max-height map in the SDK/theme. 'md' = today's 56px.
+export const FORM_LOGO_SIZES = ['sm', 'md', 'lg'] as const;
+export type FormLogoSize = (typeof FORM_LOGO_SIZES)[number];
+// Logo horizontal placement in the header. 'left' = today (block default).
+export const FORM_LOGO_ALIGNS = ['left', 'center', 'right'] as const;
+export type FormLogoAlign = (typeof FORM_LOGO_ALIGNS)[number];
+
+// ── Dark theme (color scheme) ──────────────────────────────────
+// Opt-in color scheme. 'light' (the default when unset) = today's behavior,
+// fully back-compat. 'dark' always applies the colorsDark override; 'auto'
+// applies it only under the OS `prefers-color-scheme: dark`. The renderer
+// reflects the active scheme onto the host as `data-scheme` so the dark
+// override CSS blocks apply (mirrors the data-layout/data-align reflection).
+export const FORM_COLOR_SCHEMES = ['light', 'dark', 'auto'] as const;
+export type FormColorScheme = (typeof FORM_COLOR_SCHEMES)[number];
+
 const appearanceColorsSchema = z
   .object({
     primary: hexColor.default('#0fb3a9'), // submit bg  (today's --wz-primary)
@@ -204,13 +344,59 @@ const appearanceColorsSchema = z
     border: hexColor.default('#e5e7eb'), // borders    (today's --wz-border)
     error: hexColor.default('#c0392b'), // error text (today's literal)
     buttonText: hexColor.default('#ffffff'), // submit label (today's literal #fff)
+    // Optional semantic colors — absent ⇒ derived at the SDK from primary/muted,
+    // so today's look is unchanged. success → status panel; link → anchors;
+    // placeholder → input placeholder (defaults to muted).
+    success: hexColor.optional(),
+    link: hexColor.optional(),
+    placeholder: hexColor.optional(),
   })
   .prefault({}); // parse the empty default so each sub-token default applies
+
+// Dark-scheme color overrides — the SAME token shape as appearanceColorsSchema,
+// but every token is OPTIONAL with NO default. An absent token falls back to
+// its LIGHT value at the SDK (colorsDark[t] ?? colors[t]), so a merchant can
+// override just a few and the rest track the light theme. NOT prefaulted:
+// absent ⇒ the whole group is undefined ⇒ dark reuses every light token.
+const appearanceColorsDarkSchema = z.object({
+  primary: hexColor.optional(),
+  background: hexColor.optional(),
+  pageBackground: hexColor.optional(),
+  surface: hexColor.optional(),
+  text: hexColor.optional(),
+  muted: hexColor.optional(),
+  border: hexColor.optional(),
+  error: hexColor.optional(),
+  buttonText: hexColor.optional(),
+  success: hexColor.optional(),
+  link: hexColor.optional(),
+  placeholder: hexColor.optional(),
+});
 
 const appearanceTypographySchema = z
   .object({
     fontFamily: z.enum(FORM_FONT_FAMILIES).default('system'),
     baseSize: z.number().int().min(12).max(20).default(14), // px; today ~14
+    // Optional Google Font family name. Allow-list only — a letter/digit start
+    // then letters, digits, spaces, hyphens (no quotes/parens/;/{}/<>/url()) so
+    // the value can never break out of the font-family CSS declaration or the
+    // Google Fonts URL. When set (non-empty) it wins over fontFamily.
+    customGoogleFont: z
+      .string()
+      .trim()
+      .max(50) // cheap DoS guard
+      .regex(/^[A-Za-z0-9][A-Za-z0-9 -]{0,49}$/, 'Must be a plain font family name')
+      .optional(),
+    // §1.2 — optional heading/body font pairing (reuse the curated families).
+    // Absent ⇒ both roles inherit `fontFamily`, unchanged.
+    headingFont: z.enum(FORM_FONT_FAMILIES).optional(),
+    bodyFont: z.enum(FORM_FONT_FAMILIES).optional(),
+    // §1.2 — modular type-scale ratio for the heading tokens. Absent ⇒ today's
+    // additive title/h2/h3 sizes.
+    scaleRatio: z.enum(FORM_TYPE_SCALES).optional(),
+    // §1.2 — line-height per role. Absent ⇒ `normal`, unchanged.
+    bodyLineHeight: z.number().min(1.1).max(2).optional(),
+    headingLineHeight: z.number().min(1).max(1.6).optional(),
   })
   .prefault({});
 
@@ -246,13 +432,87 @@ const appearanceLayoutSchema = z
     // §2.4 — micro-animations toggle; false = today. Gated by
     // prefers-reduced-motion at render, so it never overrides the OS setting.
     animations: z.boolean().default(false),
+    // §1.5 — submit button fill; 'solid' = today.
+    buttonVariant: z.enum(FORM_BUTTON_VARIANTS).default('solid'),
+    // §1.6 — horizontal input padding override; absent ⇒ 10px (today).
+    inputPadX: z.number().int().min(4).max(24).optional(),
+    // §1.3 — card inner padding override; absent ⇒ the density preset (today).
+    cardPadding: z.number().int().min(8).max(64).optional(),
+    // §1.3 — content/heading alignment; 'left' = today.
+    contentAlign: z.enum(FORM_CONTENT_ALIGNS).default('left'),
+    // §1.3 — card vs flat surface; 'card' = today.
+    layoutMode: z.enum(FORM_LAYOUT_MODES).default('card'),
+    // §1.3 — ignore maxWidth and fill the container; false = today.
+    fluidWidth: z.boolean().default(false),
+    // §1.8 — focus outline offset (px); 2 = today's literal.
+    focusOffset: z.number().int().min(0).max(6).default(2),
+    // §1.8 — transition speed + easing; defaults reproduce today.
+    motionSpeed: z.enum(FORM_MOTION_SPEEDS).default('normal'),
+    easing: z.enum(FORM_EASINGS).default('standard'),
+    // §1.8 — submit busy indicator; 'spinner' = animated/reduced-motion ring.
+    submitLoader: z.enum(FORM_SUBMIT_LOADERS).default('spinner'),
   })
   .prefault({});
 
-// Logo / cover images — optional brand assets. Only the https URL is stored;
-// no dimensions or CSS, keeping the injection surface at zero (§5).
-const appearanceLogoSchema = z.object({ url: httpsAssetUrl });
-const appearanceCoverSchema = z.object({ url: httpsAssetUrl });
+// Logo / cover images — optional brand assets (Batch 6 branding). Only https
+// urls, enum sizes, and bounded numbers are stored; the SDK/theme composes every
+// dimension, filter, and overlay, so the injection surface stays at zero (§5).
+// `alt` is plain text (Lit escapes it into the alt attribute). Every dimension
+// field is optional with a SDK-side fallback to today's value, so a logo/cover
+// that predates Batch 6 (just `{ url }`) renders exactly as before.
+const appearanceLogoSchema = z.object({
+  url: httpsAssetUrl,
+  size: z.enum(FORM_LOGO_SIZES).optional(), // absent ⇒ 'md' (today's 56px cap)
+  align: z.enum(FORM_LOGO_ALIGNS).optional(), // absent ⇒ 'left' (today)
+  alt: z.string().max(200).optional(), // accessible name; absent/'' ⇒ decorative
+});
+const appearanceCoverSchema = z.object({
+  url: httpsAssetUrl,
+  height: z.number().int().min(80).max(480).optional(), // px cap; absent ⇒ 180 (today)
+  overlay: z.number().min(0).max(0.8).optional(), // dark scrim opacity; absent ⇒ 0 (today)
+  blur: z.number().min(0).max(20).optional(), // px; absent ⇒ 0 (today)
+  alt: z.string().max(200).optional(),
+});
+
+// ── Ending states (Batch 6, catalog E1–E4) ─────────────────────
+// One themed end panel — icon + heading + body, all optional so an unset field
+// falls back to the SDK's built-in copy (and, for success, the top-level
+// successMessage). Plain text only (Lit escapes it); the icon is an enum keyed
+// into the SDK's curated inline-SVG map.
+const endingPanelSchema = z.object({
+  icon: z.enum(FORM_ENDING_ICONS).optional(),
+  heading: z.string().max(120).optional(),
+  body: z.string().max(600).optional(),
+});
+
+// The structured end states. OPTIONAL at the appearance root: absent ⇒ the SDK
+// renders today's exact status screens (byte-identical). Present ⇒ per-state
+// copy overrides plus redirect timing. The top-level successMessage/redirectUrl
+// remain the base of the back-compat chain (endings.success.body ??
+// successMessage ?? default). Every field is optional with a SDK-side fallback,
+// so a partial `endings` object (only one state authored) is valid and inert
+// for the rest.
+const appearanceEndingsSchema = z.object({
+  success: endingPanelSchema.optional(),
+  closed: endingPanelSchema.optional(),
+  expired: endingPanelSchema.optional(),
+  unavailable: endingPanelSchema.optional(),
+  error: endingPanelSchema.optional(),
+  // Delay before following the form's redirectUrl (whole seconds); absent ⇒ the
+  // SDK's 1500ms constant, so an un-set form redirects exactly as today.
+  redirectDelaySeconds: z.number().int().min(0).max(30).optional(),
+  // Show a live "Redirecting in Ns…" countdown on the success panel; absent ⇒ off (today).
+  showRedirectCountdown: z.boolean().optional(),
+});
+
+// Form-wide branding toggles (Batch 6, catalog B4). showPoweredBy adds a small
+// static "Powered by" footer under the card to a hardcoded target; absent ⇒ off
+// (today, no footer). Prefaulted so the SDK reads a defined value.
+const appearanceBrandingSchema = z
+  .object({
+    showPoweredBy: z.boolean().default(false),
+  })
+  .prefault({});
 
 // §1.1 — the styled area *around* the card. Only hex/enum/https-url/bounded
 // numbers are stored; themeVars() composes a pure CSS gradient function from
@@ -271,17 +531,39 @@ const appearanceBackgroundSchema = z
     // §2.6 — frosted card: backdrop-filter blur radius (px); 0 = today (no blur).
     // Progressive enhancement over the always-on scrim; contrast never depends on it.
     cardBlur: z.number().min(0).max(20).default(0),
+    // §1.6 — filters applied to the page background image layer ONLY (never the
+    // card — distinct from cardBlur). Defaults are no-ops ⇒ unchanged.
+    imageBrightness: z.number().min(0.5).max(1.5).default(1),
+    imageBlur: z.number().min(0).max(20).default(0),
+    imageGrayscale: z.number().min(0).max(1).default(0),
   })
   .prefault({});
 
 export const appearanceSchema = z
   .object({
     colors: appearanceColorsSchema,
+    // Dark theme — opt-in scheme + its partial color overrides. Both optional
+    // and default-free: an absent `colorScheme` (or 'light') is today's exact
+    // behavior, and `colorsDark` tokens fall back to the light values at the SDK.
+    colorScheme: z.enum(FORM_COLOR_SCHEMES).optional(),
+    colorsDark: appearanceColorsDarkSchema.optional(),
     typography: appearanceTypographySchema,
     layout: appearanceLayoutSchema,
     background: appearanceBackgroundSchema,
     logo: appearanceLogoSchema.optional(),
     cover: appearanceCoverSchema.optional(),
+    // Batch 6 — structured end states + branding. `endings` is optional so an
+    // un-set form is byte-identical to today; `branding` is prefaulted to a
+    // defined { showPoweredBy: false }.
+    endings: appearanceEndingsSchema.optional(),
+    branding: appearanceBrandingSchema,
+    // FORM-LEVEL raw custom CSS — distinct from the PER-FIELD `customCss` on
+    // baseFieldShape. Stored raw + bounded; the server sanitizes it on the embed
+    // read path (see sanitize `sanitizeFormCss`) and, unlike per-field CSS, it is
+    // NOT scoped to a `[data-field]` wrapper — it styles the whole form
+    // (`.rf-card`, `.rf-submit`, …) inside the shadow root, with the css-tree
+    // allow-list as the safety boundary. Absent ⇒ nothing injected ⇒ unchanged.
+    customCss: z.string().max(MAX_FORM_CSS_LENGTH).optional(),
   })
   .strict(); // reject unknown keys — same posture as the field schemas
 

@@ -60,8 +60,34 @@ describe('DesignSettings', () => {
     });
   });
 
+  it('dispatches a custom Google font change scoped to the typography group', () => {
+    const dispatch = vi.fn();
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />);
+    fireEvent.click(screen.getByText('Typography'));
+    const input = screen.getByLabelText('Custom Google font');
+    expect(input).toBeInTheDocument();
+    fireEvent.change(input, { target: { value: 'Figtree' } });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateAppearance',
+      patch: { typography: { customGoogleFont: 'Figtree' } },
+    });
+  });
+
+  it('clears the custom Google font to undefined on an empty input', () => {
+    const dispatch = vi.fn();
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />);
+    fireEvent.click(screen.getByText('Typography'));
+    const input = screen.getByLabelText('Custom Google font');
+    fireEvent.change(input, { target: { value: '   ' } });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateAppearance',
+      patch: { typography: { customGoogleFont: undefined } },
+    });
+  });
+
   it('renders a mini form thumbnail per preset', () => {
     renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={vi.fn()} />);
+    fireEvent.click(screen.getByText('Presets'));
     for (const preset of FORM_APPEARANCE_PRESETS) {
       expect(screen.getByTestId(`preset-thumb-${preset.id}`)).toBeInTheDocument();
     }
@@ -72,14 +98,18 @@ describe('DesignSettings', () => {
     renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />);
     const teal = FORM_APPEARANCE_PRESETS.find((p) => p.id === 'teal');
     if (!teal) throw new Error('teal preset missing');
+    fireEvent.click(screen.getByText('Presets'));
     fireEvent.click(screen.getByLabelText('Apply Teal preset'));
+    // Wholesale replace of the style sections (so an optional token the preset
+    // omits is dropped, not merged); content assets survive from the current form.
     expect(dispatch).toHaveBeenCalledWith({
-      type: 'updateAppearance',
-      patch: {
-        colors: teal.appearance.colors,
-        typography: teal.appearance.typography,
-        layout: teal.appearance.layout,
-        background: teal.appearance.background,
+      type: 'replaceAppearance',
+      appearance: {
+        ...teal.appearance,
+        logo: DEFAULT_APPEARANCE.logo,
+        cover: DEFAULT_APPEARANCE.cover,
+        branding: DEFAULT_APPEARANCE.branding,
+        endings: DEFAULT_APPEARANCE.endings,
       },
     });
   });
@@ -252,6 +282,247 @@ describe('DesignSettings', () => {
     expect(dispatch).toHaveBeenCalledWith({
       type: 'updateAppearance',
       patch: { logo: { url: 'https://cdn.example.com/logo.png' } },
+    });
+  });
+
+  // ── Batch 5 (visual-payoff theming) ────────────────────────────
+  it('renders the optional semantic color pickers (Batch 5)', () => {
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={vi.fn()} />);
+    expect(screen.getByLabelText('Success color')).toBeInTheDocument();
+    expect(screen.getByLabelText('Link color')).toBeInTheDocument();
+    expect(screen.getByLabelText('Placeholder color')).toBeInTheDocument();
+  });
+
+  it('dispatches a button variant change (Batch 5)', () => {
+    const dispatch = vi.fn();
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />);
+    const outline = screen.getByText('Outline');
+    fireEvent.click(outline.closest('label') ?? outline);
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateAppearance',
+      patch: { layout: { buttonVariant: 'outline' } },
+    });
+  });
+
+  it('dispatches a content alignment change (Batch 5)', () => {
+    const dispatch = vi.fn();
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />);
+    const centered = screen.getByText('Centered');
+    fireEvent.click(centered.closest('label') ?? centered);
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateAppearance',
+      patch: { layout: { contentAlign: 'center' } },
+    });
+  });
+
+  it('dispatches a submit-loader change from the Motion group (Batch 5)', () => {
+    const dispatch = vi.fn();
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />);
+    const loaderRow = screen.getByText('Submit loader').closest('div') as HTMLElement;
+    const off = within(loaderRow).getByText('Off');
+    fireEvent.click(off.closest('label') ?? off);
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateAppearance',
+      patch: { layout: { submitLoader: 'none' } },
+    });
+  });
+
+  it('shows the image-filter sliders only for an image background (Batch 5)', () => {
+    const { unmount } = renderWithProviders(
+      <DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={vi.fn()} />,
+    );
+    expect(screen.queryByText(/Image brightness/)).not.toBeInTheDocument();
+    unmount();
+    const appearance = {
+      ...DEFAULT_APPEARANCE,
+      background: { ...DEFAULT_APPEARANCE.background, type: 'image' as const },
+    };
+    renderWithProviders(<DesignSettings appearance={appearance} dispatch={vi.fn()} />);
+    expect(screen.getByText(/Image brightness/)).toBeInTheDocument();
+    expect(screen.getByText(/Image grayscale/)).toBeInTheDocument();
+  });
+
+  // ── Batch 6 (structured features) ──────────────────────────────
+  it('groups presets under their category headings (Batch 6)', () => {
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={vi.fn()} />);
+    fireEvent.click(screen.getByText('Presets'));
+    // Category headings ('Minimal'/'Warm' are also preset names, so assert
+    // categories whose label doesn't collide with a preset name).
+    expect(screen.getByText('Classic')).toBeInTheDocument();
+    expect(screen.getByText('Cool')).toBeInTheDocument();
+    expect(screen.getByText('Bold')).toBeInTheDocument();
+    // 'Dark' also labels the always-visible Color-scheme segment, so match at
+    // least one occurrence rather than a unique node.
+    expect(screen.getAllByText('Dark').length).toBeGreaterThan(0);
+  });
+
+  it('reveals logo size/align/alt controls only once a logo URL is set (Batch 6)', () => {
+    const dispatch = vi.fn();
+    const { unmount } = renderWithProviders(
+      <DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />,
+    );
+    fireEvent.click(screen.getByText('Brand assets'));
+    expect(screen.queryByLabelText('Logo size')).not.toBeInTheDocument();
+    unmount();
+    const withLogo = {
+      ...DEFAULT_APPEARANCE,
+      logo: { url: 'https://cdn.example.com/logo.png' },
+    };
+    renderWithProviders(<DesignSettings appearance={withLogo} dispatch={dispatch} />);
+    fireEvent.click(screen.getByText('Brand assets'));
+    const sizeRow = screen.getByText('Logo size').closest('div') as HTMLElement;
+    const large = within(sizeRow).getByText('Large');
+    fireEvent.click(large.closest('label') ?? large);
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateAppearance',
+      patch: { logo: { url: 'https://cdn.example.com/logo.png', size: 'lg' } },
+    });
+  });
+
+  it('dispatches a cover alt-text change once a cover URL is set (Batch 6)', () => {
+    const dispatch = vi.fn();
+    const withCover = {
+      ...DEFAULT_APPEARANCE,
+      cover: { url: 'https://cdn.example.com/cover.jpg' },
+    };
+    renderWithProviders(<DesignSettings appearance={withCover} dispatch={dispatch} />);
+    fireEvent.click(screen.getByText('Brand assets'));
+    fireEvent.change(screen.getByLabelText('Cover alt text'), { target: { value: 'Hero' } });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateAppearance',
+      patch: { cover: { url: 'https://cdn.example.com/cover.jpg', alt: 'Hero' } },
+    });
+  });
+
+  it('toggles the "Powered by" footer (Batch 6)', () => {
+    const dispatch = vi.fn();
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />);
+    fireEvent.click(screen.getByText('Brand assets'));
+    fireEvent.click(screen.getByLabelText('Show powered by'));
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateAppearance',
+      patch: { branding: { showPoweredBy: true } },
+    });
+  });
+
+  it('authors per-state ending copy and toggles the redirect countdown (Batch 6)', () => {
+    const dispatch = vi.fn();
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />);
+    fireEvent.click(screen.getByText('Ending states'));
+    fireEvent.change(screen.getByLabelText('Success heading'), { target: { value: 'Done!' } });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateAppearance',
+      patch: { endings: { success: { heading: 'Done!' } } },
+    });
+    fireEvent.click(screen.getByLabelText('Show redirect countdown'));
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateAppearance',
+      patch: { endings: { showRedirectCountdown: true } },
+    });
+  });
+
+  it('exports the current design as JSON into a readable field (Batch 6)', () => {
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={vi.fn()} />);
+    fireEvent.click(screen.getByText('Export design'));
+    const ta = screen.getByTestId('preset-export-json') as HTMLTextAreaElement;
+    expect(ta.value).toContain('"ratioFormsPreset"');
+    expect(ta.value).toContain('"colors"');
+  });
+
+  it('imports a valid preset JSON and applies it wholesale (Batch 6)', () => {
+    const dispatch = vi.fn();
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />);
+    const json = JSON.stringify({ ratioFormsPreset: 1, appearance: DEFAULT_APPEARANCE });
+    fireEvent.change(screen.getByLabelText('Import preset JSON'), { target: { value: json } });
+    fireEvent.click(screen.getByText('Import design'));
+    // Full wholesale replace of the entire appearance (every section).
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'replaceAppearance',
+        appearance: expect.objectContaining({ colors: DEFAULT_APPEARANCE.colors }),
+      }),
+    );
+  });
+
+  it('surfaces an error on invalid import JSON without dispatching (Batch 6)', () => {
+    const dispatch = vi.fn();
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />);
+    fireEvent.change(screen.getByLabelText('Import preset JSON'), { target: { value: '{ bad' } });
+    fireEvent.click(screen.getByText('Import design'));
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(screen.getByText(/valid JSON/i)).toBeInTheDocument();
+  });
+
+  // ── Form-level Custom CSS ──────────────────────────────────────
+  it('dispatches an updateAppearance patch when typing into the form Custom CSS textarea', () => {
+    const dispatch = vi.fn();
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />);
+    fireEvent.click(screen.getByText('Custom CSS'));
+    fireEvent.change(screen.getByLabelText('Form custom CSS'), {
+      target: { value: '.rf-card { border-radius: 12px; }' },
+    });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateAppearance',
+      patch: { customCss: '.rf-card { border-radius: 12px; }' },
+    });
+  });
+
+  it('clears the form Custom CSS to undefined on an empty textarea', () => {
+    const dispatch = vi.fn();
+    const withCss = { ...DEFAULT_APPEARANCE, customCss: '.rf-card { color: red; }' };
+    renderWithProviders(<DesignSettings appearance={withCss} dispatch={dispatch} />);
+    fireEvent.click(screen.getByText('Custom CSS'));
+    fireEvent.change(screen.getByLabelText('Form custom CSS'), { target: { value: '' } });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateAppearance',
+      patch: { customCss: undefined },
+    });
+  });
+
+  // ── Dark mode (colorScheme + dark palette) ─────────────────────
+  it('dispatches a colorScheme change from the Color-scheme segmented control', () => {
+    const dispatch = vi.fn();
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={dispatch} />);
+    // Scope to the Color-scheme row so 'Dark' (also a preset category) is unambiguous.
+    const schemeRow = screen.getByText('Color scheme').closest('div') as HTMLElement;
+    const dark = within(schemeRow).getByText('Dark');
+    fireEvent.click(dark.closest('label') ?? dark);
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateAppearance',
+      patch: { colorScheme: 'dark' },
+    });
+  });
+
+  it('hides the Dark palette while the scheme is light (default)', () => {
+    renderWithProviders(<DesignSettings appearance={DEFAULT_APPEARANCE} dispatch={vi.fn()} />);
+    expect(screen.queryByText('Dark palette')).not.toBeInTheDocument();
+    // No dark-token pickers when the scheme is light.
+    expect(screen.queryByLabelText('Primary dark color')).not.toBeInTheDocument();
+  });
+
+  it('reveals the Dark palette pickers once the scheme is not light', () => {
+    const appearance = { ...DEFAULT_APPEARANCE, colorScheme: 'dark' as const };
+    renderWithProviders(<DesignSettings appearance={appearance} dispatch={vi.fn()} />);
+    expect(screen.getByText('Dark palette')).toBeInTheDocument();
+    expect(screen.getByLabelText('Primary dark color')).toBeInTheDocument();
+    expect(screen.getByLabelText('Button text dark color')).toBeInTheDocument();
+  });
+
+  it('dispatches a colorsDark override from a dark-palette picker', () => {
+    const dispatch = vi.fn();
+    const appearance = { ...DEFAULT_APPEARANCE, colorScheme: 'dark' as const };
+    renderWithProviders(<DesignSettings appearance={appearance} dispatch={dispatch} />);
+    // Open the token's picker popover, then type a valid hex into the panel's
+    // hex field — antd fires onChangeComplete on a committed (non-drag) change.
+    fireEvent.click(screen.getByLabelText('Form background dark color'));
+    const hexInput = document.querySelector(
+      '.ant-color-picker-hex-input input',
+    ) as HTMLInputElement | null;
+    if (!hexInput) throw new Error('hex input not found in the opened color-picker panel');
+    fireEvent.change(hexInput, { target: { value: '111111' } });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'updateAppearance',
+      patch: { colorsDark: { background: '#111111' } },
     });
   });
 });

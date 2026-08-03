@@ -22,6 +22,7 @@ See [learnings.md](./learnings.md).
 - [moengage — CONTEXT.md](../apps/moengage/CONTEXT.md) — MoEngage customer engagement
 - [forms — CONTEXT.md](../apps/forms/CONTEXT.md) — Form Builder (first-party app: drag-and-drop builder admin + public submission intake + storefront form SDK)
 - [wizzy — CONTEXT.md](../apps/wizzy/CONTEXT.md) — Wizzy AI Search (catalog sync + storefront search SDK)
+- [loyalty — CONTEXT.md](../apps/loyalty/CONTEXT.md) — Coins program (earning rules, bulk credit/debit, QR scan-to-earn, exports; Core Loyalty is the ledger, `loyalty_customers` is a mirror)
 
 ## Change journals
 - Repo-level: [CHANGELOG.md](./CHANGELOG.md)

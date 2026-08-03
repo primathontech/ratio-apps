@@ -49,6 +49,13 @@ function extractTotalItems(env: unknown): number | null {
   return typeof t === 'number' && t >= 0 ? t : null;
 }
 
+function hasNextPage(env: unknown): boolean {
+  if (!env || typeof env !== 'object' || Array.isArray(env)) return false;
+  const o = env as Rec;
+  // Explicit false = no more pages; undefined/true = keep going
+  return o.hasNext !== false;
+}
+
 @Injectable()
 export class CatalogSourceService {
   private readonly logger = new Logger(CatalogSourceService.name);
@@ -71,38 +78,22 @@ export class CatalogSourceService {
     const accessToken = await this.tokenProvider.getAccessToken(merchantId);
     let total = 0;
 
-    const env = await this.request(`all=true&${CatalogSourceService.FILTERS}`, accessToken);
-    const firstItems = extractItems(env);
-    const reportedTotal = extractTotalItems(env);
-
-    if (firstItems.length > 0) {
-      const batch = this.toProducts(firstItems);
-      if (batch.length) {
-        total += batch.length;
-        await onPage(batch);
+    // os-item caps page size at ~10 regardless of the requested limit.
+    // Page via the API's own hasNext signal rather than "fewer items than limit".
+    for (let page = 1; page <= CatalogSourceService.MAX_PAGES; page++) {
+      if (isCancelled?.()) {
+        this.logger.warn({ msg: 'ratio products paging cancelled', merchantId, page });
+        break;
       }
-    }
-
-    if (reportedTotal !== null && total < reportedTotal) {
-      for (
-        let offset = total;
-        offset < reportedTotal;
-        offset += CatalogSourceService.PAGE_SIZE
-      ) {
-        if (isCancelled?.()) {
-          this.logger.warn({ msg: 'ratio products paging cancelled', merchantId, offset });
-          break;
-        }
-        const pageEnv = await this.request(
-          `limit=${CatalogSourceService.PAGE_SIZE}&offset=${offset}&${CatalogSourceService.FILTERS}`,
-          accessToken,
-        );
-        const pageItems = this.toProducts(extractItems(pageEnv));
-        if (pageItems.length === 0) break;
-        total += pageItems.length;
-        await onPage(pageItems);
-        if (offset / CatalogSourceService.PAGE_SIZE >= CatalogSourceService.MAX_PAGES) break;
-      }
+      const env = await this.request(
+        `page=${page}&limit=${CatalogSourceService.PAGE_SIZE}&${CatalogSourceService.FILTERS}`,
+        accessToken,
+      );
+      const items = this.toProducts(extractItems(env));
+      if (items.length === 0) break;
+      total += items.length;
+      await onPage(items);
+      if (!hasNextPage(env)) break;
     }
 
     this.logger.log({ msg: 'streamed ratio products', merchantId, count: total });

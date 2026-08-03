@@ -101,8 +101,8 @@ const col = (t: TableSpec, name: string) => {
   return found as ColumnSpec;
 };
 
-describe('forms 0001_initial migration (migration lockstep smoke, TDD §3.9)', () => {
-  it('creates exactly the standard triad + the five forms tables', async () => {
+describe('forms 0001_initial migration (consolidated schema, migration lockstep smoke, TDD §3.9)', () => {
+  it('creates exactly the standard triad + the six forms tables', async () => {
     const { db, tableOrder } = fakeDb();
     await up(db);
     expect(tableOrder).toEqual([
@@ -114,6 +114,7 @@ describe('forms 0001_initial migration (migration lockstep smoke, TDD §3.9)', (
       'form_submissions',
       'form_webhook_deliveries',
       'form_email_log',
+      'form_export_jobs',
     ]);
   });
 
@@ -172,6 +173,22 @@ describe('forms 0001_initial migration (migration lockstep smoke, TDD §3.9)', (
     });
   });
 
+  // Folded from the former incremental 0003_form_appearance + 0004_form_metadata
+  // migrations: the theme/metadata columns now ride inline at the tail of forms.
+  it('forms: nullable appearance/metadata tail columns (appearance_json, description, redirect_url)', async () => {
+    const { db, tables } = fakeDb();
+    await up(db);
+    const t = tables.forms;
+    // Tail order matches what the incremental ALTERs produced (0003 then 0004).
+    expect(cols(t).slice(-3)).toEqual(['appearance_json', 'description', 'redirect_url']);
+    expect(col(t, 'appearance_json').type).toBe('json');
+    expect(col(t, 'appearance_json').modifiers.notNull).toBeUndefined();
+    expect(col(t, 'description').type).toBe('varchar(500)');
+    expect(col(t, 'description').modifiers.notNull).toBeUndefined();
+    expect(col(t, 'redirect_url').type).toBe('varchar(2048)');
+    expect(col(t, 'redirect_url').modifiers.notNull).toBeUndefined();
+  });
+
   it('form_submissions: UNIQUE idempotency_key + (form_id, created_at) index', async () => {
     const { db, tables, indexes } = fakeDb();
     await up(db);
@@ -190,6 +207,11 @@ describe('forms 0001_initial migration (migration lockstep smoke, TDD §3.9)', (
     );
     expect(col(t, 'idempotency_key').modifiers.unique).toBe(true);
     expect(col(t, 'idempotency_key').modifiers.notNull).toBe(true);
+    // Folded from the former incremental 0005_submission_context migration:
+    // hidden-field provenance, nullable, at the tail of form_submissions.
+    expect(cols(t).slice(-1)).toEqual(['context_json']);
+    expect(col(t, 'context_json').type).toBe('json');
+    expect(col(t, 'context_json').modifiers.notNull).toBeUndefined();
     expect(indexes.idx_form_submissions_form_created).toEqual({
       table: 'form_submissions',
       columns: ['form_id', 'created_at'],
@@ -245,10 +267,37 @@ describe('forms 0001_initial migration (migration lockstep smoke, TDD §3.9)', (
     });
   });
 
+  // Folded from the former incremental 0002_export_jobs migration: async CSV
+  // export jobs, now created inline in the consolidated initial migration.
+  it('form_export_jobs: documented columns, PK, status default, and merchant/form/created index', async () => {
+    const { db, tables, indexes } = fakeDb();
+    await up(db);
+    const t = tables.form_export_jobs;
+    expect(cols(t)).toEqual([
+      'id',
+      'form_id',
+      'merchant_id',
+      'status',
+      's3_key',
+      'row_count',
+      'error',
+      'created_at',
+      'updated_at',
+    ]);
+    expect(col(t, 'id').modifiers.primaryKey).toBe(true);
+    expect(col(t, 'status').modifiers.defaultTo).toBe('pending');
+    expect(col(t, 'row_count').type).toBe('integer');
+    expect(indexes.idx_form_export_jobs_merchant_form_created).toEqual({
+      table: 'form_export_jobs',
+      columns: ['merchant_id', 'form_id', 'created_at'],
+    });
+  });
+
   it('down() drops every table, children before merchants', async () => {
     const { db, dropped } = fakeDb();
     await down(db);
     expect(dropped).toEqual([
+      'form_export_jobs',
       'form_email_log',
       'form_webhook_deliveries',
       'form_submissions',

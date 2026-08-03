@@ -18,6 +18,7 @@ import {
   ColorPicker,
   Divider,
   Input,
+  Modal,
   message,
   PrimaryButton,
   Radio,
@@ -41,15 +42,21 @@ import {
   isCollectableFieldType,
   supportsCounter,
 } from '@shared/schemas/form-schema';
+import { buildSamplePayload, buildWebhookCurl } from '@shared/schemas/webhook-sample';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { type Dispatch, useEffect, useReducer, useState } from 'react';
+import { type Dispatch, useEffect, useMemo, useReducer, useState } from 'react';
 import { CanvasField } from '@/components/CanvasField';
 import { DesignSettings } from '@/components/DesignSettings';
 import { FieldPalette } from '@/components/FieldPalette';
 import { LivePreview } from '@/components/LivePreview';
 // Per-field settings panels (Phase 0 refactor): TypeSpecificSettings dispatches
 // through this registry; each panel lives in @/fields/<type>/settings.tsx.
-import { FieldMessagesSettings, SettingRow, SettingRowGroup } from '@/fields/_shared/controls';
+import {
+  FieldCustomCssSettings,
+  FieldMessagesSettings,
+  SettingRow,
+  SettingRowGroup,
+} from '@/fields/_shared/controls';
 import { fieldSettingsRegistry } from '@/fields/registry';
 import { useForm, useToggleFormStatus, useUpdateForm } from '@/hooks/useForms';
 import { useWebhookTest } from '@/hooks/useWebhookTest';
@@ -65,6 +72,7 @@ import {
 import {
   CANVAS_DROPPABLE_ID,
   canvasCollisionDetection,
+  droppedBelowMidpoint,
   isPaletteId,
   paletteFieldType,
   resolvePaletteIndex,
@@ -129,16 +137,19 @@ export function BuilderScreen({ formId }: { formId: string }) {
   };
 
   // Field-to-field reorders are already committed live in onDragOver, so onDragEnd
-  // only handles palette drops: insert the new field at the hovered row's index,
-  // or append when dropped on the container / empty canvas / past the last row.
+  // only handles palette drops: insert the new field before/after the hovered row
+  // (bottom half → after, so a drop can land past the last field), or append when
+  // dropped on the canvas container / empty canvas. A drop OUTSIDE any drop zone
+  // (over === null — e.g. over the palette or off-canvas) is a CANCEL: nothing added.
   const onDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     const activeId = String(active.id);
-    if (!isPaletteId(activeId)) return;
+    if (!isPaletteId(activeId) || !over) return;
+    const insertAfter = droppedBelowMidpoint(active.rect.current.translated, over.rect);
     dispatch({
       type: 'addField',
       fieldType: paletteFieldType(activeId) as FormFieldType,
-      index: resolvePaletteIndex(over ? String(over.id) : null, state.fields),
+      index: resolvePaletteIndex(String(over.id), state.fields, insertAfter),
     });
   };
 
@@ -252,6 +263,7 @@ export function BuilderScreen({ formId }: { formId: string }) {
                       <FormSettings
                         state={state}
                         dispatch={dispatch}
+                        formId={formId}
                         onWebhookTest={() =>
                           webhookTest.mutate(undefined, {
                             onSuccess: (result) =>
@@ -291,8 +303,17 @@ export function BuilderScreen({ formId }: { formId: string }) {
 function Canvas({ state, dispatch }: { state: BuilderState; dispatch: Dispatch<BuilderAction> }) {
   const { setNodeRef } = useDroppable({ id: CANVAS_DROPPABLE_ID });
   return (
-    <Card title="Form canvas" style={{ flex: '2 1 320px', minWidth: 280 }}>
-      <div ref={setNodeRef} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <Card
+      title="Form canvas"
+      style={{ flex: '2 1 320px', minWidth: 280 }}
+      // Flex column so the droppable fills the card and drops anywhere inside
+      // the canvas register (drops outside it cancel).
+      styles={{ body: { display: 'flex', flexDirection: 'column' } }}
+    >
+      <div
+        ref={setNodeRef}
+        style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 160 }}
+      >
         <SortableContext
           items={state.fields.map((f) => f.key)}
           strategy={verticalListSortingStrategy}
@@ -406,6 +427,8 @@ function FieldSettings({
         {/* Production validation messages — help text + custom error, for every input field. */}
         {'required' in field && <FieldMessagesSettings field={field} dispatch={dispatch} />}
         {'required' in field && <AdvancedStyleSettings field={field} dispatch={dispatch} />}
+        {/* Per-field raw custom CSS (baseFieldShape) — sanitized + field-scoped on the SDK read path. */}
+        {'required' in field && <FieldCustomCssSettings field={field} dispatch={dispatch} />}
       </Space>
     </Card>
   );
@@ -558,17 +581,47 @@ function TypeSpecificSettings({
 function FormSettings({
   state,
   dispatch,
+  formId,
   onWebhookTest,
   webhookTestPending,
   webhookTestResult,
 }: {
   state: BuilderState;
   dispatch: Dispatch<BuilderAction>;
+  formId: string;
   onWebhookTest: () => void;
   webhookTestPending: boolean;
   webhookTestResult: { statusCode: number | null } | null;
 }) {
   const patch = (p: Partial<BuilderState['meta']>) => dispatch({ type: 'updateMeta', patch: p });
+  const [payloadOpen, setPayloadOpen] = useState(false);
+  // Generated from LIVE builder state (even unsaved edits) via the same shared
+  // builder the server uses for the real delivery, so the preview can't drift.
+  const samplePayload = useMemo(
+    () =>
+      buildSamplePayload(state.fields, {
+        merchantId: 'your_merchant_id',
+        formId,
+        formName: state.meta.name || 'Untitled form',
+        submissionId: 'sub_example',
+        submittedAt: '2026-01-01T00:00:00.000Z',
+      }),
+    [state.fields, state.meta.name, formId],
+  );
+  const curl = useMemo(
+    () =>
+      buildWebhookCurl(
+        state.meta.webhookUrl.trim() || 'https://your-endpoint.example/webhook',
+        samplePayload,
+      ),
+    [state.meta.webhookUrl, samplePayload],
+  );
+  const copy = (text: string, what: string) => {
+    void navigator.clipboard.writeText(text).then(
+      () => void message.success(`${what} copied`),
+      () => void message.error('Copy failed, select and copy manually'),
+    );
+  };
   return (
     <Card title="Form settings">
       <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
@@ -636,14 +689,19 @@ function FormSettings({
             onChange={(e) => patch({ webhookUrl: e.target.value })}
           />
           <div style={{ marginTop: 8 }}>
-            <Button
-              size="small"
-              disabled={!state.meta.webhookUrl.trim()}
-              loading={webhookTestPending}
-              onClick={onWebhookTest}
-            >
-              Send test payload
-            </Button>
+            <Space size="small" wrap>
+              <Button
+                size="small"
+                disabled={!state.meta.webhookUrl.trim()}
+                loading={webhookTestPending}
+                onClick={onWebhookTest}
+              >
+                Send test payload
+              </Button>
+              <Button size="small" onClick={() => setPayloadOpen(true)}>
+                Preview payload & cURL
+              </Button>
+            </Space>
             {webhookTestResult && (
               <Typography.Text style={{ display: 'block', marginTop: 4 }}>
                 {webhookTestResult.statusCode === null
@@ -655,9 +713,46 @@ function FormSettings({
               type="secondary"
               style={{ fontSize: 12, display: 'block', marginTop: 4 }}
             >
-              Tests the saved webhook URL. Save first if you just changed it.
+              Tests the saved URL. Save first if you changed it.
             </Typography.Text>
           </div>
+          <Modal
+            title="form.submitted payload"
+            open={payloadOpen}
+            onCancel={() => setPayloadOpen(false)}
+            width={640}
+            footer={[
+              <Button
+                key="json"
+                onClick={() => copy(JSON.stringify(samplePayload, null, 2), 'JSON')}
+              >
+                Copy JSON
+              </Button>,
+              <PrimaryButton key="curl" onClick={() => copy(curl, 'cURL')}>
+                Copy as cURL
+              </PrimaryButton>,
+            ]}
+          >
+            <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+              This is exactly what your endpoint receives on every submission, generated from the
+              form's current fields. Each key is a field key; select fields send the option{' '}
+              <em>value</em>, number/rating send numbers, checkboxes a boolean. It updates as you
+              edit the form.
+            </Typography.Paragraph>
+            <pre
+              style={{
+                maxHeight: 360,
+                overflow: 'auto',
+                background: 'var(--color-fill-quaternary, #f5f5f5)',
+                padding: 12,
+                borderRadius: 6,
+                fontSize: 12,
+                whiteSpace: 'pre',
+              }}
+            >
+              {curl}
+            </pre>
+          </Modal>
         </SettingRow>
       </Space>
     </Card>

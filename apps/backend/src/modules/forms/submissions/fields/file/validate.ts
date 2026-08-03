@@ -2,29 +2,7 @@ import type { FormField } from '@ratio-app/shared/schemas/form-schema';
 
 type FileField = Extract<FormField, { type: 'file' }>;
 
-/**
- * File fields arrive as pre-uploaded S3 object keys in `files`. The key MUST be
- * exactly `<merchantId>/<formId>/<draftId>/<fieldKey>` for THIS field:
- *
- *  - the `<merchantId>/<formId>/` prefix keeps cross-tenant/cross-form isolation
- *    (TDD §3.6), and
- *  - the trailing `<fieldKey>` segment must equal this field's key (P2-2).
- *
- * The suffix check is what re-binds the object to this field's per-field
- * allowlist/size cap: those constraints are enforced at presign time keyed to
- * the field the key was minted for, so a key ending in `avatar` can only exist
- * because `avatar`'s allowlist/cap were satisfied. Without it, a 5 MB PDF
- * uploaded for a `resume` field could be submitted for a png/1 MB `avatar`
- * field (the prefix alone matches), and one object could satisfy several file
- * fields at once.
- *
- * Object EXISTENCE is a separate, async step ({@link validateFileExists}): a
- * well-formed key is fully guessable (merchantId/formId/fieldKey are public), so
- * the structural checks here cannot tell a real upload from a fabricated key —
- * that needs an S3 HEAD (P2-2). Re-sniffing the stored bytes stays a documented
- * residual (needs a GET; the forced attachment Content-Disposition on serve is
- * the P2-3 backstop for a falsified content type).
- */
+/** File fields arrive as pre-uploaded S3 keys; the key must be exactly `<merchantId>/<formId>/<draftId>/<fieldKey>` for THIS field — the prefix keeps cross-tenant/cross-form isolation (TDD §3.6) and the fieldKey suffix re-binds the object to this field's allowlist/size cap (P2-2), else a file uploaded for one field could satisfy another. Existence is checked separately ({@link validateFileExists}), since well-formed keys are guessable. */
 export function validateFile(
   field: FileField,
   objectKey: string | undefined,
@@ -49,22 +27,51 @@ export function validateFile(
   return null;
 }
 
+/** Outcome of validating a file field's submitted value(s). */
+export interface FileValidateResult {
+  /** Object key(s) to persist, shaped to `maxFiles`: scalar `string` for single-file (byte-identical to pre-multi), `string[]` for multi-file. Absent when nothing attached. */
+  value?: string | string[];
+  error?: string;
+}
+
+/** Multi-file wrapper over {@link validateFile}: normalizes a single key or array, enforces `maxFiles`, and runs the per-key structural check on every key. Output shape is pinned to config (single-file→scalar so existing forms stay byte-identical, multi→array); a form saved before `maxFiles` treats missing as 1. */
+export function validateFiles(
+  field: FileField,
+  raw: string | string[] | undefined,
+  scope: { merchantId: string; formId: string },
+): FileValidateResult {
+  const maxFiles = field.maxFiles ?? 1;
+  // Normalize to non-empty candidate keys — bare string (single-file) and array (multi-file) both funnel here.
+  const keys = (Array.isArray(raw) ? raw : raw === undefined ? [] : [raw]).filter(
+    (k) => k !== '' && k !== undefined && k !== null,
+  );
+
+  if (keys.length === 0) {
+    return field.required ? { error: 'Please attach a file.' } : {};
+  }
+  if (keys.length > maxFiles) {
+    return {
+      error:
+        maxFiles === 1
+          ? 'Please attach a single file.'
+          : `Please attach at most ${maxFiles} files.`,
+    };
+  }
+  for (const key of keys) {
+    const err = validateFile(field, key, scope);
+    if (err) return { error: err };
+  }
+  // Single-file → scalar (byte-identical), multi-file → array; keys is non-empty here.
+  const first = keys[0] as string;
+  return { value: maxFiles > 1 ? keys : first };
+}
+
 /** Minimal object-existence dependency (satisfied by {@link FormsS3Service}). */
 interface ObjectExistenceChecker {
   exists(objectKey: string): Promise<boolean>;
 }
 
-/**
- * Async existence re-check (P2-2): confirm the (already structurally validated)
- * object key actually points at an uploaded object before a submission stores a
- * reference to it. Without this, a fabricated but well-formed key would persist
- * a phantom file reference. Runs after {@link validateFile}, so it is only ever
- * a single HEAD per genuinely-present, well-formed key.
- *
- * Wiring note: the submit path (`submissions.service.submitPublic`) is the async
- * seam that calls this for each accepted file key; that module is out of scope
- * for this change, so this helper is exported ready to be awaited there.
- */
+/** Async existence re-check (P2-2): confirm the structurally-valid key points at a real object before persisting a reference, so a fabricated well-formed key can't persist a phantom file. Called per accepted key from the submit path (`submissions.service.submitPublic`). */
 export async function validateFileExists(
   objectKey: string,
   s3: ObjectExistenceChecker,

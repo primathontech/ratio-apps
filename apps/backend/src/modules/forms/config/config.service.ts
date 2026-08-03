@@ -9,19 +9,7 @@ import { FORMS_CRYPTO } from '../tokens';
 
 const DEFAULT_RECAPTCHA_THRESHOLD = 0.3;
 
-/**
- * Per-merchant Forms config CRUD. Backed by `forms_configs`, keyed by
- * `merchant_id` (single-tenant per-module DB — no `app` column).
- *
- * The reCAPTCHA secret is WRITE-ONLY and ENCRYPTED AT REST (AES-256-GCM via
- * the module's CryptoService, keyed by RATIO_FORMS_DATA_ENCRYPTION_KEY).
- * The GET shape carries only `hasRecaptchaSecret`; the plaintext never
- * leaves this service (a decrypt helper for the reCAPTCHA verifier lands
- * with the submissions phase).
- *
- * MySQL has no `RETURNING`, so writes use INSERT…ON DUPLICATE KEY UPDATE and
- * compose the response in memory.
- */
+/** Per-merchant Forms config CRUD; reCAPTCHA secret is write-only and encrypted at rest (plaintext never leaves this service). */
 @Injectable()
 export class FormsConfigService {
   constructor(
@@ -43,30 +31,21 @@ export class FormsConfigService {
       });
     }
     return {
-      // exactOptionalPropertyTypes: omit absent optionals instead of
-      // spelling out `undefined`.
+      // exactOptionalPropertyTypes: omit absent optionals rather than set undefined.
       ...(row.recaptchaSiteKey ? { recaptchaSiteKey: row.recaptchaSiteKey } : {}),
       // mysql2 returns DECIMAL as a string → coerce.
       recaptchaThreshold: Number(row.recaptchaThreshold),
       ...(row.defaultNotificationEmail
         ? { defaultNotificationEmail: row.defaultNotificationEmail }
         : {}),
-      // MySQL stores booleans as TINYINT(1) → mysql2 returns 0/1, coerce.
+      // mysql2 returns TINYINT(1) as 0/1 → coerce.
       formsEnabled: Boolean(row.formsEnabled),
       hasRecaptchaSecret: Boolean(row.recaptchaSecretEnc),
       emailBounced: Boolean(row.emailBounced),
     };
   }
 
-  /**
-   * UPSERT this merchant's Forms config and return the saved (GET) shape.
-   *
-   * Secret handling: a non-blank `recaptchaSecret` is encrypted and replaces
-   * the stored ciphertext; blank/absent keeps the existing value untouched
-   * (write-only semantics — the admin form never round-trips the secret).
-   * `emailBounced` is deliberately NOT written here: the email worker owns
-   * that flag.
-   */
+  /** UPSERT config; blank/absent recaptchaSecret keeps the stored ciphertext, and emailBounced is owned by the email worker (not written here). */
   async upsert(merchantId: string, input: FormsConfigInput): Promise<FormsConfig> {
     const recaptchaThreshold = input.recaptchaThreshold ?? DEFAULT_RECAPTCHA_THRESHOLD;
     const formsEnabled = input.formsEnabled ?? true;

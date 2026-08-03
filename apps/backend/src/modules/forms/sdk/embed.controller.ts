@@ -3,16 +3,7 @@ import type { FastifyReply } from 'fastify';
 import { FormIdPipe } from '../../../core/common/pipes/form-id.pipe';
 import { FormsEmbedService } from './embed.service';
 
-/**
- * Serves the drop-in iframe embed page:
- *   <iframe src="https://.../forms/embed/<formId>"></iframe>
- *
- * `FormIdPipe` validates `:formId` against the minted `form_<base64url>` shape
- * before any DB lookup (guards path-traversal / control chars / length).
- *
- * Sends raw HTML via the Fastify reply to bypass the global JSON
- * ResponseInterceptor (same technique as `FormsSdkController`).
- */
+/** Serves the drop-in iframe embed page; FormIdPipe validates `:formId` before any DB lookup (guards path-traversal / control chars / length). */
 @Controller('forms/embed')
 export class FormsEmbedController {
   constructor(private readonly embed: FormsEmbedService) {}
@@ -22,11 +13,7 @@ export class FormsEmbedController {
     @Param('formId', FormIdPipe) formId: string,
     @Res() reply: FastifyReply,
   ): Promise<void> {
-    // FRAMEABILITY: helmet's frameguard sets `X-Frame-Options: SAMEORIGIN`
-    // globally (configure-app.ts leaves frameguard at its default), which would
-    // block cross-site iframing. Remove it and open frame-ancestors for THIS
-    // route only, so a merchant can embed the form into any existing page.
-    // CSP is disabled globally, so this is the only policy on this response.
+    // FRAMEABILITY: drop the global X-Frame-Options and open frame-ancestors for THIS route only so merchants can embed the form cross-site.
     reply.removeHeader('X-Frame-Options');
     reply.header('Content-Security-Policy', 'frame-ancestors *');
     reply.header('content-type', 'text/html; charset=utf-8');

@@ -6,6 +6,7 @@ import {
   Card,
   CheckCircleOutlined,
   CheckSquareOutlined,
+  CodeOutlined,
   DownSquareOutlined,
   EyeInvisibleOutlined,
   FieldNumberOutlined,
@@ -18,6 +19,7 @@ import {
   PaperClipOutlined,
   PhoneOutlined,
   PictureOutlined,
+  SplitCellsOutlined,
   StarOutlined,
   Typography,
   UnorderedListOutlined,
@@ -52,6 +54,8 @@ const FIELD_TYPE_ICONS: Record<FormFieldType, ReactNode> = {
   divider: <LineOutlined />,
   paragraph: <FileTextOutlined />,
   image: <PictureOutlined />,
+  html: <CodeOutlined />,
+  page_break: <SplitCellsOutlined />,
 };
 
 /**
@@ -81,7 +85,7 @@ const PALETTE_GROUPS: { title: string; types: FormFieldType[] }[] = [
   },
   {
     title: 'Layout blocks',
-    types: ['heading', 'divider', 'paragraph', 'image'],
+    types: ['heading', 'divider', 'paragraph', 'image', 'html', 'page_break'],
   },
 ];
 
@@ -140,13 +144,15 @@ function PaletteItem({
       alignItems: 'center',
       gap: 6,
       textAlign: 'left' as const,
-      padding: '8px 10px',
+      padding: '4px 8px',
+      // Fixed height so 2-line labels ("Custom HTML") don't grow their cell.
+      height: 38,
       border: '1px solid #e5e5e5',
       borderRadius: 6,
       background: '#fff',
       cursor: 'grab',
       fontSize: 12,
-      lineHeight: 1.25,
+      lineHeight: 1.2,
       minWidth: 0,
     }),
     [transform],

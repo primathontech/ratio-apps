@@ -1,4 +1,5 @@
 import { type ControlFieldOf, type FieldValidateCtx, isEmpty } from '../types';
+import { numericValue } from './format';
 
 export function validateNumber(
   field: ControlFieldOf<'number'>,
@@ -6,8 +7,18 @@ export function validateNumber(
 ): string | null {
   const value = ctx.values[field.key];
   if (isEmpty(value)) return field.required ? 'This field is required.' : null;
-  const n = Number(String(value));
+  // Tolerant parse: strip locale grouping first so a still-grouped entry (e.g.
+  // "1,234" submitted before blur canonicalizes it) parses instead of NaN-ing.
+  let n = numericValue(value, field.format);
   if (Number.isNaN(n)) return 'Please enter a number.';
+  // Mirror the server: round to the configured precision BEFORE the rule checks
+  // (same Math.round algorithm), so a value the server rounds-and-accepts — e.g.
+  // "3.2" with decimalPlaces:0 → 3 for an integer field — isn't dead-ended
+  // client-side when the shopper submits without blurring first.
+  if (field.format?.decimalPlaces !== undefined) {
+    const factor = 10 ** field.format.decimalPlaces;
+    n = Math.round(n * factor) / factor;
+  }
   const rules = field.validation;
   if (rules?.integer && !Number.isInteger(n)) return 'Please enter a whole number.';
   if (rules?.min !== undefined && n < rules.min)

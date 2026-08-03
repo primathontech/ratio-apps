@@ -4,8 +4,8 @@ import { HttpException, Logger } from '@nestjs/common';
 import { formSubmittedPayloadSchema } from '@ratio-app/shared/constants/forms-events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FormWebhookDeliveryRow } from '../../../../src/modules/forms/db/types';
-import { WebhookDeliveryService } from '../../../../src/modules/forms/delivery/webhook-delivery.service';
-import { WebhookDeliveryWorker } from '../../../../src/modules/forms/delivery/webhook-delivery.worker';
+import { WebhookDeliveryService } from '../../../../src/modules/forms/outbound/webhook-delivery.service';
+import { WebhookDeliveryWorker } from '../../../../src/modules/forms/outbound/webhook-delivery.worker';
 import type { FormsS3Service } from '../../../../src/modules/forms/uploads/s3.service';
 import { makeFakeHandle, type Row } from './fixtures/fake-db';
 import { FakeQueueService, fakeDeliveryFetch } from './fixtures/fakes';
@@ -67,7 +67,7 @@ describe('WebhookDeliveryService — the retry state machine (AC10)', () => {
     expect(row?.nextRetryAt).toBeNull();
   });
 
-  it('non-2xx: attempt 1 → pending +5m, attempt 2 → pending +20m, attempt 3 → failed (ladder 5m/20m/1h)', async () => {
+  it('non-2xx: attempt 1 → pending +5m, attempt 2 → pending +20m, attempt 3 → failed (ladder 5m/20m)', async () => {
     const base = new Date('2026-02-01T12:00:00Z').getTime();
 
     const first = setup(seedWithSubmission(deliveryRow({ attempts: 0 })), [500]);
@@ -106,6 +106,26 @@ describe('WebhookDeliveryService — the retry state machine (AC10)', () => {
       lastStatusCode: 503,
     });
     expect(third.fake.tables.form_webhook_deliveries?.[0]?.nextRetryAt).toBeNull();
+  });
+
+  it('malformed data_json → dead-lettered without throwing (poison-pill guard, N11)', async () => {
+    // A corrupt row must NOT let the parse throw escape execute(): buildPayload
+    // runs inside the try, so the row is failed (not re-raised → SQS can ack).
+    const seed = {
+      forms: [contactForm()],
+      form_submissions: [submissionRow({ dataJson: '{"broken":' })],
+      form_webhook_deliveries: [deliveryRow({ attempts: 2 })],
+    };
+    const { executor, calls, fake } = setup(seed, []);
+    await expect(
+      executor.execute(fake.tables.form_webhook_deliveries?.[0] as FormWebhookDeliveryRow),
+    ).resolves.toBeUndefined();
+    expect(calls).toHaveLength(0); // never POSTed
+    expect(fake.tables.form_webhook_deliveries?.[0]).toMatchObject({
+      status: 'failed',
+      attempts: 3,
+      lastStatusCode: null,
+    });
   });
 
   it('network error / timeout → retry scheduled with null status code', async () => {
@@ -223,6 +243,19 @@ describe('WebhookDeliveryWorker — SQS drain (TDD §3.7)', () => {
     await worker.drainOnce();
     expect(calls).toHaveLength(0); // no POST fired
     expect(queue.acked).toHaveLength(1);
+  });
+
+  it('acks a message whose row has malformed data_json (no infinite redelivery, N11)', async () => {
+    const seed = {
+      forms: [contactForm()],
+      form_submissions: [submissionRow({ dataJson: 'not json' })],
+      form_webhook_deliveries: [deliveryRow()],
+    };
+    const { worker, queue, calls } = makeWorker(seed, []);
+    queue.toReceive.push([{ body: { deliveryId: 1 }, receiptHandle: 'r1' }]);
+    await worker.drainOnce();
+    expect(calls).toHaveLength(0); // no POST fired
+    expect(queue.acked).toEqual([{ name: 'forms-webhook-delivery', receiptHandles: ['r1'] }]);
   });
 
   it('acks and drops messages whose row has vanished', async () => {

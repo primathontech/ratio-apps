@@ -26,3 +26,9 @@ export * from './schemas/moengage-config';
 export * from './schemas/posthog-config';
 // wizzy vendor (AI search & discovery) — search/autocomplete API + storefront config schemas.
 export * from './schemas/wizzy-search';
+// loyalty vendor (scaffolded).
+export * from './constants/loyalty-events';
+export * from './schemas/loyalty-config';
+export * from './schemas/loyalty-rules';
+export * from './schemas/loyalty-claim';
+export * from './schemas/loyalty-export';

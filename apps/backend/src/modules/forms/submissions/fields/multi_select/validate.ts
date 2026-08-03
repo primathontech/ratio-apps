@@ -1,23 +1,45 @@
+import { optionValues } from '@ratio-app/shared/schemas/fields/_shared/base';
+import { isValidOtherValue } from '@ratio-app/shared/schemas/fields/_shared/select-constants';
 import type { FieldOfType, ServerValidateResult } from '../types';
 
 export function validateMultiSelect(
   field: FieldOfType<'multi_select'>,
   value: unknown,
 ): ServerValidateResult {
-  if (
-    !Array.isArray(value) ||
-    !value.every((v) => typeof v === 'string' && field.options.includes(v))
-  ) {
+  const allowed = new Set(optionValues(field.options));
+  if (!Array.isArray(value) || !value.every((v) => typeof v === 'string')) {
     return { error: 'Please choose only from the available options.' };
   }
-  // Cap the array at the number of defined options and reject duplicates (P2-6):
-  // without this a 2-option field accepts thousands of repeated valid values,
-  // bloating data_json / CSV / webhook payloads (bounded only by the body limit).
-  if (value.length > field.options.length) {
+  const nonMembers = value.filter((v) => !allowed.has(v as string));
+  if (field.allowOther) {
+    // Server-authoritative "Other" (§4.5 P0): at most ONE bounded, non-empty
+    // value outside the option set (the typed free text). Mirrors the SDK.
+    if (nonMembers.length > 1 || nonMembers.some((v) => !isValidOtherValue(v))) {
+      return { error: 'Please choose only from the available options.' };
+    }
+  } else if (nonMembers.length > 0) {
+    return { error: 'Please choose only from the available options.' };
+  }
+  // Cap the array at the number of defined options (+1 for the Other entry when
+  // allowOther) and reject duplicates (P2-6): without this a 2-option field
+  // accepts thousands of repeated valid values, bloating data_json / CSV /
+  // webhook payloads (bounded only by the body limit).
+  if (value.length > field.options.length + (field.allowOther ? 1 : 0)) {
     return { error: 'Please make fewer selections.' };
   }
   if (new Set(value).size !== value.length) {
     return { error: 'Please remove duplicate selections.' };
+  }
+  // Server-authoritative selection-count bounds (P0 field-depth): the client
+  // "N of M" check is a UX mirror only — the public submit path can bypass it,
+  // so min/max are re-enforced here from the persisted schema.
+  const min = field.selection?.min;
+  const max = field.selection?.max;
+  if (min !== undefined && value.length < min) {
+    return { error: `Please select at least ${min} option${min === 1 ? '' : 's'}.` };
+  }
+  if (max !== undefined && value.length > max) {
+    return { error: `Please select at most ${max} option${max === 1 ? '' : 's'}.` };
   }
   return { value };
 }

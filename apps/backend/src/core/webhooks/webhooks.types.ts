@@ -31,17 +31,29 @@ export const webhookEnvelopeSchema = z
     event_type: z.string().min(1).max(128),
     merchant_id: z.string().min(1).nullable().optional(),
     product: z.record(z.string(), z.unknown()).optional(),
+    // Order events (`orders/*`) carry the order as their resource instead of a
+    // product. Same shape rules apply: opaque record, handler-validated.
+    order: z.record(z.string(), z.unknown()).optional(),
   })
   .passthrough();
 
 export type WebhookEnvelope = z.infer<typeof webhookEnvelopeSchema>;
 
-function productVersion(product: Record<string, unknown>): string | null {
-  const updatedAt = product.updated_at ?? product.updatedAt;
+/**
+ * The event's resource object — `product` for product events, `order` for
+ * order events, `{}` for resource-less events (e.g. `app/uninstalled`).
+ * Dispatch logs and forwards THIS to the matched handler.
+ */
+export function envelopeResource(e: WebhookEnvelope): Record<string, unknown> {
+  return (e.product ?? e.order ?? {}) as Record<string, unknown>;
+}
+
+function resourceVersion(resource: Record<string, unknown>): string | null {
+  const updatedAt = resource.updated_at ?? resource.updatedAt;
   if (typeof updatedAt === 'string' && updatedAt) return updatedAt;
   if (typeof updatedAt === 'number') return String(updatedAt);
   try {
-    return createHash('sha256').update(JSON.stringify(product)).digest('hex').slice(0, 16);
+    return createHash('sha256').update(JSON.stringify(resource)).digest('hex').slice(0, 16);
   } catch {
     return null;
   }
@@ -61,9 +73,14 @@ function productVersion(product: Record<string, unknown>): string | null {
  * the exact dedup key instead.
  */
 export function deriveWebhookId(e: WebhookEnvelope): string {
-  const rid = (e.product && typeof e.product.id === 'string' && e.product.id) || 'none';
+  const resource = envelopeResource(e);
+  const rawId = resource.id;
+  const rid =
+    (typeof rawId === 'string' && rawId) ||
+    (typeof rawId === 'number' && Number.isFinite(rawId) && String(rawId)) ||
+    'none';
   if (rid === 'none') return `${e.event_type}:none`;
-  const version = productVersion(e.product as Record<string, unknown>);
+  const version = resourceVersion(resource);
   return version ? `${e.event_type}:${rid}:${version}` : `${e.event_type}:${rid}`;
 }
 
@@ -85,7 +102,7 @@ export function dedupeKey(deliveryId: string | undefined, e: WebhookEnvelope): s
   const trimmed = typeof deliveryId === 'string' ? deliveryId.trim() : '';
   if (trimmed === '') return deriveWebhookId(e);
   const fingerprint = createHash('sha256')
-    .update(JSON.stringify(e.product ?? {}))
+    .update(JSON.stringify(envelopeResource(e)))
     .digest('hex')
     .slice(0, 16);
   return `${trimmed}:${fingerprint}`;

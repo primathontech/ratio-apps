@@ -21,5 +21,12 @@ export function validateDate(field: ControlFieldOf<'date'>, ctx: FieldValidateCt
   if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) {
     return 'Please enter a valid date.';
   }
+  // Optional [min,max] bounds — lexical compare is exact for the ISO shape above.
+  // Mirrors the server bounds check so client + server reject the same values.
+  const rules = field.validation;
+  if (rules?.min !== undefined && raw < rules.min)
+    return `Please enter a date on or after ${rules.min}.`;
+  if (rules?.max !== undefined && raw > rules.max)
+    return `Please enter a date on or before ${rules.max}.`;
   return null;
 }

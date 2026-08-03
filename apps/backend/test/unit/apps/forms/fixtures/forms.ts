@@ -40,13 +40,26 @@ export const KITCHEN_SINK_FIELDS: FormField[] = [
   },
   { key: 'email', type: 'email', label: 'Email', required: true },
   { key: 'phone', type: 'phone', label: 'Phone', required: true },
-  { key: 'topic', type: 'dropdown', label: 'Topic', required: true, options: ['sales', 'support'] },
+  {
+    key: 'topic',
+    type: 'dropdown',
+    label: 'Topic',
+    required: true,
+    options: [
+      { value: 'sales', label: 'sales' },
+      { value: 'support', label: 'support' },
+    ],
+  },
   {
     key: 'channels',
     type: 'multi_select',
     label: 'Channels',
     required: false,
-    options: ['email', 'sms', 'whatsapp'],
+    options: [
+      { value: 'email', label: 'email' },
+      { value: 'sms', label: 'sms' },
+      { value: 'whatsapp', label: 'whatsapp' },
+    ],
   },
   { key: 'visit_date', type: 'date', label: 'Visit date', required: false },
   {

@@ -9,27 +9,11 @@ import type { OAuthService } from '../../../core/oauth/oauth.service';
 import type { FormsDatabase } from '../db/types';
 import { FORMS_OAUTH } from '../tokens';
 
-/**
- * Short-lived HttpOnly cookie name the admin SPA reads (via the
- * `GET /forms/api/v1/oauth/install/session` endpoint below) to discover
- * the merchant id after a successful install. Replaces the previous
- * `?merchant=<id>` query string, which leaked the id into browser history,
- * Referer headers, and any 3rd-party JS loaded by the admin shell.
- *
- * The `_forms` suffix scopes this cookie per-module: both Forms and
- * Forms controllers serve from the same backend host on `path: '/'`,
- * so a shared cookie name would let the second install callback overwrite
- * the first while its admin SPA was still polling `install/session`.
- */
+/** Short-lived HttpOnly cookie carrying the merchant id post-install (read via install/session); avoids leaking the id in the URL, and the `_forms` suffix scopes it per-module so parallel installs can't clobber each other. */
 const INSTALL_COOKIE = 'ratio_install_merchant_forms';
 const INSTALL_COOKIE_MAX_AGE_SECONDS = 60;
 
-/**
- * `setCookie`/`cookies` come from `@fastify/cookie`'s module-augmentation of
- * `fastify`'s `FastifyReply` and `FastifyRequest`. The plugin must be
- * registered in `configureApp`/`main.ts` before this controller can serve
- * traffic — see the TODO on `callback()` below.
- */
+// setCookie/cookies come from @fastify/cookie augmentation; the plugin must be registered in configureApp/main.ts before this controller serves traffic.
 
 @Controller('forms/api/v1/oauth')
 export class FormsOAuthController {
@@ -38,19 +22,7 @@ export class FormsOAuthController {
     private readonly config: ConfigService<Env, true>,
   ) {}
 
-  /**
-   * Ratio redirects the merchant's browser here after they click Install on
-   * the Forms app card. The per-module OAuthService handles the token
-   * exchange + bootstrap; we then issue a short-lived HttpOnly cookie that
-   * the admin SPA exchanges (server-side) for the merchant id via the
-   * `install/session` endpoint below, and finally redirect to the admin SPA
-   * root with NO query string.
-   *
-   * `state` is accepted (Ratio mints and echoes its own opaque value) but
-   * NOT validated — we don't sign it on the authorize side, so we have
-   * nothing to verify against. Wire up state issuance + signature check
-   * here when we own the authorize URL.
-   */
+  /** OAuth install callback: OAuthService does token exchange, then we set a short-lived HttpOnly cookie the SPA exchanges via install/session before redirecting to the SPA root. `state` is accepted but NOT validated — we don't sign the authorize URL yet; add issuance + signature check when we own it. */
   @Get('callback')
   async callback(
     @Query(new ZodValidationPipe(callbackDtoSchema as unknown as ZodType<CallbackDto>))
@@ -62,19 +34,12 @@ export class FormsOAuthController {
       infer: true,
     }) as string;
 
-    // S4: replace `?merchant=<id>` query param with a short-lived HttpOnly
-    // cookie. The admin SPA reads the merchant id via the `install/session`
-    // endpoint below on its first mount, then clears the cookie.
+    // S4: swap the `?merchant=<id>` param for a short-lived HttpOnly cookie the SPA reads via install/session.
     reply.setCookie(INSTALL_COOKIE, merchantId, {
       httpOnly: true,
-      // In development (HTTP localhost) the browser drops Secure cookies, so
-      // the install-session round trip would break. In every other env we
-      // require HTTPS and keep Secure on.
+      // Dev is HTTP localhost where browsers drop Secure cookies; keep Secure everywhere else.
       secure: process.env.NODE_ENV !== 'development',
-      // SameSite=None is required for cross-site cookie delivery — admin SPAs
-      // on `*.cloudfront.net` fetch backend on `*.primathontech.co.in`. `Lax`
-      // would drop the cookie on those cross-site requests. `None` mandates
-      // Secure (already true in non-dev above).
+      // SameSite=None: admin SPA and backend are cross-site, so Lax would drop the cookie; None mandates Secure (set above).
       sameSite: 'none',
       path: '/',
       maxAge: INSTALL_COOKIE_MAX_AGE_SECONDS,
@@ -83,43 +48,23 @@ export class FormsOAuthController {
     await reply.redirect(`${adminBase}/`, 302);
   }
 
-  /**
-   * S4: Bridges the HttpOnly `ratio_install_merchant_forms` cookie to
-   * the admin SPA. The SPA can't read HttpOnly cookies via `document.cookie`,
-   * so it GETs this endpoint on first mount to discover the merchant id,
-   * then stores it in its own (non-shared) session and DELETEs to clear the
-   * cookie. The 60s TTL is a fallback in case the SPA never calls DELETE.
-   *
-   * TODO admin: read /install/session on root mount.
-   */
+  /** S4: bridges the HttpOnly install cookie to the SPA (which can't read HttpOnly via document.cookie); the 60s TTL is the fallback if the SPA never DELETEs. */
   @Get('install/session')
   installSession(@Req() req: FastifyRequest): { merchantId: string | null } {
-    // `req.cookies` is populated by `@fastify/cookie`. When the plugin
-    // isn't registered (test bootstraps that skip it, misconfigured prod)
-    // we get `undefined` here — fall through to `null` rather than throw.
+    // `req.cookies` needs @fastify/cookie; fall through to null when the plugin isn't registered rather than throw.
     const cookies = (req as FastifyRequest & { cookies?: Record<string, string | undefined> })
       .cookies;
     const merchantId = cookies?.[INSTALL_COOKIE] ?? null;
     return { merchantId };
   }
 
-  /**
-   * Clears the `ratio_install_merchant_forms` cookie. The admin SPA SHOULD
-   * call this after reading the install session, but the 60s TTL means it's
-   * also fine to skip.
-   */
+  /** Clears the install cookie; optional for the SPA since the 60s TTL also expires it. */
   @Delete('install/session')
   clearInstallSession(@Res() reply: FastifyReply): void {
+    // Secure/SameSite must match the attributes callback() set or the browser won't match the clear.
     reply.setCookie(INSTALL_COOKIE, '', {
       httpOnly: true,
-      // In development (HTTP localhost) the browser drops Secure cookies, so
-      // the install-session round trip would break. In every other env we
-      // require HTTPS and keep Secure on.
       secure: process.env.NODE_ENV !== 'development',
-      // SameSite=None is required for cross-site cookie delivery — admin SPAs
-      // on `*.cloudfront.net` fetch backend on `*.primathontech.co.in`. `Lax`
-      // would drop the cookie on those cross-site requests. `None` mandates
-      // Secure (already true in non-dev above).
       sameSite: 'none',
       path: '/',
       maxAge: 0,

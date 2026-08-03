@@ -4,11 +4,18 @@ import { api } from '../lib/api';
 import { queryKeys } from '../lib/queryKeys';
 import { useMerchantStore } from '../stores/useMerchantStore';
 
+/** Provenance of one hidden field: which source it resolved from + the raw value. */
+export interface HiddenFieldProvenance {
+  source: string;
+  value: string;
+}
+
 export interface SubmissionListItem {
   id: string;
   formId: string;
   data: Record<string, unknown>;
-  files: Record<string, string>;
+  /** field key → object key (single-file) or object-key array (multi-file). */
+  files: Record<string, string | string[]>;
   recaptchaScore: number | null;
   createdAt: string;
 }
@@ -20,9 +27,12 @@ export interface SubmissionListResult {
   hasMore: boolean;
 }
 
-/** Row expand: same item plus field key → 7-day signed file URL. */
+/** Row expand: same item plus signed file URL(s) and hidden-field provenance. */
 export interface SubmissionDetail extends SubmissionListItem {
-  fileUrls: Record<string, string>;
+  /** field key → 7-day signed URL (single-file) or array of URLs (multi-file). */
+  fileUrls: Record<string, string | string[]>;
+  /** field key → { source, value } for each hidden field (§4 context_json). */
+  context: Record<string, HiddenFieldProvenance>;
 }
 
 export interface DeliveryRow {

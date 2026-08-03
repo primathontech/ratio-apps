@@ -14,6 +14,12 @@ type FontFamily = FormAppearance['typography']['fontFamily'];
 type ButtonSize = FormAppearance['layout']['buttonSize'];
 type InputSize = FormAppearance['layout']['inputSize'];
 type BackgroundConfig = FormAppearance['background'];
+// NonNullable: logo is an optional appearance group, so narrow to its object.
+type LogoSize = NonNullable<NonNullable<FormAppearance['logo']>['size']>;
+// NonNullable: the optional §1.2/§1.8 enums narrow to their member tuples.
+type TypeScale = NonNullable<FormAppearance['typography']['scaleRatio']>;
+type MotionSpeed = NonNullable<FormAppearance['layout']['motionSpeed']>;
+type Easing = NonNullable<FormAppearance['layout']['easing']>;
 
 // Curated font stacks, keyed by the shared FORM_FONT_FAMILIES enum. 'system'
 // is the current default (no network font); the rest name a family loaded at
@@ -48,8 +54,47 @@ export const GOOGLE_FONT_HREF: Record<Exclude<FontFamily, 'system'>, string> = {
   merriweather: 'https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700&display=swap',
 };
 
-// Density → field gap + vertical input padding + card padding (px). pad-x
-// stays constant.
+/**
+ * Re-sanitize a merchant-supplied custom Google Font name at the SDK layer
+ * (defense in depth — the shared schema already allow-lists it). Strips
+ * anything outside `[A-Za-z0-9 -]` and collapses whitespace, then rejects the
+ * empty result. The clean name is safe to interpolate into both the
+ * font-family CSS declaration and the Google Fonts URL — no quotes, parens,
+ * `;`, braces, or `url()` can survive. Returns null when nothing usable remains.
+ */
+export function sanitizeFontName(name: string | undefined): string | null {
+  if (!name) return null;
+  const clean = name
+    .replace(/[^A-Za-z0-9 -]/g, '')
+    .trim()
+    .replace(/\s+/g, ' ');
+  return clean.length > 0 ? clean : null;
+}
+
+/**
+ * Build the Google Fonts stylesheet URL for a custom family name. The SDK, not
+ * the merchant, composes the URL from a re-sanitized name (spaces → `+`), so
+ * nothing dynamic reaches the injected `<link href>` — same invariant as the
+ * fixed {@link GOOGLE_FONT_HREF} map. Returns null when the name is not usable.
+ */
+export function customGoogleFontHref(name: string | undefined): string | null {
+  const clean = sanitizeFontName(name);
+  if (!clean) return null;
+  const family = clean.replace(/ /g, '+');
+  // No :wght axis — a merchant can type any family, and css2 returns HTTP 400
+  // (no CSS) if a requested weight doesn't exist for that font. Omitting it
+  // loads the family's default face (always resolves); bold is synthesized.
+  return `https://fonts.googleapis.com/css2?family=${family}&display=swap`;
+}
+
+/** Font-family stack for a custom family name, over the shared system fallback. */
+export function customFontStack(name: string | undefined): string | null {
+  const clean = sanitizeFontName(name);
+  return clean ? `'${clean}', ${SYSTEM_FONT}` : null;
+}
+
+// Density → field gap + vertical input padding + card padding (px). pad-x is
+// font-relative (scales with baseSize) — see the --wz-pad-x emit below.
 const DENSITY: Record<
   FormAppearance['layout']['density'],
   { gap: number; padY: number; cardPad: number }
@@ -59,11 +104,34 @@ const DENSITY: Record<
   spacious: { gap: 20, padY: 11, cardPad: 36 },
 };
 
-// Card drop shadow, keyed by the shared FORM_SHADOWS enum. 'sm' is the default.
+// Card drop shadow, keyed by the shared FORM_SHADOWS enum. 'sm' is the default;
+// 'lg'/'xl' extend the elevation scale (§1.6 E2a).
 const SHADOWS: Record<FormAppearance['layout']['shadow'], string> = {
   none: 'none',
   sm: '0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.1)',
   md: '0 4px 6px rgba(0, 0, 0, 0.05), 0 10px 20px rgba(0, 0, 0, 0.1)',
+  lg: '0 10px 15px rgba(0, 0, 0, 0.08), 0 20px 40px rgba(0, 0, 0, 0.12)',
+  xl: '0 20px 25px rgba(0, 0, 0, 0.1), 0 30px 60px rgba(0, 0, 0, 0.18)',
+};
+
+// §1.2 — modular type-scale ratio → heading role tokens. Only consulted when a
+// scaleRatio is explicitly set; unset falls back to today's additive sizes.
+const TYPE_SCALE_RATIOS: Record<TypeScale, number> = {
+  'minor-third': 1.2,
+  'major-third': 1.25,
+  'perfect-fourth': 1.333,
+};
+
+// §1.8 — motion speed → base transition duration (s). 'normal' matches today's
+// 0.12s when animations are on. Duration stays 0 while animations are off.
+const MOTION_SPEED_S: Record<MotionSpeed, number> = { slow: 0.24, normal: 0.12, fast: 0.06 };
+
+// §1.8 — easing preset → a fixed cubic-bezier. 'standard' is today's curve.
+const EASING_CURVES: Record<Easing, string> = {
+  standard: 'cubic-bezier(0.4, 0, 0.2, 1)',
+  linear: 'linear',
+  emphasized: 'cubic-bezier(0.2, 0, 0, 1)',
+  spring: 'cubic-bezier(0.34, 1.56, 0.64, 1)',
 };
 
 // Submit button size (§1.5) → vertical padding + font size tokens. 'md' is the
@@ -77,10 +145,20 @@ const BUTTON_SIZE: Record<ButtonSize, { padY: string; font: string }> = {
 // Input size (§1.9) → min control height (px) for text inputs, selects, and
 // textareas. 'md' is the default (~today). Height only: vertical padding still
 // comes from density / the §1.6 inputPadY override, so this composes with both.
-const INPUT_SIZE: Record<InputSize, number> = {
-  sm: 34,
-  md: 40,
-  lg: 48,
+// Font-relative (em) so control height tracks typography.baseSize instead of a
+// fixed px floor; equal to today's 34/40/48px at the default 14px base.
+const INPUT_SIZE: Record<InputSize, string> = {
+  sm: '2.43em',
+  md: '2.86em',
+  lg: '3.43em',
+};
+
+// Branding (Batch 6) — logo display size → its max-height cap (px). 'md' is the
+// default and reproduces today's fixed 56px logo cap exactly.
+const LOGO_MAX_HEIGHT: Record<LogoSize, number> = {
+  sm: 40,
+  md: 56,
+  lg: 80,
 };
 
 /**
@@ -91,7 +169,10 @@ const INPUT_SIZE: Record<InputSize, number> = {
  */
 export function safeCssUrl(url: string | undefined): string | null {
   if (!url?.startsWith('https://')) return null;
-  if (/[)\s,"']/.test(url)) return null;
+  // Reject anything that could break out of `url("…")`: parens, quotes, comma,
+  // whitespace — and a backslash, which would CSS-escape the closing quote and
+  // let the string swallow the following declarations.
+  if (/[()\\\s,"']/.test(url)) return null;
   return `url("${url}")`;
 }
 
@@ -172,7 +253,14 @@ export function themeVars(appearance?: FormsThemeInput): string {
   // does the duration token become non-zero, so an un-toggled form has no
   // transitions; the renderer still collapses it to ~0 under
   // prefers-reduced-motion so the OS setting always wins.
-  const dur = l?.animations ? '0.12s' : '0s';
+  const dur = l?.animations ? `${MOTION_SPEED_S[l?.motionSpeed ?? 'normal']}s` : '0s';
+  // §1.8 — motion role durations. The selected motionSpeed sets the `normal`
+  // base (so --wz-dur-normal reproduces --wz-dur, back-compat); fast/slow scale
+  // it ×0.5 / ×2 so fast < normal < slow. All collapse to 0s while animations
+  // are off (today), and the renderer's prefers-reduced-motion rule floors them
+  // to ~0 alongside --wz-dur, so the OS setting still wins.
+  const durBaseS = l?.animations ? MOTION_SPEED_S[l?.motionSpeed ?? 'normal'] : 0;
+  const durRole = (mult: number): string => `${Number((durBaseS * mult).toFixed(4))}s`;
   // §2.6 — frosted-card blur radius (px). Only meaningful over an image
   // backdrop; the renderer gates the actual backdrop-filter behind a host
   // attribute, so 0 (default) is a no-op.
@@ -195,10 +283,78 @@ export function themeVars(appearance?: FormsThemeInput): string {
   const painted = pageBg !== 'transparent' || bg.image !== 'none';
   const pagePad = painted ? 'clamp(24px, 6vw, 72px)' : '0';
 
+  // §1 — optional semantic colors. Each falls back to today's derived value
+  // (success/link → primary, placeholder → muted), so an un-set form is unchanged.
+  const primaryHex = primary;
+  const errorHex = c?.error ?? '#c0392b';
+  const success = c?.success ?? primaryHex;
+  const link = c?.link ?? primaryHex;
+  const placeholder = c?.placeholder ?? c?.muted ?? '#6b7280';
+
+  // §1.2 — heading/body font pairing + role-scoped type scale + line-heights.
+  // Unset ⇒ inherit --wz-font / today's additive sizes / `normal`.
+  const base = t?.baseSize ?? 14;
+  const ratio = t?.scaleRatio ? TYPE_SCALE_RATIOS[t.scaleRatio] : null;
+  const fsTitle = ratio ? Math.round(base * ratio ** 3) : base + 6;
+  const fsH2 = ratio ? Math.round(base * ratio ** 2) : base + 4;
+  const fsH3 = ratio ? Math.round(base * ratio) : base + 2;
+  const fontHeading = t?.headingFont ? FONT_STACKS[t.headingFont] : 'var(--wz-font)';
+  const fontBody = t?.bodyFont ? FONT_STACKS[t.bodyFont] : 'var(--wz-font)';
+  const lhBody = t?.bodyLineHeight ?? 'normal';
+  const lhHeading = t?.headingLineHeight ?? 'normal';
+
+  // §1.6 — horizontal input padding + card inner padding overrides. cardPadding
+  // wins over the density preset (fixes the missing override path).
+  const padX = l?.inputPadX
+    ? `calc(var(--wz-font-size) * ${(l.inputPadX / 14).toFixed(3)})`
+    : 'calc(var(--wz-font-size) * 0.714)';
+  const cardPad = l?.cardPadding ?? density.cardPad;
+  const maxWidth = l?.fluidWidth ? 'none' : `${l?.maxWidth ?? 640}px`;
+  // §1.3 — the status/ending card keeps a comfortable confirmation cap even
+  // §Status width — the confirmation/thank-you card matches the form's OWN width
+  // so it never jarringly shrinks to a narrow column after submit (a comfortable
+  // floor keeps a very narrow form's confirmation readable). Fluid forms let it
+  // fill like the form itself does (--wz-max-width is `none` there).
+  const statusMaxWidth = l?.fluidWidth
+    ? 'none'
+    : `max(26rem, ${l?.maxWidth ?? 640}px)`;
+
+  // §1.8 — easing selects a fixed curve (duration handled by `dur` above/below).
+  const ease = EASING_CURVES[l?.easing ?? 'standard'];
+
+  // §1.6 — filters on the page background image layer only (never the card).
+  const imgBrightness = appearance?.background?.imageBrightness ?? 1;
+  const imgBlur = appearance?.background?.imageBlur ?? 0;
+  const imgGray = appearance?.background?.imageGrayscale ?? 0;
+  const bgFilterParts: string[] = [];
+  if (imgBrightness !== 1) bgFilterParts.push(`brightness(${imgBrightness})`);
+  if (imgBlur > 0) bgFilterParts.push(`blur(${imgBlur}px)`);
+  if (imgGray > 0) bgFilterParts.push(`grayscale(${imgGray})`);
+  const bgFilter = bgFilterParts.length > 0 ? bgFilterParts.join(' ') : 'none';
+
+  // Batch 6 branding — logo/cover dimensions + filters, all from an enum→px map
+  // or a bounded number. Defaults reproduce today's fixed 56px logo cap and
+  // 180px cover cap with no cover blur; the cover overlay opacity default is 0.
+  const logo = appearance?.logo;
+  const cover = appearance?.cover;
+  const logoMaxH = logo?.size ? LOGO_MAX_HEIGHT[logo.size] : 56;
+  const coverMaxH = cover?.height ?? 180;
+  const coverBlur = cover?.blur ?? 0;
+  const coverFilter = coverBlur > 0 ? `blur(${coverBlur}px)` : 'none';
+  // Overlay opacity feeds a pure rgba() layer painted by the SDK's ::after — a
+  // bounded number, never merchant CSS. 0 (default) leaves the cover bare.
+  const coverOverlay = cover?.overlay ?? 0;
+
   return (
     `:host { ` +
     `--wz-primary: ${primary}; ` +
     `--wz-primary-hover: color-mix(in srgb, ${primary} 85%, #000); ` +
+    // Per-state primary tokens (B3): the focus-glow ring (55%) and the soft
+    // selected/hover fill (12%) the renderer previously mixed inline. Reference
+    // the primary so they recompute against the dark override; the percentages
+    // match the old inline color-mix() exactly (no visual change).
+    `--wz-primary-active: color-mix(in srgb, ${primary} 55%, transparent); ` +
+    `--wz-primary-soft: color-mix(in srgb, ${primary} 12%, transparent); ` +
     `--wz-bg: ${c?.background ?? '#fff'}; ` +
     // Page color AROUND the card (§2). Transparent unless a distinct solid
     // color / gradient / image is explicitly chosen, so the host page shows
@@ -212,31 +368,74 @@ export function themeVars(appearance?: FormsThemeInput): string {
     `--wz-fg: ${c?.text ?? '#1a1a1a'}; ` +
     `--wz-muted: ${c?.muted ?? '#6b7280'}; ` +
     `--wz-border: ${c?.border ?? '#e5e7eb'}; ` +
-    `--wz-error: ${c?.error ?? '#c0392b'}; ` +
+    `--wz-error: ${errorHex}; ` +
+    // Per-state error tokens (B3): the soft error fill (12%) and the invalid
+    // ring (22%) the renderer previously mixed inline. Same percentages as the
+    // old color-mix() so the error/hover states are visually unchanged.
+    `--wz-error-bg: color-mix(in srgb, ${errorHex} 12%, transparent); ` +
+    `--wz-error-ring: color-mix(in srgb, ${errorHex} 22%, transparent); ` +
     `--wz-btn-text: ${c?.buttonText ?? '#fff'}; ` +
+    // §1 — semantic colors. success defaults to primary and link to primary,
+    // placeholder to muted, so an un-set form is visually unchanged. The success
+    // panel bg/border/on tokens replace the old inline primary-mix in .rf-success.
+    `--wz-success: ${success}; ` +
+    `--wz-success-bg: color-mix(in srgb, ${success} 8%, var(--wz-bg)); ` +
+    `--wz-success-border: color-mix(in srgb, ${success} 28%, transparent); ` +
+    `--wz-success-on: var(--wz-fg); ` +
+    `--wz-link: ${link}; ` +
+    `--wz-placeholder: ${placeholder}; ` +
     `--wz-radius: ${radius}; ` +
-    `--wz-font: ${FONT_STACKS[t?.fontFamily ?? 'system']}; ` +
+    // A set customGoogleFont wins over the preset fontFamily; both fall back to
+    // the shared system stack. The name is re-sanitized before it reaches CSS.
+    `--wz-font: ${customFontStack(t?.customGoogleFont) ?? FONT_STACKS[t?.fontFamily ?? 'system']}; ` +
     `--wz-font-size: ${t?.baseSize ?? 14}px; ` +
+    // §1.2 — heading/body font roles (default to --wz-font) + role type-scale +
+    // line-heights (default `normal`), so an un-paired form is unchanged.
+    `--wz-font-heading: ${fontHeading}; ` +
+    `--wz-font-body: ${fontBody}; ` +
+    `--wz-fs-title: ${fsTitle}px; ` +
+    `--wz-fs-h2: ${fsH2}px; ` +
+    `--wz-fs-h3: ${fsH3}px; ` +
+    `--wz-lh-body: ${lhBody}; ` +
+    `--wz-lh-heading: ${lhHeading}; ` +
     `--wz-gap: ${gap}px; ` +
     `--wz-pad-y: ${padY}px; ` +
-    `--wz-pad-x: 10px; ` +
+    `--wz-pad-x: ${padX}; ` +
     // §1.9 — min control height for text inputs, selects, and textareas.
-    `--wz-input-min-h: ${inputMinH}px; ` +
-    `--wz-max-width: ${l?.maxWidth ?? 640}px; ` +
+    `--wz-input-min-h: ${inputMinH}; ` +
+    // §1.3 — fluidWidth drops the cap (none); otherwise the bounded max-width.
+    `--wz-max-width: ${maxWidth}; ` +
+    // §1.3 — bounded status/ending cap; safe under fluidWidth (never `none`).
+    `--wz-status-max-width: ${statusMaxWidth}; ` +
     `--wz-btn-radius: ${btnRadius}; ` +
     `--wz-btn-align: ${btnAlign}; ` +
     `--wz-btn-pad-y: ${btnSize.padY}; ` +
     `--wz-btn-font: ${btnSize.font}; ` +
-    `--wz-card-pad: ${density.cardPad}px; ` +
+    // §1.5 — button fill tokens; the solid defaults reproduce today. Non-solid
+    // variants flip these via the .rf-submit[data-btn-variant] rules.
+    `--wz-btn-bg: var(--wz-primary); ` +
+    `--wz-btn-fg: var(--wz-btn-text); ` +
+    `--wz-btn-border: transparent; ` +
+    `--wz-btn-bw: 0; ` +
+    `--wz-btn-bg-hover: var(--wz-primary-hover); ` +
+    // §1.3 — card inner padding; the explicit override wins over density.
+    `--wz-card-pad: ${cardPad}px; ` +
     `--wz-card-shadow: ${cardShadow}; ` +
     `--wz-card-border: ${cardBorder}; ` +
     `--wz-focus: ${primary}; ` +
     `--wz-focus-width: ${l?.focusWidth ?? 2}px; ` +
+    // §1.8 — focus outline offset; 2px reproduces today's literal.
+    `--wz-focus-offset: ${l?.focusOffset ?? 2}px; ` +
     // Motion tokens (§2.4). Duration is 0 unless animations is on; the ease is
     // shared by every transition. Both collapse to ~0 under prefers-reduced-
     // motion in the renderer's stylesheet, which preserves transitionend.
     `--wz-dur: ${dur}; ` +
-    `--wz-ease: cubic-bezier(0.4, 0, 0.2, 1); ` +
+    // §1.8 — motion role tokens (fast < normal < slow); --wz-dur-normal mirrors
+    // --wz-dur for back-compat. All 0s while animations are off.
+    `--wz-dur-fast: ${durRole(0.5)}; ` +
+    `--wz-dur-normal: ${durRole(1)}; ` +
+    `--wz-dur-slow: ${durRole(2)}; ` +
+    `--wz-ease: ${ease}; ` +
     // §2.6 — frosted-card blur radius; gated to an image backdrop by a host
     // attribute in the renderer, so this value is inert without one.
     `--wz-card-blur: ${cardBlur}px; ` +
@@ -246,9 +445,91 @@ export function themeVars(appearance?: FormsThemeInput): string {
     `--wz-page-bg-size: ${bg.size}; ` +
     `--wz-page-bg-repeat: ${bg.repeat}; ` +
     `--wz-page-scrim: ${bg.scrim}; ` +
+    // §1.6 — filter on the background image layer (.rf-bg); no-op by default.
+    `--wz-bg-filter: ${bgFilter}; ` +
     // §3 — block padding around the card; 0 unless a backdrop paints.
     `--wz-page-pad: ${pagePad}; ` +
+    // Batch 6 branding — logo max-height, cover max-height/overlay/blur. Every
+    // value is an enum→px lookup or a bounded number; defaults reproduce today.
+    `--wz-logo-max-h: ${logoMaxH}px; ` +
+    `--wz-cover-max-h: ${coverMaxH}px; ` +
+    `--wz-cover-overlay: rgba(0, 0, 0, ${coverOverlay}); ` +
+    `--wz-cover-filter: ${coverFilter}; ` +
     `}`
+  );
+}
+
+/**
+ * Emit the dark-scheme COLOR custom-property overrides for an appearance.
+ * Returns ONLY the `--wz-*: value;` declarations — no `:host` wrapper — so the
+ * renderer can wrap them in the dark scheme selectors
+ * (`:host([data-scheme='dark'])` plus the `prefers-color-scheme: dark` /
+ * `data-scheme='auto'` block). Every token derives from `colorsDark`, falling
+ * back per-token to the matching LIGHT value (`colorsDark[t] ?? colors[t] ??`
+ * today's default), so an un-overridden token is identical to the light theme
+ * and a merchant can recolor just a few. Only COLOR tokens are re-declared;
+ * non-color tokens (radius, spacing, motion, sizes, …) stay inherited from the
+ * light `:host` block. Mirrors {@link themeVars}' color derivations exactly so
+ * primary-hover / subtle / success recompute the same way on the dark values.
+ */
+export function darkThemeVars(appearance?: FormsThemeInput): string {
+  const c = appearance?.colors;
+  const d = appearance?.colorsDark;
+
+  // Per token: an explicit dark override wins, else the effective LIGHT value
+  // (which itself falls back to today's baked default) — so an un-overridden
+  // token renders identically to the light theme.
+  const primary = d?.primary ?? c?.primary ?? '#0fb3a9';
+  const bg = d?.background ?? c?.background ?? '#fff';
+  const surface = d?.surface ?? c?.surface ?? '#fff';
+  const fg = d?.text ?? c?.text ?? '#1a1a1a';
+  const muted = d?.muted ?? c?.muted ?? '#6b7280';
+  const border = d?.border ?? c?.border ?? '#e5e7eb';
+  const error = d?.error ?? c?.error ?? '#c0392b';
+  const buttonText = d?.buttonText ?? c?.buttonText ?? '#fff';
+  // Semantic colors keep the light derivations (success/link → primary,
+  // placeholder → muted) unless the dark override supplies them.
+  const success = d?.success ?? c?.success ?? primary;
+  const link = d?.link ?? c?.link ?? primary;
+  const placeholder = d?.placeholder ?? c?.placeholder ?? muted;
+
+  // Page color AROUND the card — mirror the light §2 rule (transparent unless a
+  // distinct solid page color is chosen) on the dark bg/pageBackground. The
+  // background TYPE is shared with light (gradient/image paint via their own
+  // layers), so this only recolors the solid gutter.
+  const bgType = appearance?.background?.type ?? 'solid';
+  const pageBackground = d?.pageBackground ?? c?.pageBackground;
+  const pageBg =
+    bgType === 'solid' && pageBackground && pageBackground !== bg ? pageBackground : 'transparent';
+
+  return (
+    `--wz-primary: ${primary}; ` +
+    `--wz-primary-hover: color-mix(in srgb, ${primary} 85%, #000); ` +
+    // Per-state primary tokens recompute against the dark primary (same
+    // formulas as themeVars), so the focus glow / soft fill track the dark hue.
+    `--wz-primary-active: color-mix(in srgb, ${primary} 55%, transparent); ` +
+    `--wz-primary-soft: color-mix(in srgb, ${primary} 12%, transparent); ` +
+    `--wz-bg: ${bg}; ` +
+    `--wz-page-bg: ${pageBg}; ` +
+    `--wz-surface: ${surface}; ` +
+    // Derived tokens reference the redeclared color vars, so they recompute
+    // against the dark surface/fg automatically (same formulas as themeVars).
+    `--wz-subtle: color-mix(in srgb, var(--wz-surface) 92%, var(--wz-fg)); ` +
+    `--wz-fg: ${fg}; ` +
+    `--wz-muted: ${muted}; ` +
+    `--wz-border: ${border}; ` +
+    `--wz-error: ${error}; ` +
+    // Per-state error tokens recompute against the dark error (same formulas).
+    `--wz-error-bg: color-mix(in srgb, ${error} 12%, transparent); ` +
+    `--wz-error-ring: color-mix(in srgb, ${error} 22%, transparent); ` +
+    `--wz-btn-text: ${buttonText}; ` +
+    `--wz-success: ${success}; ` +
+    `--wz-success-bg: color-mix(in srgb, ${success} 8%, var(--wz-bg)); ` +
+    `--wz-success-border: color-mix(in srgb, ${success} 28%, transparent); ` +
+    `--wz-success-on: var(--wz-fg); ` +
+    `--wz-link: ${link}; ` +
+    `--wz-placeholder: ${placeholder}; ` +
+    `--wz-focus: ${primary}; `
   );
 }
 
@@ -270,6 +551,9 @@ export const baseStyles = css`
     display: block;
     box-sizing: border-box;
     container-type: inline-size;
+    /* Named so future @container queries can target this host explicitly;
+       existing unnamed queries still match it as the nearest container. */
+    container-name: rf;
     contain: layout style;
     /* The host fills its mount; the card centers within it via its own
        max-width + margin, so --wz-page-bg shows as the area around the card. */
@@ -300,6 +584,13 @@ export const baseStyles = css`
     border: 1px solid var(--wz-border);
     border-radius: var(--wz-radius);
     overflow: hidden;
+  }
+  /* Custom HTML content block (§1.3): raw merchant markup rendered as-is. Only
+     a minimal containment guard so long unbroken strings can't force the card
+     to overflow horizontally; the merchant owns everything else. */
+  .rf-html {
+    overflow-wrap: break-word;
+    max-width: 100%;
   }
   .wz-grid {
     display: grid;

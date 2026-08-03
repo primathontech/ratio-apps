@@ -221,22 +221,46 @@ describe('builderReducer', () => {
     expect('redirectUrl' in blank).toBe(false);
   });
 
-  it('builds schema-valid content blocks (heading/divider/paragraph/image) with no label/required', () => {
+  it('builds schema-valid content blocks (heading/divider/paragraph/image/html) with no label/required', () => {
     let state = loaded();
     state = builderReducer(state, { type: 'addField', fieldType: 'heading' });
     state = builderReducer(state, { type: 'addField', fieldType: 'divider' });
     state = builderReducer(state, { type: 'addField', fieldType: 'paragraph' });
     state = builderReducer(state, { type: 'addField', fieldType: 'image' });
-    expect(state.fields.map((f) => f.type)).toEqual(['heading', 'divider', 'paragraph', 'image']);
+    state = builderReducer(state, { type: 'addField', fieldType: 'html' });
+    expect(state.fields.map((f) => f.type)).toEqual([
+      'heading',
+      'divider',
+      'paragraph',
+      'image',
+      'html',
+    ]);
     // Content blocks carry key + width but never label/required.
     for (const field of state.fields) {
       expect('label' in field).toBe(false);
       expect('required' in field).toBe(false);
     }
+    // The custom HTML block seeds placeholder markup the merchant replaces.
+    const htmlBlock = state.fields.find((f) => f.type === 'html');
+    expect(htmlBlock).toMatchObject({ type: 'html', html: '<p>Your custom HTML</p>' });
     // The seeded image url is a valid https asset, so the whole set parses.
     expect(formFieldsSchema.safeParse(state.fields).success).toBe(true);
     const payload = toFormInput(state);
     expect(formInputSchema.safeParse(payload).success).toBe(true);
+  });
+
+  it('adds a page_break as a value-less layout block with no label/required', () => {
+    let state = loaded();
+    state = builderReducer(state, { type: 'addField', fieldType: 'page_break' });
+    const block = state.fields.find((f) => f.type === 'page_break');
+    // Modeled on divider: key + width only, no label/required, no title by default.
+    expect(block).toMatchObject({ type: 'page_break', width: 'full' });
+    expect(block && 'label' in block).toBe(false);
+    expect(block && 'required' in block).toBe(false);
+    expect(block && 'title' in block).toBe(false);
+    // The whole set (with a real input around the break) still parses.
+    state = builderReducer(state, { type: 'addField', fieldType: 'text' });
+    expect(formFieldsSchema.safeParse(state.fields).success).toBe(true);
   });
 
   it('makeField builds schema-valid url/rating/hidden fields', () => {
@@ -389,6 +413,83 @@ describe('appearance', () => {
     // An explicit undefined clears it.
     state = builderReducer(state, { type: 'updateAppearance', patch: { logo: undefined } });
     expect(state.meta.appearance?.logo).toBeUndefined();
+  });
+
+  it('sets and clears form-level customCss without dropping the other tokens', () => {
+    let state = loaded();
+    state = builderReducer(state, {
+      type: 'updateAppearance',
+      patch: { customCss: '.rf-submit { border-radius: 0; }' },
+    });
+    expect(state.meta.appearance?.customCss).toBe('.rf-submit { border-radius: 0; }');
+
+    // A colour edit must not wipe the custom CSS (absent key = leave as-is).
+    state = builderReducer(state, {
+      type: 'updateAppearance',
+      patch: { colors: { primary: '#123456' } },
+    });
+    expect(state.meta.appearance?.customCss).toBe('.rf-submit { border-radius: 0; }');
+    expect(state.meta.appearance?.colors.primary).toBe('#123456');
+
+    // An explicit undefined clears it.
+    state = builderReducer(state, { type: 'updateAppearance', patch: { customCss: undefined } });
+    expect(state.meta.appearance?.customCss).toBeUndefined();
+  });
+
+  it('sets and clears the colorScheme without dropping the other tokens', () => {
+    let state = loaded();
+    state = builderReducer(state, {
+      type: 'updateAppearance',
+      patch: { colorScheme: 'dark' },
+    });
+    expect(state.meta.appearance?.colorScheme).toBe('dark');
+
+    // A colour edit must not reset the scheme (absent key = leave as-is).
+    state = builderReducer(state, {
+      type: 'updateAppearance',
+      patch: { colors: { primary: '#123456' } },
+    });
+    expect(state.meta.appearance?.colorScheme).toBe('dark');
+    expect(state.meta.appearance?.colors.primary).toBe('#123456');
+
+    // An explicit undefined restores the light (single-palette) default.
+    state = builderReducer(state, { type: 'updateAppearance', patch: { colorScheme: undefined } });
+    expect(state.meta.appearance?.colorScheme).toBeUndefined();
+  });
+
+  it('shallow-merges colorsDark token-by-token and clears the whole palette on undefined', () => {
+    let state = loaded();
+    state = builderReducer(state, { type: 'addField', fieldType: 'text' });
+    state = builderReducer(state, {
+      type: 'updateAppearance',
+      patch: { colorsDark: { background: '#111111' } },
+    });
+    expect(state.meta.appearance?.colorsDark?.background).toBe('#111111');
+
+    // A second dark-token edit must not clobber the first.
+    state = builderReducer(state, {
+      type: 'updateAppearance',
+      patch: { colorsDark: { text: '#eeeeee' } },
+    });
+    expect(state.meta.appearance?.colorsDark?.background).toBe('#111111');
+    expect(state.meta.appearance?.colorsDark?.text).toBe('#eeeeee');
+    // Untouched dark tokens stay absent (they track the light value at the SDK).
+    expect(state.meta.appearance?.colorsDark?.primary).toBeUndefined();
+
+    // A light-colour edit must not wipe the dark palette (absent key = leave).
+    state = builderReducer(state, {
+      type: 'updateAppearance',
+      patch: { colors: { primary: '#123456' } },
+    });
+    expect(state.meta.appearance?.colorsDark?.background).toBe('#111111');
+
+    // The payload round-trips through the schema with both palettes set.
+    state = builderReducer(state, { type: 'updateAppearance', patch: { colorScheme: 'dark' } });
+    expect(formInputSchema.safeParse(toFormInput(state)).success).toBe(true);
+
+    // An explicit undefined clears the whole dark palette.
+    state = builderReducer(state, { type: 'updateAppearance', patch: { colorsDark: undefined } });
+    expect(state.meta.appearance?.colorsDark).toBeUndefined();
   });
 
   it('toFormInput includes appearance only when set, and stays schema-valid', () => {

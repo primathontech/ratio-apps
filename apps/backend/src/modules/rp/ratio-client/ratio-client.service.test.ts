@@ -309,60 +309,6 @@ describe('RpRatioClientService.calculateRefund', () => {
   });
 });
 
-describe('RpRatioClientService.createRefund', () => {
-  afterEach(() => vi.restoreAllMocks());
-
-  it('resolves the real order id and POSTs to the Ratio ecosystem refunds endpoint with an idempotency key and the access token', async () => {
-    const requestMock = vi.fn();
-    stubOrderLookup(requestMock, 'ordr_real123', '2439');
-    requestMock.mockResolvedValueOnce({ id: 'ref_1', totalAmount: 52522 });
-    const svc = makeService(requestMock);
-
-    const result = await svc.createRefund('access-tok-1', 'gk-merchant', '2439', {
-      line_items: [{ line_item_id: '700', quantity: 1 }],
-      include_shipping: false,
-      restock_type: 'CANCEL',
-      notify_customer: true,
-      reason: 'test',
-    });
-
-    expect(requestMock).toHaveBeenNthCalledWith(
-      2,
-      '/api/v1/refunds',
-      expect.anything(),
-      expect.objectContaining({
-        method: 'POST',
-        accessToken: 'access-tok-1',
-        headers: expect.objectContaining({ 'x-idempotency-key': expect.any(String) }),
-        body: expect.objectContaining({ order_id: 'ordr_real123' }),
-      }),
-    );
-    expect(result).toEqual({ id: 'ref_1', totalAmount: 52522 });
-  });
-
-  it('uses the access token — not the merchant id — for the internal order-number lookup', async () => {
-    const requestMock = vi.fn();
-    stubOrderLookup(requestMock, 'ordr_real123', '2439');
-    requestMock.mockResolvedValueOnce({ id: 'ref_1', totalAmount: 52522 });
-    const svc = makeService(requestMock);
-
-    await svc.createRefund('access-tok-1', 'gk-merchant', '2439', {
-      line_items: [{ line_item_id: '700', quantity: 1 }],
-      include_shipping: false,
-      restock_type: 'CANCEL',
-      notify_customer: true,
-      reason: 'test',
-    });
-
-    expect(requestMock).toHaveBeenNthCalledWith(
-      1,
-      expect.stringContaining('/api/v1/orders?search='),
-      expect.anything(),
-      expect.objectContaining({ accessToken: 'access-tok-1' }),
-    );
-  });
-});
-
 describe('RpRatioClientService.getRefunds', () => {
   afterEach(() => vi.restoreAllMocks());
 

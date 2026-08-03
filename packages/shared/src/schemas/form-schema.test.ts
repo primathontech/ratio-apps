@@ -6,6 +6,7 @@ import {
   FORM_FIELD_TYPES,
   FORM_FILE_ALLOWED_MIME_TYPES,
   FORM_FILE_MAX_BYTES,
+  FORM_FILE_MAX_FILES,
   FORM_NON_COLLECTABLE_FIELD_TYPES,
   FORM_TEXTAREA_DEFAULT_MAX_LENGTH,
   FORM_TEXTAREA_HARD_MAX_LENGTH,
@@ -48,14 +49,21 @@ const dropdownField = {
   type: 'dropdown',
   label: 'Topic',
   required: true,
-  options: ['Sales', 'Support'],
+  options: [
+    { value: 'Sales', label: 'Sales' },
+    { value: 'Support', label: 'Support' },
+  ],
 };
 const multiSelectField = {
   key: 'interests',
   type: 'multi_select',
   label: 'Interests',
   required: false,
-  options: ['Apparel', 'Footwear', 'Accessories'],
+  options: [
+    { value: 'Apparel', label: 'Apparel' },
+    { value: 'Footwear', label: 'Footwear' },
+    { value: 'Accessories', label: 'Accessories' },
+  ],
 };
 const dateField = { key: 'preferred_date', type: 'date', label: 'Preferred date', required: false };
 const fileField = {
@@ -70,7 +78,10 @@ const radioField = {
   type: 'radio',
   label: 'Plan',
   required: true,
-  options: ['Basic', 'Pro'],
+  options: [
+    { value: 'Basic', label: 'Basic' },
+    { value: 'Pro', label: 'Pro' },
+  ],
 };
 const checkboxField = {
   key: 'consent',
@@ -121,6 +132,11 @@ const imageField = {
   url: 'https://cdn.example/banner.png',
   alt: 'Our storefront',
 };
+const htmlField = {
+  key: 'embed',
+  type: 'html',
+  html: '<p>Welcome to <strong>our form</strong>.</p>',
+};
 
 const allFields = [
   textField,
@@ -141,6 +157,7 @@ const allFields = [
   dividerField,
   paragraphField,
   imageField,
+  htmlField,
 ];
 
 describe('formFieldSchema (discriminated union over the supported field types)', () => {
@@ -259,6 +276,23 @@ describe('formFieldSchema (discriminated union over the supported field types)',
     }
   });
 
+  it('file field maxFiles is optional (absent) and bounded to [1, FORM_FILE_MAX_FILES]', () => {
+    // Absent ⇒ single-file behavior (consumers treat undefined as 1).
+    const bare = formFieldSchema.parse({ key: 'f', type: 'file', label: 'File' });
+    if (bare.type === 'file') expect(bare.maxFiles).toBeUndefined();
+    // Within bounds accepted.
+    expect(formFieldSchema.safeParse({ ...fileField, maxFiles: 3 }).success).toBe(true);
+    expect(formFieldSchema.safeParse({ ...fileField, maxFiles: FORM_FILE_MAX_FILES }).success).toBe(
+      true,
+    );
+    // Below 1, above the ceiling, and non-integer are rejected (security envelope).
+    expect(formFieldSchema.safeParse({ ...fileField, maxFiles: 0 }).success).toBe(false);
+    expect(
+      formFieldSchema.safeParse({ ...fileField, maxFiles: FORM_FILE_MAX_FILES + 1 }).success,
+    ).toBe(false);
+    expect(formFieldSchema.safeParse({ ...fileField, maxFiles: 2.5 }).success).toBe(false);
+  });
+
   it('rejects a radio without options (missing or empty)', () => {
     const { options: _o, ...noOptions } = radioField;
     expect(formFieldSchema.safeParse(noOptions).success).toBe(false);
@@ -325,7 +359,7 @@ describe('formFieldSchema (discriminated union over the supported field types)',
   });
 });
 
-describe('content-block field types (§1.3 — heading / divider / paragraph / image)', () => {
+describe('content-block field types (§1.3 — heading / divider / paragraph / image / html)', () => {
   it('accepts each content block with only key + width (no label/required)', () => {
     for (const block of [headingField, dividerField, paragraphField, imageField]) {
       expect(formFieldSchema.safeParse(block).success).toBe(true);
@@ -385,14 +419,118 @@ describe('content-block field types (§1.3 — heading / divider / paragraph / i
     expect(dup.success).toBe(false);
   });
 
+  it('custom HTML block: parses raw html, bounds length at 10000, defaults to empty', () => {
+    // Raw markup passes through with no sanitization or other constraint.
+    expect(formFieldSchema.safeParse(htmlField).success).toBe(true);
+    // Only a length bound: exactly 10000 is fine, 10001 is rejected.
+    expect(formFieldSchema.safeParse({ ...htmlField, html: 'a'.repeat(10000) }).success).toBe(true);
+    expect(formFieldSchema.safeParse({ ...htmlField, html: 'a'.repeat(10001) }).success).toBe(
+      false,
+    );
+    // `html` defaults to '' when omitted.
+    const { html: _h, ...noHtml } = htmlField;
+    const parsed = formFieldSchema.parse(noHtml);
+    if (parsed.type === 'html') {
+      expect(parsed.html).toBe('');
+    }
+  });
+
   it('isCollectableFieldType marks content blocks as non-collectable', () => {
-    expect(FORM_NON_COLLECTABLE_FIELD_TYPES).toEqual(['heading', 'divider', 'paragraph', 'image']);
+    expect(FORM_NON_COLLECTABLE_FIELD_TYPES).toEqual([
+      'heading',
+      'divider',
+      'paragraph',
+      'image',
+      'html',
+      // page_break (§steps) is display-only too — a step separator that submits
+      // no value, so it strips from CSV/webhook exactly like the blocks above.
+      'page_break',
+    ]);
     for (const t of FORM_NON_COLLECTABLE_FIELD_TYPES) {
       expect(isCollectableFieldType(t)).toBe(false);
     }
     for (const t of ['text', 'email', 'file', 'rating', 'hidden'] as const) {
       expect(isCollectableFieldType(t)).toBe(true);
     }
+  });
+});
+
+describe('content-block appearance (§4.15 — styling for heading/divider/paragraph/image)', () => {
+  it('heading defaults size to md and align to left; eyebrow is optional', () => {
+    const parsed = formFieldSchema.parse(headingField);
+    if (parsed.type === 'heading') {
+      expect(parsed.size).toBe('md');
+      expect(parsed.align).toBe('left');
+      expect(parsed.eyebrow).toBeUndefined();
+    }
+  });
+
+  it('heading accepts each size/align and a bounded eyebrow, rejecting out-of-set/oversized', () => {
+    for (const size of ['sm', 'md', 'lg'] as const) {
+      expect(formFieldSchema.safeParse({ ...headingField, size }).success).toBe(true);
+    }
+    for (const align of ['left', 'center', 'right'] as const) {
+      expect(formFieldSchema.safeParse({ ...headingField, align }).success).toBe(true);
+    }
+    expect(formFieldSchema.safeParse({ ...headingField, eyebrow: 'New' }).success).toBe(true);
+    expect(formFieldSchema.safeParse({ ...headingField, size: 'xl' }).success).toBe(false);
+    expect(formFieldSchema.safeParse({ ...headingField, align: 'justify' }).success).toBe(false);
+    expect(formFieldSchema.safeParse({ ...headingField, eyebrow: 'a'.repeat(121) }).success).toBe(
+      false,
+    );
+  });
+
+  it('divider defaults variant to line and leaves spacing absent; both are bounded', () => {
+    const parsed = formFieldSchema.parse(dividerField);
+    if (parsed.type === 'divider') {
+      expect(parsed.variant).toBe('line');
+      expect(parsed.spacing).toBeUndefined();
+    }
+    for (const variant of ['line', 'dashed', 'dotted', 'spacer'] as const) {
+      expect(formFieldSchema.safeParse({ ...dividerField, variant }).success).toBe(true);
+    }
+    expect(formFieldSchema.safeParse({ ...dividerField, spacing: 0 }).success).toBe(true);
+    expect(formFieldSchema.safeParse({ ...dividerField, spacing: 80 }).success).toBe(true);
+    expect(formFieldSchema.safeParse({ ...dividerField, variant: 'ghost' }).success).toBe(false);
+    expect(formFieldSchema.safeParse({ ...dividerField, spacing: 81 }).success).toBe(false);
+    expect(formFieldSchema.safeParse({ ...dividerField, spacing: 8.5 }).success).toBe(false);
+  });
+
+  it('paragraph defaults align to left and rejects an out-of-set align', () => {
+    const parsed = formFieldSchema.parse(paragraphField);
+    if (parsed.type === 'paragraph') {
+      expect(parsed.align).toBe('left');
+    }
+    expect(formFieldSchema.safeParse({ ...paragraphField, align: 'center' }).success).toBe(true);
+    expect(formFieldSchema.safeParse({ ...paragraphField, align: 'top' }).success).toBe(false);
+  });
+
+  it('image defaults align to left; size/caption/linkUrl are optional and bounded', () => {
+    const parsed = formFieldSchema.parse(imageField);
+    if (parsed.type === 'image') {
+      expect(parsed.align).toBe('left');
+      expect(parsed.size).toBeUndefined();
+      expect(parsed.caption).toBeUndefined();
+      expect(parsed.linkUrl).toBeUndefined();
+    }
+    for (const size of ['sm', 'md', 'lg'] as const) {
+      expect(formFieldSchema.safeParse({ ...imageField, size }).success).toBe(true);
+    }
+    expect(formFieldSchema.safeParse({ ...imageField, caption: 'A caption' }).success).toBe(true);
+    expect(
+      formFieldSchema.safeParse({ ...imageField, linkUrl: 'https://example.com' }).success,
+    ).toBe(true);
+    expect(formFieldSchema.safeParse({ ...imageField, size: 'xl' }).success).toBe(false);
+    expect(formFieldSchema.safeParse({ ...imageField, caption: 'a'.repeat(201) }).success).toBe(
+      false,
+    );
+    // linkUrl reuses the audited https-only asset posture — http/js are rejected.
+    expect(
+      formFieldSchema.safeParse({ ...imageField, linkUrl: 'http://example.com' }).success,
+    ).toBe(false);
+    expect(
+      formFieldSchema.safeParse({ ...imageField, linkUrl: 'javascript:alert(1)' }).success,
+    ).toBe(false);
   });
 });
 
@@ -514,6 +652,7 @@ describe('appearanceSchema (theme contract)', () => {
     expect(parsed.colors.buttonText).toBe('#ffffff');
     expect(parsed.typography.fontFamily).toBe('system');
     expect(parsed.typography.baseSize).toBe(14);
+    expect(parsed.typography.customGoogleFont).toBeUndefined();
     expect(parsed.layout.radius).toBe(10);
     expect(parsed.layout.density).toBe('comfortable');
     expect(parsed.layout.maxWidth).toBe(640);
@@ -546,6 +685,19 @@ describe('appearanceSchema (theme contract)', () => {
     expect(parsed.background.cardBlur).toBe(0);
     expect(parsed.logo).toBeUndefined();
     expect(parsed.cover).toBeUndefined();
+    // Form-level custom CSS is opt-in ⇒ absent by default.
+    expect(parsed.customCss).toBeUndefined();
+    // Dark theme is opt-in ⇒ both absent by default (today's light behavior).
+    expect(parsed.colorScheme).toBeUndefined();
+    expect(parsed.colorsDark).toBeUndefined();
+  });
+
+  it('accepts optional form-level customCss and bounds it (5000 chars)', () => {
+    const ok = appearanceSchema.parse({ customCss: '.rf-submit { border-radius: 0; }' });
+    expect(ok.customCss).toBe('.rf-submit { border-radius: 0; }');
+    // Stored raw here (server sanitizes on the read path) but length-capped.
+    expect(appearanceSchema.safeParse({ customCss: 'a'.repeat(5000) }).success).toBe(true);
+    expect(appearanceSchema.safeParse({ customCss: 'a'.repeat(5001) }).success).toBe(false);
   });
 
   it('accepts the Tier-1 layout enums and rejects out-of-set values (§1.2/1.5/1.7/1.8)', () => {
@@ -626,6 +778,48 @@ describe('appearanceSchema (theme contract)', () => {
     expect(appearanceSchema.safeParse({ background: { type: 'video' } }).success).toBe(false);
   });
 
+  it('accepts the dark-theme colorScheme enum and rejects out-of-set values', () => {
+    expect(appearanceSchema.parse({ colorScheme: 'dark' }).colorScheme).toBe('dark');
+    expect(appearanceSchema.parse({ colorScheme: 'auto' }).colorScheme).toBe('auto');
+    expect(appearanceSchema.parse({ colorScheme: 'light' }).colorScheme).toBe('light');
+    // No implicit default — an omitted scheme stays undefined (back-compat).
+    expect(appearanceSchema.parse({}).colorScheme).toBeUndefined();
+    expect(appearanceSchema.safeParse({ colorScheme: 'sepia' }).success).toBe(false);
+  });
+
+  it('accepts colorsDark as a partial of the colors shape, with no defaults filled in', () => {
+    // A single overridden token is valid; the rest stay ABSENT (fall back to
+    // the light values at the SDK), so no default is materialized here.
+    const parsed = appearanceSchema.parse({
+      colorScheme: 'dark',
+      colorsDark: { background: '#0b0b0b', text: '#f5f5f5' },
+    });
+    expect(parsed.colorsDark).toEqual({ background: '#0b0b0b', text: '#f5f5f5' });
+    // Every colors token is accepted, including the optional semantic ones.
+    const full = appearanceSchema.parse({
+      colorsDark: {
+        primary: '#7dd3fc',
+        background: '#0b0b0b',
+        pageBackground: '#050505',
+        surface: '#151515',
+        text: '#f5f5f5',
+        muted: '#a3a3a3',
+        border: '#333333',
+        error: '#ff8888',
+        buttonText: '#0b0b0b',
+        success: '#22c55e',
+        link: '#7dd3fc',
+        placeholder: '#777777',
+      },
+    });
+    expect(full.colorsDark?.primary).toBe('#7dd3fc');
+    expect(full.colorsDark?.success).toBe('#22c55e');
+    // An empty object is a valid (no-op) partial — every token stays undefined.
+    expect(appearanceSchema.parse({ colorsDark: {} }).colorsDark).toEqual({});
+    // Non-hex values are rejected, same as the light colors sub-schema.
+    expect(appearanceSchema.safeParse({ colorsDark: { background: 'black' } }).success).toBe(false);
+  });
+
   it('accepts the §2.1 column modes and rejects out-of-set values', () => {
     expect(appearanceSchema.parse({ layout: { columns: '2' } }).layout.columns).toBe('2');
     expect(appearanceSchema.parse({ layout: { columns: 'auto' } }).layout.columns).toBe('auto');
@@ -645,8 +839,10 @@ describe('appearanceSchema (theme contract)', () => {
     expect(appearanceSchema.safeParse({ background: { cardBlur: 21 } }).success).toBe(false);
   });
 
-  it('rejects an unknown shadow value', () => {
-    expect(appearanceSchema.safeParse({ layout: { shadow: 'xl' } }).success).toBe(false);
+  it('accepts the extended shadow scale and rejects an unknown value (§1.6)', () => {
+    expect(appearanceSchema.parse({ layout: { shadow: 'lg' } }).layout.shadow).toBe('lg');
+    expect(appearanceSchema.parse({ layout: { shadow: 'xl' } }).layout.shadow).toBe('xl');
+    expect(appearanceSchema.safeParse({ layout: { shadow: '2xl' } }).success).toBe(false);
   });
 
   it('pageBackground defaults to the card background so the look is unchanged', () => {
@@ -695,6 +891,168 @@ describe('appearanceSchema (theme contract)', () => {
     expect(parsed.colors.background).toBe('#ffffff');
   });
 
+  // ── Batch 5 (visual-payoff theming) — every new key is additive and
+  // defaults to today's rendered value, so an existing form is unchanged.
+  it('defaults the Batch-5 keys to today’s values (no visual change)', () => {
+    const p = appearanceSchema.parse({});
+    // Optional semantic colors are absent (derived at the SDK).
+    expect(p.colors.success).toBeUndefined();
+    expect(p.colors.link).toBeUndefined();
+    expect(p.colors.placeholder).toBeUndefined();
+    // Optional typography pairing / scale / line-heights are absent.
+    expect(p.typography.headingFont).toBeUndefined();
+    expect(p.typography.bodyFont).toBeUndefined();
+    expect(p.typography.scaleRatio).toBeUndefined();
+    expect(p.typography.bodyLineHeight).toBeUndefined();
+    expect(p.typography.headingLineHeight).toBeUndefined();
+    // Layout defaults reproduce today.
+    expect(p.layout.buttonVariant).toBe('solid');
+    expect(p.layout.inputPadX).toBeUndefined();
+    expect(p.layout.cardPadding).toBeUndefined();
+    expect(p.layout.contentAlign).toBe('left');
+    expect(p.layout.layoutMode).toBe('card');
+    expect(p.layout.fluidWidth).toBe(false);
+    expect(p.layout.focusOffset).toBe(2);
+    expect(p.layout.motionSpeed).toBe('normal');
+    expect(p.layout.easing).toBe('standard');
+    expect(p.layout.submitLoader).toBe('spinner');
+    // Background image filters are no-ops by default.
+    expect(p.background.imageBrightness).toBe(1);
+    expect(p.background.imageBlur).toBe(0);
+    expect(p.background.imageGrayscale).toBe(0);
+  });
+
+  it('accepts the Batch-5 enums and rejects out-of-set values', () => {
+    const ok = appearanceSchema.parse({
+      colors: { success: '#067647', link: '#2563eb', placeholder: '#9ca3af' },
+      typography: { headingFont: 'poppins', bodyFont: 'inter', scaleRatio: 'major-third' },
+      layout: {
+        buttonVariant: 'outline',
+        contentAlign: 'center',
+        layoutMode: 'flat',
+        fluidWidth: true,
+        motionSpeed: 'fast',
+        easing: 'spring',
+        submitLoader: 'none',
+      },
+    });
+    expect(ok.colors.success).toBe('#067647');
+    expect(ok.typography.headingFont).toBe('poppins');
+    expect(ok.typography.scaleRatio).toBe('major-third');
+    expect(ok.layout.buttonVariant).toBe('outline');
+    expect(ok.layout.contentAlign).toBe('center');
+    expect(ok.layout.layoutMode).toBe('flat');
+    expect(ok.layout.submitLoader).toBe('none');
+    expect(appearanceSchema.safeParse({ layout: { buttonVariant: 'raised' } }).success).toBe(false);
+    expect(appearanceSchema.safeParse({ layout: { contentAlign: 'right' } }).success).toBe(false);
+    expect(appearanceSchema.safeParse({ layout: { layoutMode: 'floating' } }).success).toBe(false);
+    expect(appearanceSchema.safeParse({ layout: { motionSpeed: 'instant' } }).success).toBe(false);
+    expect(appearanceSchema.safeParse({ layout: { easing: 'bounce' } }).success).toBe(false);
+    expect(appearanceSchema.safeParse({ layout: { submitLoader: 'dots' } }).success).toBe(false);
+    expect(appearanceSchema.safeParse({ typography: { scaleRatio: 'golden' } }).success).toBe(
+      false,
+    );
+    expect(appearanceSchema.safeParse({ colors: { success: 'green' } }).success).toBe(false);
+  });
+
+  // ── Batch 6 (structured features) — every new key is additive: endings is
+  // optional (absent ⇒ byte-identical today), branding defaults poweredBy off,
+  // and the logo/cover dimension fields are optional with SDK fallbacks.
+  it('defaults the Batch-6 keys to today’s values (no visual change)', () => {
+    const p = appearanceSchema.parse({});
+    // Endings absent ⇒ today's exact status screens.
+    expect(p.endings).toBeUndefined();
+    // Branding is prefaulted to a defined, off toggle.
+    expect(p.branding.showPoweredBy).toBe(false);
+    // A logo/cover that predates Batch 6 (just `{ url }`) keeps optional dims.
+    const withAssets = appearanceSchema.parse({
+      logo: { url: 'https://cdn.example/l.png' },
+      cover: { url: 'https://cdn.example/c.jpg' },
+    });
+    expect(withAssets.logo?.size).toBeUndefined();
+    expect(withAssets.logo?.align).toBeUndefined();
+    expect(withAssets.logo?.alt).toBeUndefined();
+    expect(withAssets.cover?.height).toBeUndefined();
+    expect(withAssets.cover?.overlay).toBeUndefined();
+    expect(withAssets.cover?.blur).toBeUndefined();
+  });
+
+  it('accepts structured endings copy + redirect timing and rejects bad values', () => {
+    const ok = appearanceSchema.parse({
+      endings: {
+        success: { icon: 'check', heading: 'All set', body: 'Thanks!' },
+        closed: { icon: 'lock', body: 'Closed for now.' },
+        expired: { heading: 'Expired' },
+        unavailable: { icon: 'info' },
+        error: { icon: 'warning', heading: 'Oops' },
+        redirectDelaySeconds: 5,
+        showRedirectCountdown: true,
+      },
+    });
+    expect(ok.endings?.success?.heading).toBe('All set');
+    expect(ok.endings?.closed?.icon).toBe('lock');
+    expect(ok.endings?.redirectDelaySeconds).toBe(5);
+    expect(ok.endings?.showRedirectCountdown).toBe(true);
+    // Unknown icon / out-of-range delay are rejected.
+    expect(appearanceSchema.safeParse({ endings: { success: { icon: 'rocket' } } }).success).toBe(
+      false,
+    );
+    expect(appearanceSchema.safeParse({ endings: { redirectDelaySeconds: 31 } }).success).toBe(
+      false,
+    );
+    expect(appearanceSchema.safeParse({ endings: { redirectDelaySeconds: -1 } }).success).toBe(
+      false,
+    );
+  });
+
+  it('accepts branding + logo/cover dimensions and rejects out-of-set/range values', () => {
+    const ok = appearanceSchema.parse({
+      branding: { showPoweredBy: true },
+      logo: { url: 'https://cdn.example/l.png', size: 'lg', align: 'center', alt: 'Acme' },
+      cover: { url: 'https://cdn.example/c.jpg', height: 240, overlay: 0.4, blur: 6, alt: 'Hero' },
+    });
+    expect(ok.branding.showPoweredBy).toBe(true);
+    expect(ok.logo?.size).toBe('lg');
+    expect(ok.logo?.align).toBe('center');
+    expect(ok.cover?.height).toBe(240);
+    expect(ok.cover?.overlay).toBe(0.4);
+    expect(ok.cover?.blur).toBe(6);
+    expect(appearanceSchema.safeParse({ logo: { url: 'https://c/x', size: 'xl' } }).success).toBe(
+      false,
+    );
+    expect(
+      appearanceSchema.safeParse({ logo: { url: 'https://c/x', align: 'justify' } }).success,
+    ).toBe(false);
+    expect(appearanceSchema.safeParse({ cover: { url: 'https://c/x', height: 40 } }).success).toBe(
+      false,
+    );
+    expect(
+      appearanceSchema.safeParse({ cover: { url: 'https://c/x', overlay: 0.9 } }).success,
+    ).toBe(false);
+    expect(appearanceSchema.safeParse({ cover: { url: 'https://c/x', blur: 21 } }).success).toBe(
+      false,
+    );
+  });
+
+  it('bounds the Batch-5 numeric fine-tunes', () => {
+    expect(appearanceSchema.parse({ layout: { inputPadX: 16 } }).layout.inputPadX).toBe(16);
+    expect(appearanceSchema.parse({ layout: { cardPadding: 40 } }).layout.cardPadding).toBe(40);
+    expect(appearanceSchema.parse({ layout: { focusOffset: 6 } }).layout.focusOffset).toBe(6);
+    expect(
+      appearanceSchema.parse({ typography: { bodyLineHeight: 1.6 } }).typography.bodyLineHeight,
+    ).toBe(1.6);
+    expect(appearanceSchema.parse({ background: { imageBlur: 8 } }).background.imageBlur).toBe(8);
+    expect(appearanceSchema.safeParse({ layout: { inputPadX: 3 } }).success).toBe(false);
+    expect(appearanceSchema.safeParse({ layout: { cardPadding: 7 } }).success).toBe(false);
+    expect(appearanceSchema.safeParse({ layout: { focusOffset: 7 } }).success).toBe(false);
+    expect(appearanceSchema.safeParse({ typography: { bodyLineHeight: 2.1 } }).success).toBe(false);
+    expect(appearanceSchema.safeParse({ typography: { headingLineHeight: 0.9 } }).success).toBe(
+      false,
+    );
+    expect(appearanceSchema.safeParse({ background: { imageBrightness: 2 } }).success).toBe(false);
+    expect(appearanceSchema.safeParse({ background: { imageGrayscale: 1.1 } }).success).toBe(false);
+  });
+
   it('accepts #rgb, #rrggbb and #rrggbbaa hex colors', () => {
     expect(appearanceSchema.safeParse({ colors: { primary: '#fff' } }).success).toBe(true);
     expect(appearanceSchema.safeParse({ colors: { primary: '#ffffff' } }).success).toBe(true);
@@ -710,13 +1068,67 @@ describe('appearanceSchema (theme contract)', () => {
   });
 
   it('rejects an unknown top-level key (strict)', () => {
-    expect(appearanceSchema.safeParse({ customCss: 'body{}' }).success).toBe(false);
+    expect(appearanceSchema.safeParse({ bogusKey: 'x' }).success).toBe(false);
   });
 
   it('rejects an unknown font family', () => {
     expect(appearanceSchema.safeParse({ typography: { fontFamily: 'comic-sans' } }).success).toBe(
       false,
     );
+  });
+
+  it('accepts a valid custom Google font name', () => {
+    expect(
+      appearanceSchema.parse({ typography: { customGoogleFont: 'Figtree' } }).typography
+        .customGoogleFont,
+    ).toBe('Figtree');
+    // spaces and hyphens are allowed inside the name.
+    expect(
+      appearanceSchema.parse({ typography: { customGoogleFont: 'Source Serif 4' } }).typography
+        .customGoogleFont,
+    ).toBe('Source Serif 4');
+    expect(
+      appearanceSchema.parse({ typography: { customGoogleFont: 'PT Sans-Caption' } }).typography
+        .customGoogleFont,
+    ).toBe('PT Sans-Caption');
+  });
+
+  it('rejects a custom Google font name with injection characters', () => {
+    for (const bad of [
+      'Bad"; url(x)',
+      "Evil'",
+      'foo}',
+      'foo{',
+      'a<b',
+      'a>b',
+      'foo;',
+      'foo,bar',
+      'url(x)',
+      '@import',
+      'back\\slash',
+      'line\nbreak',
+    ]) {
+      expect(appearanceSchema.safeParse({ typography: { customGoogleFont: bad } }).success).toBe(
+        false,
+      );
+    }
+  });
+
+  it('enforces length bounds on the custom Google font name', () => {
+    // empty (after trim) fails the min-length / leading-char requirement.
+    expect(appearanceSchema.safeParse({ typography: { customGoogleFont: '' } }).success).toBe(
+      false,
+    );
+    expect(appearanceSchema.safeParse({ typography: { customGoogleFont: ' ' } }).success).toBe(
+      false,
+    );
+    // 50 chars is the max; 51 is rejected.
+    expect(
+      appearanceSchema.safeParse({ typography: { customGoogleFont: 'A'.repeat(50) } }).success,
+    ).toBe(true);
+    expect(
+      appearanceSchema.safeParse({ typography: { customGoogleFont: 'A'.repeat(51) } }).success,
+    ).toBe(false);
   });
 
   it('enforces numeric bounds on layout + typography', () => {
@@ -824,7 +1236,10 @@ describe('formInputSchema (form CRUD contract)', () => {
   it('the inferred FormField type discriminates on `type`', () => {
     const parsed: FormField = formFieldSchema.parse(dropdownField);
     if (parsed.type === 'dropdown') {
-      expect(parsed.options).toEqual(['Sales', 'Support']);
+      expect(parsed.options).toEqual([
+        { value: 'Sales', label: 'Sales' },
+        { value: 'Support', label: 'Support' },
+      ]);
     }
   });
 });

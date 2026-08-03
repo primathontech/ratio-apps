@@ -170,7 +170,7 @@ unsupported types.
   10 min; status (incl. bounce) visible in Admin.
 - [ ] `form.submitted` webhook delivered with the documented payload
   (event, merchant_id, form_id, form_name, submitted_at, submission_id,
-  fields, schema_version "1.0"); non-2xx retried at 5m/20m/1h; after 3
+  fields, schema_version "1.0"); non-2xx retried at 5m/20m; after 3
   failures marked failed with last status code; manual re-trigger works;
   "Send test payload" works from the builder.
 - [ ] Kill switch (`forms_enabled=false`) makes all forms render "temporarily

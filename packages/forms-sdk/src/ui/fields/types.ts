@@ -10,10 +10,13 @@ import type { nothing, TemplateResult } from 'lit';
  * is unchanged — this is a pure extraction of the two switch statements.
  */
 
-/** Content blocks (§1.3): display-only, submit no value, carry no label. */
+/** Content blocks (§1.3): display-only, submit no value, carry no label. The
+ * page_break block (§steps) is display-only too — it renders nothing in the
+ * form body (only marks a step boundary), so it groups here and is excluded
+ * from the interactive ControlField union / fieldControls registry. */
 export type ContentBlockField = Extract<
   FormField,
-  { type: 'heading' | 'divider' | 'paragraph' | 'image' }
+  { type: 'heading' | 'divider' | 'paragraph' | 'image' | 'html' | 'page_break' }
 >;
 
 /** Every non-content-block (interactive control) field — what renderControl handles. */
@@ -32,18 +35,57 @@ export interface FieldRenderCtx {
   invalid: string | typeof nothing;
   describedBy: string | typeof nothing;
   values: Record<string, unknown>;
-  files: Record<string, File | null>;
+  files: Record<string, File[]>;
+  /** True while the form is submitting — the file field shows an indeterminate
+   * "uploading" bar for its selected files during this in-flight phase. Optional
+   * so callers that build a bare ctx (idle render, tests) default to no bar. */
+  uploading?: boolean;
   onInput: (e: Event) => void;
   setValue: (key: string, value: unknown) => void;
   ph: (field: FormField, fallback: string) => string;
   adorn: (field: ControlField, control: TemplateResult) => TemplateResult;
   requestUpdate: () => void;
+  /** Per-form-instance focus registry for the number field's blur-format /
+   * focus-raw display swap (keyed by field.key). Owned by RatioForm so display
+   * state can't leak across embeds and is cleared on disconnect. */
+  numberFocus: Set<string>;
+  /** Per-form-instance ephemeral UI state for the select family (dropdown
+   * combobox open/filter state; dropdown/radio/multi_select "Other" free-text
+   * mode). Owned by RatioForm (cleared on disconnect) so it never leaks across
+   * embeds; keyed by field.key. */
+  selectUi: Map<string, SelectUiState>;
+}
+
+/**
+ * Ephemeral, client-only UI state for a single select-family field. None of it
+ * is submitted — it only drives what the widget shows (the SUBMITTED value is
+ * always the option value or the typed "Other" text, held in `values`).
+ */
+export interface SelectUiState {
+  /** dropdown combobox: option list is open. */
+  open?: boolean;
+  /** dropdown combobox: current filter query text. */
+  query?: string;
+  /** dropdown combobox: highlighted item index in the filtered list. */
+  activeIndex?: number;
+  /** "Other" free-text mode is active (a value may not be typed yet). */
+  otherActive?: boolean;
+}
+
+/** Get (creating if absent) the ephemeral select UI state for `key`. */
+export function selectUiState(ctx: FieldRenderCtx, key: string): SelectUiState {
+  let state = ctx.selectUi.get(key);
+  if (!state) {
+    state = {};
+    ctx.selectUi.set(key, state);
+  }
+  return state;
 }
 
 /** State a client validate fn reads. */
 export interface FieldValidateCtx {
   values: Record<string, unknown>;
-  files: Record<string, File | null>;
+  files: Record<string, File[]>;
 }
 
 export type FieldRenderFn<K extends ControlField['type']> = (
@@ -61,10 +103,6 @@ export interface FieldControlModule<K extends ControlField['type']> {
   validate: FieldValidateFn<K>;
 }
 
-/** Empty-value gate shared by the value-bearing control validators. */
-export function isEmpty(value: unknown): boolean {
-  if (value === undefined || value === null) return true;
-  if (typeof value === 'string' && value.trim() === '') return true;
-  if (Array.isArray(value) && value.length === 0) return true;
-  return false;
-}
+/** Empty-value gate shared by the value-bearing control validators. Re-exported
+ * from the Zod-free shared module so the SDK and the backend agree on "empty". */
+export { isEmpty } from '@ratio-app/shared/schemas/fields/_shared/empty-constants';

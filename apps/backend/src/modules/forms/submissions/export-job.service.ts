@@ -16,19 +16,7 @@ export interface ExportJobStatusView {
   downloadUrl?: string;
 }
 
-/**
- * Async CSV export orchestration (background job → S3 → signed download URL).
- *
- * `createJob` is the merchant-guarded entry point: it reuses
- * {@link SubmissionsService.requireOwnForm} for ownership (soft-deleted forms
- * included — submissions outlive the form), refuses with 503
- * `exports_unavailable` when S3 or the queue is not configured (the admin then
- * falls back to the synchronous streaming export), otherwise inserts a
- * `pending` row and enqueues its id. The worker does the streaming; this
- * service only reads status back and mints the signed download URL.
- *
- * PII: nothing here logs submission content — ids and status only.
- */
+/** Async CSV export orchestration (background job → S3 → signed URL); refuses with 503 `exports_unavailable` when S3/queue unconfigured. PII: logs ids and status only, never submission content. */
 @Injectable()
 export class ExportJobService {
   constructor(
@@ -45,14 +33,9 @@ export class ExportJobService {
     );
   }
 
-  /**
-   * Ownership check → 503 if unconfigured → insert `pending` row → enqueue.
-   * Returns the freshly-created row (MySQL has no RETURNING, so it is composed
-   * in memory from the inserted values).
-   */
+  /** Ownership → 503-if-unconfigured → insert `pending` → enqueue; returns the row composed in memory (MySQL has no RETURNING). */
   async createJob(merchantId: string, formId: string): Promise<FormExportJobRow> {
-    // 404 for a form this merchant does not own (checked before the 503 so a
-    // caller can't probe queue/bucket configuration for forms they don't own).
+    // Ownership checked before the 503 so a caller can't probe queue/bucket config for forms they don't own.
     await this.submissions.requireOwnForm(merchantId, formId);
 
     if (!this.available) {
@@ -84,11 +67,7 @@ export class ExportJobService {
     };
   }
 
-  /**
-   * Poll a job. Cross-merchant (or missing) → 404 — the (id, merchantId,
-   * formId) filter makes another merchant's job indistinguishable from a
-   * nonexistent one. A `ready` job carries a 1-hour signed download URL.
-   */
+  /** Poll a job; the (id, merchantId, formId) filter makes another merchant's job 404, indistinguishable from nonexistent. */
   async getJob(merchantId: string, formId: string, jobId: string): Promise<ExportJobStatusView> {
     const job = await this.handle.db
       .selectFrom('form_export_jobs')

@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { FormAppearance, FormField, FormInput } from '@ratio-app/shared/schemas/form-schema';
 import { sql } from 'kysely';
+import { parseJsonColumn, parseJsonColumnOrNull } from '../../../core/db/json';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
 import type { FormRow, FormSpamProtection, FormStatus, FormsDatabase } from '../db/types';
 import { FORMS_DB_TOKEN } from '../kysely.module';
@@ -40,15 +41,7 @@ export interface FormListResult {
   hasMore: boolean;
 }
 
-/**
- * Form CRUD (TRD §2): create / list / detail / update / soft-delete /
- * activate / deactivate / duplicate. EVERY query is merchant-scoped — a
- * cross-merchant id is indistinguishable from a missing one (404), which is
- * the multi-tenancy guard.
- *
- * `schema_json` is stringified explicitly on write (mysql2 does not
- * auto-serialize into JSON columns) and parsed on read.
- */
+/** Form CRUD (TRD §2); every query is merchant-scoped so a cross-merchant id 404s (multi-tenancy guard). */
 @Injectable()
 export class FormsService {
   constructor(@Inject(FORMS_DB_TOKEN) private readonly handle: KyselyClient<FormsDatabase>) {}
@@ -77,8 +70,7 @@ export class FormsService {
         status: 'inactive',
       })
       .execute();
-    // Compose in memory (no RETURNING in MySQL); timestamps are "now" within
-    // clock skew of the DB defaults — callers needing exact values re-GET.
+    // Compose in memory (no RETURNING in MySQL); timestamps approximate DB defaults.
     const now = new Date();
     return {
       id,
@@ -270,12 +262,12 @@ export class FormsService {
   }
 
   private toEntity(row: FormRow): FormEntity {
-    const appearance = FormsService.parseAppearance(row.appearanceJson);
+    const appearance = parseJsonColumnOrNull<FormAppearance>(row.appearanceJson);
     return {
       id: row.id,
       name: row.name,
       description: row.description,
-      schema: FormsService.parseSchema(row.schemaJson),
+      schema: parseJsonColumn<FormField[]>(row.schemaJson),
       ...(appearance ? { appearance } : {}),
       submitLabel: row.submitLabel,
       successMessage: row.successMessage,
@@ -287,19 +279,6 @@ export class FormsService {
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };
-  }
-
-  /** mysql2 usually parses JSON columns; older paths may hand back strings. */
-  private static parseSchema(value: FormField[] | string): FormField[] {
-    return typeof value === 'string' ? (JSON.parse(value) as FormField[]) : value;
-  }
-
-  /** Nullable twin of parseSchema — `undefined` for un-themed forms. */
-  private static parseAppearance(
-    value: FormAppearance | string | null,
-  ): FormAppearance | undefined {
-    if (value == null) return undefined;
-    return typeof value === 'string' ? (JSON.parse(value) as FormAppearance) : value;
   }
 
   /** `form_<random>` via node:crypto (never Math.random). */
