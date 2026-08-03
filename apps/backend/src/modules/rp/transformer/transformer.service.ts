@@ -167,7 +167,17 @@ export class RpTransformerService {
     // `number()` schema coerces to a real JS number. A string here silently fails that
     // comparison ("Unable to validate all products") even for a product that exists.
     const id = Number(this.numericId(String(ratioProduct.id ?? '')));
-    const images = Array.isArray(ratioProduct.images) ? (ratioProduct.images as Rec[]) : [];
+    // The platform returns product images in two different shapes depending on the source:
+    // REST `GET /products` gives `images[].src` (Shopify-compatible already), but the raw
+    // webhook `product` payload gives `images[].url` instead — and this method is called on
+    // raw data from both (RpProductsService.getProduct for REST, RpWebhooksService.forward
+    // for webhook-sourced product-create/update). Normalize both to Shopify's `.src`.
+    const images = Array.isArray(ratioProduct.images)
+      ? (ratioProduct.images as Rec[]).map((img) => ({
+          ...img,
+          src: (img.src as string | undefined) ?? (img.url as string | undefined) ?? null,
+        }))
+      : [];
     // OS has no per-variant image association, so every variant points at the primary
     // (first) image — matching Shopify's own behavior for single-image products. Without
     // this, RP's productVariantImage() finds no images[].id === variant.image_id match,
