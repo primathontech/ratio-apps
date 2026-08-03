@@ -173,7 +173,7 @@ export class RpTransformerService {
     // raw data from both (RpProductsService.getProduct for REST, RpWebhooksService.forward
     // for webhook-sourced product-create/update). Normalize both to Shopify's `.src`.
     const images = Array.isArray(ratioProduct.images)
-      ? (ratioProduct.images as Rec[]).map((img) => ({
+      ? (ratioProduct.images as Rec[]).map((img): Rec => ({
           ...img,
           src: (img.src as string | undefined) ?? (img.url as string | undefined) ?? null,
         }))

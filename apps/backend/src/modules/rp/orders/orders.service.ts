@@ -21,16 +21,18 @@ export class RpOrdersService {
    */
   async createOrder(merchantId: string, body: unknown): Promise<unknown> {
     const dto = this.transformer.mapCreateOrder(body as Record<string, unknown>);
-    const token = await this.tokenProvider.getAccessToken(merchantId);
-    const raw = (await this.ratioClient.createOrder(token, merchantId, dto)) as Record<string, unknown>;
+    const raw = (await this.tokenProvider.withAuthRetry(merchantId, (token) =>
+      this.ratioClient.createOrder(token, merchantId, dto),
+    )) as Record<string, unknown>;
     const envelope = raw as Record<string, Record<string, unknown>>;
     const order = (envelope.data?.order ?? envelope.order ?? raw) as Record<string, unknown>;
     return { order: normalizeOrder(order) };
   }
 
   async getOrders(merchantId: string, params: Record<string, string>): Promise<unknown> {
-    const token = await this.tokenProvider.getAccessToken(merchantId);
-    const raw = await this.ratioClient.getOrders(token, params) as Record<string, unknown>;
+    const raw = await this.tokenProvider.withAuthRetry(merchantId, (token) =>
+      this.ratioClient.getOrders(token, params),
+    ) as Record<string, unknown>;
     // Normalize orders list — same as single-order normalization so RP's Mongoose Number
     // fields and id comparisons work without any OS-awareness in the RP codebase.
     const orders = Array.isArray(raw.orders)
@@ -43,8 +45,9 @@ export class RpOrdersService {
   }
 
   async getOrder(merchantId: string, orderId: string): Promise<unknown> {
-    const token = await this.tokenProvider.getAccessToken(merchantId);
-    const raw = await this.ratioClient.getOrder(token, orderId) as Record<string, unknown>;
+    const raw = await this.tokenProvider.withAuthRetry(merchantId, (token) =>
+      this.ratioClient.getOrder(token, orderId),
+    ) as Record<string, unknown>;
     // Fall back through legacy { data: { order } } and bare-order shapes for safety.
     const envelope = raw as Record<string, Record<string, unknown>>;
     const order = (envelope.data?.order ?? (raw as Record<string, unknown>).order ?? raw) as Record<string, unknown>;
@@ -54,8 +57,9 @@ export class RpOrdersService {
   }
 
   async patchOrder(merchantId: string, orderId: string, body: unknown): Promise<unknown> {
-    const token = await this.tokenProvider.getAccessToken(merchantId);
-    const raw = await this.ratioClient.patchOrder(token, merchantId, orderId, body) as Record<string, unknown>;
+    const raw = await this.tokenProvider.withAuthRetry(merchantId, (token) =>
+      this.ratioClient.patchOrder(token, merchantId, orderId, body),
+    ) as Record<string, unknown>;
     return { order: raw.order ?? raw };
   }
 
@@ -67,8 +71,9 @@ export class RpOrdersService {
    * means uncaptured/COD, matching Shopify's "no transaction yet" semantics.
    */
   async getTransactions(merchantId: string, orderId: string): Promise<unknown> {
-    const token = await this.tokenProvider.getAccessToken(merchantId);
-    const raw = await this.ratioClient.getOrder(token, orderId) as Record<string, unknown>;
+    const raw = await this.tokenProvider.withAuthRetry(merchantId, (token) =>
+      this.ratioClient.getOrder(token, orderId),
+    ) as Record<string, unknown>;
     const envelope = raw as Record<string, Record<string, unknown>>;
     const order = (envelope.data?.order ?? (raw as Record<string, unknown>).order ?? raw) as Record<string, unknown>;
 
