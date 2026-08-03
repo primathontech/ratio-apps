@@ -7,6 +7,7 @@ const baseLine = {
   product_id: 'prod_001',
   title: 'Test Product',
   price: '100.00',
+  quantity: 1,
   fulfillment_status: null,
 };
 
@@ -74,6 +75,49 @@ describe('normalizeOrder - fulfillments synthesis', () => {
 
     const result = normalizeOrder(order) as Record<string, unknown>;
     expect(result.fulfillments).toEqual([]);
+  });
+});
+
+describe('normalizeOrder - fulfillments synthesis - partial fulfillment quantities', () => {
+  it('reports the actually-fulfilled quantity (quantity - fulfillable_quantity) for a partially-shipped line item, not the full order quantity', () => {
+    const order = {
+      id: 'ordr_777',
+      currency: 'INR',
+      fulfillment_status: 'partial',
+      fulfillments: [],
+      line_items: [{ ...baseLine, quantity: 3, fulfillment_status: 'partial', fulfillable_quantity: 1 }],
+      shipping_lines: [],
+    };
+
+    const result = normalizeOrder(order) as Record<string, unknown>;
+    const fulfillments = result.fulfillments as Array<Record<string, unknown>>;
+    expect(fulfillments).toHaveLength(1);
+    const lineItems = fulfillments[0]!.line_items as Array<Record<string, unknown>>;
+    // 3 ordered, 1 still fulfillable => 2 actually shipped, not the full 3
+    expect(lineItems[0]?.quantity).toBe(2);
+  });
+
+  it('excludes a still-fully-unfulfilled line item from the synthesized fulfillment entirely', () => {
+    const order = {
+      id: 'ordr_888',
+      currency: 'INR',
+      fulfillment_status: 'partial',
+      fulfillments: [],
+      line_items: [
+        { ...baseLine, id: 'line_shipped', quantity: 2, fulfillment_status: 'fulfilled', fulfillable_quantity: 0 },
+        { ...baseLine, id: 'line_unshipped', quantity: 2, fulfillment_status: 'unfulfilled', fulfillable_quantity: 2 },
+      ],
+      shipping_lines: [],
+    };
+
+    const result = normalizeOrder(order) as Record<string, unknown>;
+    const fulfillments = result.fulfillments as Array<Record<string, unknown>>;
+    expect(fulfillments).toHaveLength(1);
+    const lineItems = fulfillments[0]!.line_items as Array<Record<string, unknown>>;
+    // Only the shipped line item should appear — a real Shopify fulfillment never lists
+    // an item that wasn't actually in that shipment.
+    expect(lineItems).toHaveLength(1);
+    expect(lineItems[0]?.quantity).toBe(2);
   });
 });
 
