@@ -1,5 +1,5 @@
 import type { Transaction } from 'kysely';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { FbtBootstrap } from '../../../../src/modules/fbt/fbt.bootstrap';
 import type { FbtDatabase } from '../../../../src/modules/fbt/db/types';
 
@@ -86,7 +86,8 @@ describe('FbtBootstrap', () => {
 
     // A self-referencing no-op: the ODKU exists purely to suppress the
     // duplicate-key path. `.ignore()` would also swallow FK / NOT NULL errors.
-    expect(calls[0]?.odku).toBeDefined();
+    // Verify the exact shape to catch regressions where the no-op gets replaced with real field rewrites.
+    expect(Object.keys(calls[0]?.odku ?? {})).toEqual(['merchantId']);
   });
 
   it('encodes JSON list columns as strings — mysql2 does not auto-stringify', async () => {

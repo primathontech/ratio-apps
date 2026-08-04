@@ -19,6 +19,9 @@ import type { FbtDatabase } from './db/types';
  * REINSTALL preserves the merchant's prior settings instead of resetting them.
  * `.ignore()` is deliberately avoided — it would also silently swallow FK
  * violations and NOT NULL gaps introduced by a later schema change.
+ *
+ * The `.values()` stays fully type-checked so TypeScript catches camelCase typos;
+ * only the ODKU argument gets the narrow `as never` cast.
  */
 @Injectable()
 export class FbtBootstrap implements AppBootstrap<FbtDatabase> {
@@ -42,7 +45,7 @@ export class FbtBootstrap implements AppBootstrap<FbtDatabase> {
         // mysql2 does not auto-stringify objects into JSON columns.
         productExcludedList: '[]',
         productsWidgetDisabledList: '[]',
-      } as never)
+      })
       .onDuplicateKeyUpdate({ merchantId: sql`merchant_id` } as never)
       .execute();
 
