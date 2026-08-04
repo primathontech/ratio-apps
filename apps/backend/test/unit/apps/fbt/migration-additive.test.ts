@@ -20,16 +20,71 @@ function migrationSource(): string {
   return readFileSync(MIGRATION_PATH, 'utf8');
 }
 
-/** Strip comments so a word inside an explanatory comment can't fail the test. */
+/**
+ * Remove text that is INERT — present in the source but never executed as DDL — so a
+ * destructive keyword appearing there cannot fail the test. Two categories:
+ *
+ *  1. Comments. An explanatory comment saying "0002 will dropColumn" is not a drop.
+ *  2. `throw new Error(...)` arguments. The migration's recovery messages deliberately
+ *     contain the literal text `DROP TABLE …` so an operator can paste it. That is
+ *     instructional prose, not an executed statement.
+ *
+ * Deliberately NOT stripped: string and template literals in general. `sql`DROP TABLE x``
+ * IS a template literal, so a blanket string-strip would gut this entire guard. The
+ * `throw` carve-out is narrow on purpose — DDL is never executed from inside a throw's
+ * argument in any realistic migration. `stripsInertText` below is the regression test
+ * proving this stripping keeps its teeth.
+ */
+export function stripInertText(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\s*\/\/.*$/gm, '')
+    .replace(/throw new Error\([\s\S]*?\);/g, 'throw new Error();');
+}
+
 function upBody(src: string): string {
-  const withoutBlockComments = src.replace(/\/\*[\s\S]*?\*\//g, '');
-  const withoutLineComments = withoutBlockComments.replace(/\s*\/\/.*$/gm, '');
-  const upStart = withoutLineComments.indexOf('export async function up');
-  const downStart = withoutLineComments.indexOf('export async function down');
+  const stripped = stripInertText(src);
+  const upStart = stripped.indexOf('export async function up');
+  const downStart = stripped.indexOf('export async function down');
   expect(upStart).toBeGreaterThan(-1);
   expect(downStart).toBeGreaterThan(upStart);
-  return withoutLineComments.slice(upStart, downStart);
+  return stripped.slice(upStart, downStart);
 }
+
+describe('stripInertText keeps its teeth', () => {
+  // This guard's value depends entirely on it NOT over-stripping. The `throw` carve-out
+  // exists so the migration's own `DROP TABLE …` recovery prose does not trip the
+  // `raw DROP` pattern — but if that carve-out ever widened to strings generally, every
+  // `sql`DROP TABLE …`` would become invisible and this whole file would silently pass
+  // anything. These are the negative controls.
+  const synthetic = [
+    'export async function up(db) {',
+    '  await sql`DROP TABLE victim`.execute(db);',
+    '  await db.schema.dropTable("other").execute();',
+    '  await sql`TRUNCATE audit_log`.execute(db);',
+    '  throw new Error("recovery: DROP TABLE inert_prose;");',
+    '}',
+    'export async function down(db) {}',
+  ].join('\n');
+
+  const stripped = stripInertText(synthetic);
+
+  it('still sees an executable raw DROP TABLE', () => {
+    expect(stripped).toMatch(/\bDROP\s+TABLE\b/i);
+  });
+
+  it('still sees a builder .dropTable() call', () => {
+    expect(stripped).toMatch(/\.dropTable\(/);
+  });
+
+  it('still sees a raw TRUNCATE', () => {
+    expect(stripped).toMatch(/\bTRUNCATE\b/i);
+  });
+
+  it('removes the inert throw-message prose', () => {
+    expect(stripped).not.toContain('inert_prose');
+  });
+});
 
 describe('fbt 0001_initial is additive', () => {
   it('exports up and down', () => {
