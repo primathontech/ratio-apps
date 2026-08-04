@@ -59,6 +59,7 @@
     "migrate:down:loyalty": "pnpm --filter @ratio-app/backend exec tsx scripts/migrate-down.ts loyalty",
     "migrate:down:forms": "pnpm --filter @ratio-app/backend exec tsx scripts/migrate-down.ts forms",
     "migrate:down:fbt": "pnpm --filter @ratio-app/backend exec tsx scripts/migrate-down.ts fbt",
+    "verify:fbt:additive": "node apps/backend/scripts/verify-fbt-additive.mjs",
     "//--- quality gates ---//": "",
     "test": "pnpm -r test",
     "test:cov": "pnpm -r test:cov",
