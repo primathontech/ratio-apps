@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { RpRatioClientService } from '../ratio-client/ratio-client.service';
 import { RpRatioTokenProvider } from '../oauth/ratio-token.provider';
 import { RpTransformerService } from '../transformer/transformer.service';
@@ -32,6 +32,25 @@ export class RpProductsService {
       this.ratioClient.getProduct(token, merchantId, resolvedId),
     ) as Record<string, unknown>;
     const product = (raw?.product ?? raw?.data ?? raw) as Record<string, unknown>;
+
+    // Guard: if Ratio returned an empty/placeholder product (no real id, or id === 0),
+    // it means the resolvedId wasn't recognised — most likely the rp_id_mappings table has
+    // no row for this hashed id yet (product was never synced via webhook or catalog import).
+    // Returning a { id: 0, variants: [] } shell to RP causes its exchange-product component
+    // to crash and triggers the React ErrorBoundary ("Something went wrong. Please refresh
+    // the page."). Throw a 404 instead so RP can handle it gracefully.
+    const returnedId = product?.id;
+    const looksReal = !!returnedId && returnedId !== 0 && returnedId !== '0';
+    if (!looksReal) {
+      this.logger.warn(
+        { merchantId, productId, resolvedId, returnedId },
+        'Ratio returned empty/placeholder product — throwing 404 to prevent RP crash',
+      );
+      throw new HttpException(
+        { message: 'Product not found', productId, resolvedId },
+        HttpStatus.NOT_FOUND,
+      );
+    }
 
     // Persist variant hash mappings here too, not just on the webhook-forward path — RP's
     // exchange-reserve flow later round-trips a variant's hashed inventory_item_id back to

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { HttpException } from '@nestjs/common';
 import { RpProductsService } from './products.service';
 import type { RpRatioClientService } from '../ratio-client/ratio-client.service';
 import type { RpRatioTokenProvider } from '../oauth/ratio-token.provider';
@@ -58,12 +59,47 @@ describe('RpProductsService.getProduct — hashed product ID resolution', () => 
     expect(result.product.id).toBe(1107513967307445);
   });
 
-  it('falls back to the hashed ID when no mapping is found (reproduces the pre-fix REQUEST_EXCHANGE_E4 case)', async () => {
-    const { service, ratioClient } = makeService({ resolvedRealId: null });
+  it('falls back to the hashed ID when no mapping is found', async () => {
+    // When resolveRealId returns null the service still calls Ratio with the hashed id.
+    // If Ratio returns a real product (non-zero id) for that hash the call succeeds;
+    // the 404 guard only fires when the returned product id is falsy/zero (see guard tests).
+    const { service, ratioClient } = makeService({
+      resolvedRealId: null,
+      getProduct: vi.fn().mockResolvedValue({ product: { id: 'real-os-id', variants: [] } }),
+    });
 
     await service.getProduct('m1', 'shop.example', '1107513967307445');
 
     expect(ratioClient.getProduct).toHaveBeenCalledWith('access-tok-1', 'm1', '1107513967307445');
+  });
+});
+
+describe('RpProductsService.getProduct — empty/placeholder product guard', () => {
+  it('throws 404 when Ratio returns a product with id === 0 (unmapped hashed id crashes RP UI)', async () => {
+    const { service } = makeService({
+      resolvedRealId: null,
+      getProduct: vi.fn().mockResolvedValue({ product: { id: 0, variants: [] } }),
+    });
+
+    await expect(service.getProduct('m1', 'shop.example', '1107513967307445')).rejects.toThrow(HttpException);
+  });
+
+  it('throws 404 when Ratio returns a null product body', async () => {
+    const { service } = makeService({
+      resolvedRealId: null,
+      getProduct: vi.fn().mockResolvedValue({ product: null }),
+    });
+
+    await expect(service.getProduct('m1', 'shop.example', '1107513967307445')).rejects.toThrow(HttpException);
+  });
+
+  it('does NOT throw when Ratio returns a real product with a valid non-zero id', async () => {
+    const { service } = makeService({
+      resolvedRealId: '17720223476919127',
+      getProduct: vi.fn().mockResolvedValue({ product: { id: 'real-os-id', title: 'Widget', variants: [] } }),
+    });
+
+    await expect(service.getProduct('m1', 'shop.example', '1107513967307445')).resolves.toBeDefined();
   });
 });
 

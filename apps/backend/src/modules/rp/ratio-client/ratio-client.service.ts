@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { HttpException, Inject, Injectable, Logger } from '@nestjs/common';
 import { z } from 'zod';
 import type { RatioClient } from '../../../core/ratio-client/ratio.client';
 import { RP_RATIO_CLIENT } from '../tokens';
@@ -51,32 +51,103 @@ export class RpRatioClientService {
   }
 
   /**
-   * Patch an order via Ratio. RP sends a Shopify-shaped body (`{ order: { tags,
-   * fulfillment_status } }`) — e.g. to mark an order returned/exchanged when the
-   * "Sync returns status" setting is on. Forward the order fields to Ratio's PATCH.
+   * Patch an order via Ratio. RP sends a Shopify-shaped body (`{ order: { tags } }`) to
+   * mark an order returned/exchanged when the "Sync returns status" setting is on — RP
+   * does NOT send `fulfillment_status` itself; this adapter derives it from the tags
+   * being set (see deriveFulfillmentStatusFromTags) before forwarding to Ratio's PATCH.
    */
   async patchOrder(accessToken: string, merchantId: string, orderId: string, body: unknown): Promise<unknown> {
+    // RP dispatches to this adapter fire-and-forget (no await, no retry on its side) —
+    // the Shopify-side path has SQS+Lambda redelivery for this, but here a single failed
+    // HTTP call (network blip, timeout, transient 5xx) would otherwise be lost forever.
+    // Retry the outbound PATCH a few times locally with a short backoff; the producer
+    // stays fire-and-forget. 4xx is NOT retried (Ratio rejects the same payload every
+    // time) — see isRetryableRatioError.
+    const MAX_PATCH_ATTEMPTS = 3;
+    const PATCH_RETRY_DELAY_MS = 250;
     // RP sends back whatever id it was shown (often the order_number, e.g. "500"), not
     // necessarily OS's real "ordr_..." id — same resolution createRefund/calculateRefund
     // already do. Without it, this 404s on the literal order_number string.
     const osId = await this.resolveOsOrderId(accessToken, orderId);
     const order = { ...((body as Record<string, unknown>)?.order ?? body) as Record<string, unknown> };
+    // Derive fulfillment_status from the tags being set (checked before the array→string
+    // normalization below, so array membership is exact) unless the caller already
+    // provided one explicitly — don't override an explicit value.
+    if (order.fulfillment_status === undefined) {
+      const derived = this.deriveFulfillmentStatusFromTags(order.tags);
+      if (derived) order.fulfillment_status = derived;
+    }
     // RP's markOsOrderReturned.js builds tags as a JS array (buildReturnedTags dedupes into
     // [...new Set([...])]) — matching Shopify's own REST tags convention loosely, but Ratio's
     // UpdateOrderDto strictly types tags as a comma-separated string.
     if (Array.isArray(order.tags)) {
       order.tags = (order.tags as unknown[]).map((t) => String(t).trim()).filter(Boolean).join(', ');
     }
-    try {
-      return await this.ratio.request(`/api/v1/orders/${encodeURIComponent(osId)}`, anySchema, {
-        method: 'PATCH',
-        accessToken,
-        body: order,
-      });
-    } catch (err) {
-      this.logger.error({ merchantId, orderId, osId, err }, 'Ratio order patch failed');
-      throw err;
+    for (let attempt = 1; attempt <= MAX_PATCH_ATTEMPTS; attempt++) {
+      if (attempt > 1) await new Promise((resolve) => setTimeout(resolve, PATCH_RETRY_DELAY_MS));
+      try {
+        return await this.ratio.request(`/api/v1/orders/${encodeURIComponent(osId)}`, anySchema, {
+          method: 'PATCH',
+          accessToken,
+          body: order,
+        });
+      } catch (err) {
+        if (this.isRetryableRatioError(err) && attempt < MAX_PATCH_ATTEMPTS) {
+          this.logger.warn(
+            { merchantId, orderId, osId, attempt, err },
+            'Ratio order patch failed — retrying',
+          );
+          continue;
+        }
+        this.logger.error(
+          { merchantId, orderId, osId, attempt, err },
+          'Ratio order patch failed',
+        );
+        throw err;
+      }
     }
+    // Unreachable — the loop returns on success or throws on the final attempt.
+    throw new Error('Ratio order patch failed after retries');
+  }
+
+  /**
+   * True only for a failure worth retrying. RatioClient (core/ratio-client/ratio.client.ts)
+   * wraps EVERY non-2xx upstream response as a 502 HttpException with the real upstream
+   * status nested in the response body's `details.status` — so this inspects that, not
+   * err.getStatus() (which is always 502), mirroring RpRatioTokenProvider.isUpstream401.
+   * Everything else that surfaces here is a network/timeout rejection (plain TypeError /
+   * AbortError, no HttpException at all). So: plain errors (network/timeout) and upstream
+   * 5xx are transient — retry; upstream 4xx (client error) and response-shape failures
+   * (RATIO_RESPONSE_VALIDATION, no `details.status`) are permanent — fail fast.
+   */
+  private isRetryableRatioError(err: unknown): boolean {
+    if (!(err instanceof HttpException)) return true;
+    const response = err.getResponse();
+    if (typeof response !== 'object' || response === null) return false;
+    const details = (response as Record<string, unknown>).details;
+    if (typeof details !== 'object' || details === null) return false;
+    const status = (details as Record<string, unknown>).status;
+    return typeof status === 'number' && status >= 500;
+  }
+
+  /**
+   * RP's markOsOrderReturned.js (return_prime_public) only ever adds two possible tag
+   * values via this call path — "Returned" and/or "Exchanged" (buildReturnedTags), exact
+   * and case-sensitive — alongside whatever other tags the order already had. Derive
+   * fulfillment_status from their presence; "exchanged" takes precedence when both are
+   * present (an exchange fully supersedes what would otherwise be a plain return).
+   * Returns undefined when neither is present (plain tag updates, or the separate
+   * "Refunded" tag call) so unrelated PATCH bodies don't get a fulfillment_status added.
+   */
+  private deriveFulfillmentStatusFromTags(tags: unknown): 'returned' | 'exchanged' | undefined {
+    const list: string[] = Array.isArray(tags)
+      ? (tags as unknown[]).map((t) => String(t).trim())
+      : typeof tags === 'string'
+        ? tags.split(',').map((t) => t.trim())
+        : [];
+    if (list.includes('Exchanged')) return 'exchanged';
+    if (list.includes('Returned')) return 'returned';
+    return undefined;
   }
 
   // ── Discounts (Ratio App Ecosystem API) ──────────────────────────────────

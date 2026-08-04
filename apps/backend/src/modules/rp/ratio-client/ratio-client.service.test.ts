@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { HttpException } from '@nestjs/common';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RpRatioClientService } from './ratio-client.service';
 
 // Everything in this service goes through Ratio's ecosystem app API (OAuth bearer via
@@ -118,7 +119,87 @@ describe('RpRatioClientService.patchOrder', () => {
       2,
       '/api/v1/orders/ordr_9',
       expect.anything(),
-      expect.objectContaining({ body: { tags: 'gokwik, ratio, COD, Exchanged' } }),
+      // 'Exchanged' in the tags derives fulfillment_status — see the
+      // deriveFulfillmentStatusFromTags describe block below.
+      expect.objectContaining({ body: { tags: 'gokwik, ratio, COD, Exchanged', fulfillment_status: 'exchanged' } }),
+    );
+  });
+
+  // ── Deriving fulfillment_status from the tags RP is setting ────────────────
+  // RP (return_prime_public) only ever sends `tags` via this call path — it does NOT send
+  // fulfillment_status itself. buildReturnedTags there only ever adds "Returned" and/or
+  // "Exchanged" (exact, case-sensitive) among whatever other tags the order already had. We
+  // derive fulfillment_status from those exact tag values before forwarding to Ratio.
+
+  it('derives fulfillment_status "returned" when the tags include "Returned"', async () => {
+    const requestMock = vi.fn();
+    stubOrderLookup(requestMock, 'ordr_9', '9');
+    requestMock.mockResolvedValueOnce({ order: { id: 'ordr_9', tags: 'VIP, Returned' } });
+    const svc = makeService(requestMock);
+
+    await svc.patchOrder('access-tok-1', 'gk-merchant', '9', {
+      order: { tags: ['VIP', 'Returned'] },
+    });
+
+    expect(requestMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/v1/orders/ordr_9',
+      expect.anything(),
+      expect.objectContaining({ body: { tags: 'VIP, Returned', fulfillment_status: 'returned' } }),
+    );
+  });
+
+  it('prefers fulfillment_status "exchanged" over "returned" when tags include both', async () => {
+    const requestMock = vi.fn();
+    stubOrderLookup(requestMock, 'ordr_9', '9');
+    requestMock.mockResolvedValueOnce({ order: { id: 'ordr_9', tags: 'Returned, Exchanged' } });
+    const svc = makeService(requestMock);
+
+    await svc.patchOrder('access-tok-1', 'gk-merchant', '9', {
+      order: { tags: ['Returned', 'Exchanged'] },
+    });
+
+    expect(requestMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/v1/orders/ordr_9',
+      expect.anything(),
+      expect.objectContaining({ body: { tags: 'Returned, Exchanged', fulfillment_status: 'exchanged' } }),
+    );
+  });
+
+  it('does not add fulfillment_status when the tags contain neither "Returned" nor "Exchanged" (e.g. the "Refunded" tag call)', async () => {
+    const requestMock = vi.fn();
+    stubOrderLookup(requestMock, 'ordr_9', '9');
+    requestMock.mockResolvedValueOnce({ order: { id: 'ordr_9', tags: 'VIP, Refunded' } });
+    const svc = makeService(requestMock);
+
+    await svc.patchOrder('access-tok-1', 'gk-merchant', '9', {
+      order: { tags: ['VIP', 'Refunded'] },
+    });
+
+    expect(requestMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/v1/orders/ordr_9',
+      expect.anything(),
+      expect.objectContaining({ body: { tags: 'VIP, Refunded' } }),
+    );
+  });
+
+  it('does not override an already-explicit fulfillment_status even if tags also include "Returned"', async () => {
+    const requestMock = vi.fn();
+    stubOrderLookup(requestMock, 'ordr_9', '9');
+    requestMock.mockResolvedValueOnce({ order: { id: 'ordr_9', tags: 'Returned' } });
+    const svc = makeService(requestMock);
+
+    await svc.patchOrder('access-tok-1', 'gk-merchant', '9', {
+      order: { tags: ['Returned'], fulfillment_status: 'fulfilled' },
+    });
+
+    expect(requestMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/v1/orders/ordr_9',
+      expect.anything(),
+      expect.objectContaining({ body: { tags: 'Returned', fulfillment_status: 'fulfilled' } }),
     );
   });
 
@@ -126,12 +207,109 @@ describe('RpRatioClientService.patchOrder', () => {
     const requestMock = vi.fn();
     stubOrderLookup(requestMock, 'ordr_x', 'x');
     const error = new Error('order not found');
-    requestMock.mockRejectedValueOnce(error);
+    // Persistent rejection — every PATCH attempt fails the same way, so the test
+    // exercises genuine retry exhaustion (with `mockRejectedValueOnce` the retry
+    // would "recover" on the next attempt and the failure would be masked).
+    requestMock.mockRejectedValue(error);
     const svc = makeService(requestMock);
 
     await expect(
       svc.patchOrder('access-tok-1', 'gk-merchant', 'x', { order: { tags: 'Returned' } }),
     ).rejects.toThrow('order not found');
+  });
+
+  // ── Local retry of the outbound PATCH (network blip / timeout / transient 5xx) ──
+  // The caller (return_prime_public) dispatches to this adapter fire-and-forget, so a
+  // single failed call would be lost forever. We retry a few times locally; a 4xx is
+  // NOT retried (Ratio will reject the same payload every time). Errors surface the way
+  // RatioClient (core/ratio-client/ratio.client.ts) actually throws them: every non-2xx
+  // upstream response is a 502 HttpException with the real status in `details.status`,
+  // while network/timeout failures are plain (non-HttpException) errors.
+
+  it('retries a transient network failure of the PATCH and succeeds on a later attempt', async () => {
+    const requestMock = vi.fn();
+    stubOrderLookup(requestMock, 'ordr_9', '9');
+    // First PATCH attempt fails with a network-shaped error (plain TypeError, no status);
+    // the retry succeeds.
+    requestMock.mockRejectedValueOnce(new TypeError('fetch failed'));
+    requestMock.mockResolvedValueOnce({ order: { id: 'ordr_9', tags: 'Returned' } });
+    const svc = makeService(requestMock);
+
+    const result = await svc.patchOrder('access-tok-1', 'gk-merchant', '9', {
+      order: { tags: 'Returned' },
+    });
+
+    expect(result).toEqual({ order: { id: 'ordr_9', tags: 'Returned' } });
+    // order-number lookup + 2 PATCH attempts (1 initial + 1 retry)
+    expect(requestMock).toHaveBeenCalledTimes(3);
+    expect(requestMock).toHaveBeenNthCalledWith(
+      3,
+      '/api/v1/orders/ordr_9',
+      expect.anything(),
+      expect.objectContaining({ method: 'PATCH', accessToken: 'access-tok-1' }),
+    );
+  });
+
+  it('retries a transient upstream 5xx of the PATCH and succeeds on a later attempt', async () => {
+    const requestMock = vi.fn();
+    stubOrderLookup(requestMock, 'ordr_9', '9');
+    const upstream503 = new HttpException(
+      {
+        message: 'ratio upstream error',
+        error_code: 'RATIO_UPSTREAM_ERROR',
+        details: { status: 503 },
+      },
+      502,
+    );
+    requestMock.mockRejectedValueOnce(upstream503);
+    requestMock.mockResolvedValueOnce({ order: { id: 'ordr_9', tags: 'Returned' } });
+    const svc = makeService(requestMock);
+
+    const result = await svc.patchOrder('access-tok-1', 'gk-merchant', '9', {
+      order: { tags: 'Returned' },
+    });
+
+    expect(result).toEqual({ order: { id: 'ordr_9', tags: 'Returned' } });
+    expect(requestMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('does NOT retry a non-retryable upstream 4xx — fails on the first PATCH attempt', async () => {
+    const requestMock = vi.fn();
+    stubOrderLookup(requestMock, 'ordr_9', '9');
+    const upstream404 = new HttpException(
+      {
+        message: 'ratio upstream error',
+        error_code: 'RATIO_UPSTREAM_ERROR',
+        details: { status: 404 },
+      },
+      502,
+    );
+    // A follow-up success is queued only so the test can prove it was never consumed:
+    // if the 4xx were (wrongly) retried, the mock would resolve and the rejection
+    // assertion below would fail.
+    requestMock.mockRejectedValueOnce(upstream404);
+    requestMock.mockResolvedValueOnce({ order: { id: 'ordr_9', tags: 'Returned' } });
+    const svc = makeService(requestMock);
+
+    await expect(
+      svc.patchOrder('access-tok-1', 'gk-merchant', '9', { order: { tags: 'Returned' } }),
+    ).rejects.toBe(upstream404);
+    // order-number lookup + exactly ONE PATCH attempt — the queued success was never used
+    expect(requestMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('still fails with the same rejection after exhausting all retries on persistent transient failure', async () => {
+    const requestMock = vi.fn();
+    stubOrderLookup(requestMock, 'ordr_9', '9');
+    const error = new TypeError('fetch failed');
+    requestMock.mockRejectedValue(error); // every PATCH attempt fails the same way
+    const svc = makeService(requestMock);
+
+    await expect(
+      svc.patchOrder('access-tok-1', 'gk-merchant', '9', { order: { tags: 'Returned' } }),
+    ).rejects.toThrow('fetch failed');
+    // order-number lookup + 3 PATCH attempts (1 initial + 2 retries) — nothing swallowed
+    expect(requestMock).toHaveBeenCalledTimes(4);
   });
 });
 
