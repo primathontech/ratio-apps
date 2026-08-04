@@ -69,8 +69,31 @@ export async function up(db: Kysely<any>): Promise<void> {
   //
   // So gate it HERE, in this migration, and leave `core/db/shared-migrations.ts`
   // untouched: the other vendors keep the loud-failure behaviour.
-  if (!(await tableExists(db, 'merchants'))) {
+  //
+  // Check all THREE tables, not just `merchants`. `createSharedTables` creates them
+  // sequentially with separate awaits and MySQL DDL is not transactional, so a crash
+  // between them is possible. Gating on `merchants` alone would then skip creation
+  // forever on retry, `up()` would run to completion, Kysely would mark 0001 applied
+  // permanently, and `oauth_tokens` / `webhook_log` would silently never exist —
+  // surfacing much later as runtime "table doesn't exist" errors. That is strictly
+  // worse than the unguarded original, which at least failed loudly. So: all three
+  // absent → create; all three present → skip (the resumable path we want); a
+  // PARTIAL state → refuse, loudly, with the exact recovery command.
+  const SHARED_TABLES = ['merchants', 'oauth_tokens', 'webhook_log'] as const;
+  const present: string[] = [];
+  for (const table of SHARED_TABLES) {
+    if (await tableExists(db, table)) present.push(table);
+  }
+  if (present.length === 0) {
     await createSharedTables(db);
+  } else if (present.length < SHARED_TABLES.length) {
+    const missing = SHARED_TABLES.filter((t) => !present.includes(t));
+    throw new Error(
+      `fbt 0001: shared tables are PARTIALLY present — ${present.join(', ')} exist, ` +
+        `${missing.join(', ')} missing. A previous run died inside createSharedTables. ` +
+        `This migration will not guess at a half-built schema. Drop what exists and re-run:\n` +
+        `  DROP TABLE ${[...present].reverse().join(', ')};`,
+    );
   }
 
   // ── 2. per-merchant scheduling on merchant_recommendation_config ────────
@@ -205,6 +228,30 @@ export async function up(db: Kysely<any>): Promise<void> {
     `.execute(db);
     const vector = vectorCol.rows[0];
     if (vector && vector.isNullable === 'NO') {
+      // `MODIFY COLUMN` restates the WHOLE definition, so any attribute not repeated
+      // is dropped — CHARACTER SET / COLLATE / DEFAULT / COMMENT / generated-column
+      // expression. `COLUMN_TYPE` carries none of those.
+      //
+      // For THIS column that is provably harmless: the source repo creates it as
+      // `embedding_vector json NOT NULL` (osapp-freq-bought migration
+      // 1704067700000-CreateEmbeddingTables.ts:15) and no later migration touches
+      // product_embeddings. MySQL JSON columns cannot carry CHARACTER SET or COLLATE
+      // at all, and this one has no default, comment, or generation expression.
+      //
+      // The residual risk is schema DRIFT — someone having hand-altered production
+      // away from its own migration. We cannot verify that from here, so assert
+      // instead of assuming: if the live type is anything but `json`, stop loudly
+      // rather than silently restating a definition that may lose attributes.
+      if (vector.columnType.toLowerCase() !== 'json') {
+        throw new Error(
+          `fbt 0001: product_embeddings.embedding_vector is '${vector.columnType}', expected 'json'. ` +
+            `Production has drifted from its creating migration. MODIFY COLUMN restates the full ` +
+            `definition, so relaxing nullability on a non-JSON type could silently drop CHARACTER SET, ` +
+            `COLLATE, DEFAULT or COMMENT. Inspect the live column and relax it by hand:\n` +
+            `  SHOW CREATE TABLE product_embeddings;\n` +
+            `then re-issue that exact column definition with NOT NULL removed.`,
+        );
+      }
       await sql`
         ALTER TABLE product_embeddings
         MODIFY COLUMN embedding_vector ${sql.raw(vector.columnType)} NULL
