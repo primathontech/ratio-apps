@@ -8,6 +8,9 @@ import { FbtMerchantsController } from './merchants/merchants.controller';
 import { FbtOAuthController } from './oauth/oauth.controller';
 import { FBT_CRYPTO, FBT_MERCHANTS, FBT_OAUTH, FBT_RATIO, FBT_WEBHOOKS } from './tokens';
 import { FbtAppUninstalledHandler } from './webhooks/app-uninstalled.handler';
+import { FbtProductCreatedHandler } from './webhooks/product-created.handler';
+import { FbtProductDeletedHandler } from './webhooks/product-deleted.handler';
+import { FbtProductUpdatedHandler } from './webhooks/product-updated.handler';
 import { FbtWebhooksController } from './webhooks/webhooks.controller';
 
 // Re-export guards so external consumers (e.g. e2e setup) can import from
@@ -39,7 +42,11 @@ export {
   controllers: [FbtOAuthController, FbtWebhooksController, FbtMerchantsController],
   providers: [
     FbtBootstrap,
+    // Webhook handlers (one per subscribed topic)
     FbtAppUninstalledHandler,
+    FbtProductCreatedHandler,
+    FbtProductUpdatedHandler,
+    FbtProductDeletedHandler,
     // Guards are concrete @Injectable classes that defer to the per-module
     // factories internally (see ./guards.ts). They are class-shaped so
     // controllers can reference them in @UseGuards(GuardClass).
@@ -50,7 +57,12 @@ export {
         slug: 'fbt',
         dbToken: FBT_DB_TOKEN,
         bootstrapClass: FbtBootstrap,
-        handlerClass: FbtAppUninstalledHandler,
+        handlerClasses: [
+          FbtAppUninstalledHandler,
+          FbtProductCreatedHandler,
+          FbtProductUpdatedHandler,
+          FbtProductDeletedHandler,
+        ],
       },
       {
         CRYPTO: FBT_CRYPTO,

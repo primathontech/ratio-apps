@@ -6,11 +6,12 @@ import type { DatabaseWithWebhookLog } from '../../../core/webhooks/webhook-log.
 import type { WebhookHandler } from '../../../core/webhooks/webhooks.types';
 import type { FbtDatabase } from '../db/types';
 import { FBT_MERCHANTS } from '../tokens';
+import { FBT_TOPICS } from './topics';
 
 /**
  * Soft-delete the merchant on uninstall.
  *   - merchants.is_active = false, uninstalled_at = now()
- *   - fbt_configs preserved (so reinstall restores prior settings)
+ *   - merchant_recommendation_config preserved (so reinstall restores prior settings)
  *   - oauth_tokens preserved until a follow-up cleanup job
  *
  * The admin UI checks `merchant.isActive` on bootstrap and routes inactive
@@ -29,11 +30,11 @@ export class FbtAppUninstalledHandler implements WebhookHandler {
   // platform webhook registry documents slash-form (`app/uninstalled`). Verify
   // against a live delivery — a wrong topic silently no-ops
   // (the dispatcher's topic-mismatch fast-path). See docs/agent/context/learnings.md.
-  readonly topic = 'app.uninstalled';
+  readonly topic = FBT_TOPICS.APP_UNINSTALLED;
   private readonly logger = new Logger(FbtAppUninstalledHandler.name);
 
   constructor(
-    // biome-ignore lint/correctness/noUnusedPrivateClassMembers: template demonstrates the injected MerchantsService; this handler deliberately writes via `trx` (see note above)
+    // biome-ignore lint/correctness/noUnusedPrivateClassMembers: injected to match this module's standard handler constructor shape; this handler deliberately writes via `trx` (see note above) rather than `this.merchants`, so the field itself goes unused
     @Inject(FBT_MERCHANTS) private readonly merchants: MerchantsService<FbtDatabase>,
   ) {}
 
