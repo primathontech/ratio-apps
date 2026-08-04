@@ -117,6 +117,66 @@ export class RpWebhooksController {
     return { ok: true };
   }
 
+  // ── Unified single-endpoint receiver ────────────────────────────────────────────────────────
+
+  /**
+   * One URL for every topic — dispatches on x-webhook-topic. Register this single
+   * endpoint and toggle all topics onto it instead of the per-topic paths above.
+   *
+   *   POST https://meta-g4.primathontech.co.in/rp/webhooks
+   *
+   * Topics: orders/create, orders/update, orders/fulfilled, orders/cancelled,
+   *         app/uninstalled, products/create, products/update
+   */
+  @Post()
+  @HttpCode(200)
+  async unified(
+    @Headers('x-merchant-id') merchantIdHeader: string,
+    @Headers('x-gk-merchant-id') merchantIdFallback: string,
+    @Headers('x-webhook-topic') topic: string,
+    @Req() req: FastifyRequest,
+  ) {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const merchantId =
+      merchantIdHeader ||
+      merchantIdFallback ||
+      (typeof body.merchant_id === 'string' ? body.merchant_id : '');
+
+    switch (topic) {
+      case 'orders/create':
+      case 'orders/update':
+      case 'orders/fulfilled':
+      case 'orders/cancelled': {
+        const orderPayload =
+          (body.order as Record<string, unknown> | undefined) ??
+          (body.data as Record<string, unknown> | undefined) ??
+          body;
+        this.webhooks.handleOrderEvent(merchantId, orderPayload, topic).catch((err) => {
+          this.logger.error({ err, merchantId, topic }, 'order event handler failed');
+        });
+        break;
+      }
+      case 'app/uninstalled':
+        this.webhooks.handleAppUninstalled(merchantId).catch((err) => {
+          this.logger.error({ err, merchantId }, 'app uninstalled handler failed');
+        });
+        break;
+      case 'products/create':
+        this.webhooks.handleProductCreate(merchantId, body).catch((err) => {
+          this.logger.error({ err, merchantId }, 'product create handler failed');
+        });
+        break;
+      case 'products/update':
+        this.webhooks.handleProductUpdate(merchantId, body).catch((err) => {
+          this.logger.error({ err, merchantId }, 'product update handler failed');
+        });
+        break;
+      default:
+        this.logger.warn({ topic, merchantId }, 'unified webhook: unknown topic — dropping');
+    }
+    return { ok: true };
+  }
+
   // Individual topic endpoints kept for explicitness / future differentiation
 
   @Post('orders/create')
