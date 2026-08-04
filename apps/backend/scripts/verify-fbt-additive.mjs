@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env tsx
 /**
  * Prove `0001_initial.ts` is LOSSLESS against a production-shaped database.
  *
@@ -7,7 +7,8 @@
  *   2. loads a schema-only dump of the real production FBT database into it
  *   3. seeds one row into each legacy table
  *   4. snapshots every table's columns and row counts
- *   5. runs `migrate:fbt` against the scratch database
+ *   5. runs 0001 IN-PROCESS against the scratch database (see the big comment
+ *      below `applyMigration` for why this is not a `pnpm migrate:fbt` subprocess)
  *   6. re-snapshots and asserts: no column disappeared, no column changed type,
  *      no row vanished, and the expected new objects appeared
  *
@@ -17,23 +18,28 @@
  *   SCRATCH_URL=mysql://app:app@localhost:3306/fbt_verify \
  *     pnpm verify:fbt:additive
  *
+ * Must be run via `tsx`, not bare `node` — `FileMigrationProvider` loads
+ * `0001_initial.ts` with a dynamic `import()`, and only `tsx`'s loader hook
+ * can transpile that TypeScript file on the fly.
+ *
  * A schema-only dump is sufficient and deliberate — never copy production rows
  * onto a developer machine.
  */
-import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, promises as fs } from 'node:fs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { Kysely, MysqlDialect } from 'kysely';
+import { FileMigrationProvider, Migrator } from 'kysely/migration';
+import { createPool } from 'mysql2';
 import mysql from 'mysql2/promise';
 
-import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
-
-const HERE = dirname(fileURLToPath(import.meta.url));
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 // Defaults to the committed production-shaped fixture so this script runs with no
 // arguments and can live in CI. Override with a real `mysqldump --no-data` before
 // cutover to prove production has not drifted from its own migrations.
 const PROD_SCHEMA =
-  process.env.PROD_SCHEMA ?? resolve(HERE, '../test/fixtures/fbt-production-schema.sql');
+  process.env.PROD_SCHEMA ?? path.resolve(HERE, '../test/fixtures/fbt-production-schema.sql');
 const SCRATCH_URL =
   process.env.SCRATCH_URL ?? 'mysql://app:app@localhost:3306/fbt_verify';
 
@@ -46,6 +52,10 @@ const LEGACY_TABLES = [
   'product_embeddings',
   'product_similarity_cache',
   'bundle_generation_jobs',
+  // Not altered by 0001, but present in the fixture and LEFT JOINed by the
+  // backfill runbook — its row count deserves the same "nothing vanished"
+  // guarantee as the five tables 0001 actually touches.
+  'platform_merchants',
 ];
 
 const EXPECTED_NEW_TABLES = ['merchants', 'oauth_tokens', 'webhook_log', 'fbt_sweep_lease'];
@@ -61,6 +71,33 @@ const EXPECTED_NEW_COLUMNS = {
   ],
   product_embeddings: ['embedding_blob'],
 };
+
+/**
+ * Defence in depth. This script unconditionally `DROP DATABASE IF EXISTS`s its
+ * target on every run. `SCRATCH_URL` is user/CI-supplied, so a typo, a stale
+ * shell export, or an inherited environment variable pointing this at a real
+ * database must not be able to destroy it. Require BOTH a `verify` marker in
+ * the database name AND a local host — neither alone is a strong enough
+ * guarantee (a prod database could be named `fbt_verify_staging`; a local
+ * MySQL could have a real database cloned onto it for debugging).
+ */
+function assertScratchTarget(url) {
+  const dbName = url.pathname.replace(/^\//, '');
+  const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
+  if (!dbName.includes('verify')) {
+    throw new Error(
+      `refusing to DROP/CREATE database '${dbName}': SCRATCH_URL's database name must ` +
+        `contain 'verify'. Got: ${url.toString()}`,
+    );
+  }
+  if (!LOCAL_HOSTS.has(url.hostname)) {
+    throw new Error(
+      `refusing to DROP/CREATE database '${dbName}' on host '${url.hostname}': ` +
+        `SCRATCH_URL must point at a local host (localhost / 127.0.0.1 / ::1). ` +
+        `Got: ${url.toString()}`,
+    );
+  }
+}
 
 /** column name → type, plus row count, for every table in the schema. */
 async function snapshot(conn, dbName) {
@@ -95,8 +132,58 @@ async function snapshot(conn, dbName) {
   return { shape, counts };
 }
 
-const url = new URL(SCRATCH_URL);
-const dbName = url.pathname.replace(/^\//, '');
+/**
+ * Applies 0001 to `scratchUrl` IN-PROCESS via Kysely's own `Migrator` +
+ * `FileMigrationProvider`, rather than shelling out to `pnpm migrate:fbt`.
+ *
+ * DO NOT "simplify" this back to `execFileSync('pnpm', [...'migrate.ts', 'fbt'])`.
+ * That was the original shape of this script, and it is a live landmine:
+ * `scripts/lib/migrate-runner.ts` calls `loadEnvFiles()` — which loads
+ * `.env.local` unconditionally and `.env.production` under NODE_ENV=production,
+ * BOTH with dotenv's `override: true` — before it reads `RATIO_FBT_DATABASE_URL`
+ * from `process.env`. An env var passed to a *child process* is not authoritative:
+ * the child's own dotenv load can clobber it. `.env.example` documents
+ * `.env.production` as exactly where the real production `RATIO_FBT_DATABASE_URL`
+ * lives, so running this verifier from a production-configured shell — which the
+ * module header above explicitly asks you to do before cutover — could silently
+ * redirect the "scratch" migration onto the live database. Proven empirically:
+ * with a `.env.production` present, the child process's resolved URL was NOT
+ * `SCRATCH_URL`, it was the production one, even though `SCRATCH_URL` was passed
+ * in the child's `env`.
+ *
+ * Building the Kysely dialect directly from `scratchUrl` in THIS process removes
+ * the attack surface entirely: no subprocess, no dotenv load, no env-file that
+ * can rewrite the connection string out from under us. The one thing this
+ * requires in exchange is that this script itself run under `tsx` (see the
+ * module header), since `FileMigrationProvider` loads `0001_initial.ts` via a
+ * dynamic `import()` and only `tsx`'s loader can transpile that on the fly.
+ */
+async function applyMigration(scratchUrl) {
+  const migrationFolder = path.resolve(HERE, '../src/modules/fbt/db/migrations');
+  const pool = createPool({ uri: scratchUrl, connectionLimit: 1 });
+  const db = new Kysely({ dialect: new MysqlDialect({ pool }) });
+  try {
+    const migrator = new Migrator({
+      db,
+      provider: new FileMigrationProvider({ fs, path, migrationFolder }),
+    });
+    const { error, results } = await migrator.migrateToLatest();
+    for (const r of results ?? []) {
+      if (r.status === 'Success') console.log(`[verify] migrate OK ${r.migrationName}`);
+      if (r.status === 'Error') console.error(`[verify] migrate FAIL ${r.migrationName}`);
+    }
+    if (error) {
+      console.error('[verify] migration failed:', error);
+      throw error instanceof Error ? error : new Error(String(error));
+    }
+  } finally {
+    await db.destroy();
+  }
+}
+
+const scratchUrl = new URL(SCRATCH_URL);
+assertScratchTarget(scratchUrl);
+const dbName = scratchUrl.pathname.replace(/^\//, '');
 const adminUrl = new URL(SCRATCH_URL);
 adminUrl.pathname = '/';
 
@@ -141,11 +228,8 @@ await conn.query(`
 const before = await snapshot(conn, dbName);
 console.log(`[verify] before: ${Object.keys(before.shape).length} tables`);
 
-console.log('[verify] running migrate:fbt against the scratch database');
-execFileSync('pnpm', ['--filter', '@ratio-app/backend', 'exec', 'tsx', 'scripts/migrate.ts', 'fbt'], {
-  stdio: 'inherit',
-  env: { ...process.env, RATIO_FBT_DATABASE_URL: SCRATCH_URL },
-});
+console.log('[verify] running 0001 in-process against the scratch database');
+await applyMigration(SCRATCH_URL);
 
 const after = await snapshot(conn, dbName);
 await conn.end();
