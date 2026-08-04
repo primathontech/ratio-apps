@@ -7,6 +7,7 @@ import { WizzyModule } from './modules/wizzy/wizzy.module';
 import { RpModule } from './modules/rp/rp.module';
 import { LoyaltyModule } from './modules/loyalty/loyalty.module';
 import { FormsModule } from './modules/forms/forms.module';
+import { FbtModule } from './modules/fbt/fbt.module';
 
 /** slug → module class. Source of truth for what CAN be mounted. */
 export const MODULE_REGISTRY = new Map<AppSlug, unknown>([
@@ -18,6 +19,7 @@ export const MODULE_REGISTRY = new Map<AppSlug, unknown>([
   ['rp', RpModule],
   ['loyalty', LoyaltyModule],
   ['forms', FormsModule],
+  ['fbt', FbtModule],
 ]);
 
 for (const slug of APPS) {

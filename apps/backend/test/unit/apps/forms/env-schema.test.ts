@@ -25,6 +25,7 @@ const validEnv = {
   ...app('RP', '5174'),
   ...app('LOYALTY', '5174'),
   ...app('FORMS', '5174'),
+  ...app('FBT', '5174'),
 };
 
 describe('FORMS_* env boot validation', () => {

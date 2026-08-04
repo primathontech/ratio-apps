@@ -1,0 +1,62 @@
+/*
+ * Admin global stylesheet.
+ *
+ * Component styles come from @primathonos/orion (Ant Design + Orion theme),
+ * which uses CSS-in-JS (no global CSS required). This file owns body resets,
+ * page-level layout helpers, and antd font-family override to Inter.
+ */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  background: #fafafa;
+}
+
+.container {
+  max-width: 1024px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem;
+}
+
+@media (max-width: 600px) {
+  .container {
+    padding: 1rem 0.75rem;
+  }
+}
+
+/* Mobile tweaks for Ant Design surfaces used across the admin */
+@media (max-width: 600px) {
+  .ant-card-head {
+    padding: 0 12px;
+  }
+  .ant-card-head-wrapper {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 8px 0;
+  }
+  .ant-card-extra {
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+    white-space: normal;
+  }
+  .ant-card-body {
+    padding: 16px 12px;
+  }
+  /* Let event-map table scroll horizontally without crushing cells */
+  .event-map-table .ant-table {
+    font-size: 13px;
+  }
+  .event-map-table .ant-table-cell {
+    padding: 8px !important;
+  }
+}
