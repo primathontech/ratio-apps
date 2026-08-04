@@ -51,13 +51,24 @@ describe('fbt 0001_initial is additive', () => {
     expect(upBody(migrationSource())).not.toMatch(pattern);
   });
 
-  it('up() adds no NOT NULL column without a default', () => {
+  it('up() adds no NOT NULL column without a default to an EXISTING table', () => {
     const body = upBody(migrationSource());
-    // Each addColumn(...) call's callback, e.g. `(c) => c.notNull().defaultTo(...)`.
-    const addColumnCalls = body.match(/\.addColumn\([\s\S]*?\)\s*(?=\.\s*(addColumn|addUnique|addForeignKey|addPrimaryKey|execute))/g) ?? [];
-    for (const call of addColumnCalls) {
-      if (/notNull\(\)/.test(call)) {
-        expect(call, `NOT NULL without defaultTo:\n${call}`).toMatch(/defaultTo\(/);
+    // Split into statements, each beginning at .createTable( or .alterTable(.
+    const statements = body.split(/(?=\.\s*(?:createTable|alterTable)\()/);
+    for (const stmt of statements) {
+      // Only ALTER TABLE … ADD COLUMN can break the old backend: a NOT NULL column
+      // with no default added to a POPULATED table rejects that backend's existing
+      // INSERTs. On a brand-new table there is no backward-compat risk at all — and
+      // a primary key is necessarily NOT NULL, so a blanket rule would forbid
+      // creating well-formed tables. Skip createTable statements entirely.
+      if (!/\.\s*alterTable\(/.test(stmt)) continue;
+      const addColumnCalls = stmt.match(/\.addColumn\([\s\S]*?\)\s*(?=\.\s*(addColumn|addUnique|addForeignKey|addPrimaryKey|execute))/g) ?? [];
+      for (const call of addColumnCalls) {
+        if (/notNull\(\)/.test(call)) {
+          expect(call, `NOT NULL without defaultTo on an existing table:\n${call}`).toMatch(
+            /defaultTo\(/,
+          );
+        }
       }
     }
   });
