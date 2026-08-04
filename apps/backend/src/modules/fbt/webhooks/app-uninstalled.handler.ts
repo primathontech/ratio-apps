@@ -10,7 +10,7 @@ import { FBT_MERCHANTS } from '../tokens';
 /**
  * Soft-delete the merchant on uninstall.
  *   - merchants.is_active = false, uninstalled_at = now()
- *   - fbt_configs preserved (so reinstall restores prior settings)
+ *   - fbt_merchant_config preserved (so reinstall restores prior settings)
  *   - oauth_tokens preserved until a follow-up cleanup job
  *
  * The admin UI checks `merchant.isActive` on bootstrap and routes inactive
@@ -24,7 +24,7 @@ import { FBT_MERCHANTS } from '../tokens';
  */
 @Injectable()
 export class FbtAppUninstalledHandler implements WebhookHandler {
-  // TEMPLATE: webhook `topic` must equal the EXACT `event` string the Ratio
+  // NOTE: webhook `topic` must equal the EXACT `event` string the Ratio
   // runtime delivers. This example uses dot-form (`app.uninstalled`), but the
   // platform webhook registry documents slash-form (`app/uninstalled`). Verify
   // against a live delivery when scaffolding — a wrong topic silently no-ops
@@ -33,7 +33,7 @@ export class FbtAppUninstalledHandler implements WebhookHandler {
   private readonly logger = new Logger(FbtAppUninstalledHandler.name);
 
   constructor(
-    // biome-ignore lint/correctness/noUnusedPrivateClassMembers: template demonstrates the injected MerchantsService; this handler deliberately writes via `trx` (see note above)
+    // biome-ignore lint/correctness/noUnusedPrivateClassMembers: MerchantsService is injected per the module's DI wiring convention; this handler deliberately writes via `trx` (see note above)
     @Inject(FBT_MERCHANTS) private readonly merchants: MerchantsService<FbtDatabase>,
   ) {}
 

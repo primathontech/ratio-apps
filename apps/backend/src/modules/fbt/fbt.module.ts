@@ -1,22 +1,12 @@
 import { Module } from '@nestjs/common';
 import { createAppProviders } from '../../core/factories/app-module.factory';
-import { FbtBootstrap } from './fbt.bootstrap';
-import { FbtConfigController } from './config/config.controller';
-import { FbtConfigService } from './config/config.service';
 import type { FbtDatabase } from './db/types';
+import { FbtBootstrap } from './fbt.bootstrap';
 import { FbtMerchantTokenGuard, FbtWebhookSignatureGuard } from './guards';
 import { FBT_DB_TOKEN, FbtKyselyModule } from './kysely.module';
 import { FbtMerchantsController } from './merchants/merchants.controller';
 import { FbtOAuthController } from './oauth/oauth.controller';
-import { FbtSdkController } from './sdk/sdk.controller';
-import { FbtSdkService } from './sdk/sdk.service';
-import {
-  FBT_CRYPTO,
-  FBT_MERCHANTS,
-  FBT_OAUTH,
-  FBT_RATIO,
-  FBT_WEBHOOKS,
-} from './tokens';
+import { FBT_CRYPTO, FBT_MERCHANTS, FBT_OAUTH, FBT_RATIO, FBT_WEBHOOKS } from './tokens';
 import { FbtAppUninstalledHandler } from './webhooks/app-uninstalled.handler';
 import { FbtWebhooksController } from './webhooks/webhooks.controller';
 
@@ -40,22 +30,14 @@ export {
  *
  * Nothing crosses modules by design — per-module DB isolation. The Crypto /
  * Ratio / Merchants / OAuth / Webhooks providers are built by the shared
- * `createAppProviders` factory; everything else (config + sdk services,
- * controllers, bootstrap, handler, guards) is wired here directly because
- * those pieces are app-specific.
+ * `createAppProviders` factory; everything else (bootstrap, handler, guards)
+ * is wired here directly because those pieces are app-specific. The real
+ * config controller/service is Plan 2; the real storefront serving is Plan 5.
  */
 @Module({
   imports: [FbtKyselyModule],
-  controllers: [
-    FbtConfigController,
-    FbtSdkController,
-    FbtOAuthController,
-    FbtWebhooksController,
-    FbtMerchantsController,
-  ],
+  controllers: [FbtOAuthController, FbtWebhooksController, FbtMerchantsController],
   providers: [
-    FbtConfigService,
-    FbtSdkService,
     FbtBootstrap,
     FbtAppUninstalledHandler,
     // Guards are concrete @Injectable classes that defer to the per-module
