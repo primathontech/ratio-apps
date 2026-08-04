@@ -38,8 +38,12 @@ export class RpOrdersService {
     const orders = Array.isArray(raw.orders)
       ? raw.orders.map((o) => normalizeOrder(o as Record<string, unknown>))
       : raw.orders;
+    // Persist id mappings fire-and-forget — don't block the response. Run sequentially
+    // (not Promise.all) to avoid exhausting the MySQL connection pool: an orders list
+    // can have many orders × many line items × 2 writes each, which fans out to dozens
+    // of concurrent DB connections and hits mysql2's queueLimit ("Queue limit reached").
     if (Array.isArray(orders)) {
-      await Promise.all(orders.map((o) => this.persistLineItemIdMappings(o as Record<string, unknown>)));
+      void this.persistLineItemIdMappingsSequential(orders as Record<string, unknown>[]);
     }
     return { ...raw, orders };
   }
@@ -52,7 +56,8 @@ export class RpOrdersService {
     const envelope = raw as Record<string, Record<string, unknown>>;
     const order = (envelope.data?.order ?? (raw as Record<string, unknown>).order ?? raw) as Record<string, unknown>;
     const normalized = normalizeOrder(order);
-    await this.persistLineItemIdMappings(normalized);
+    // Fire-and-forget, sequential — same rationale as getOrders.
+    void this.persistLineItemIdMappingsSequential([normalized]);
     return { order: normalized };
   }
 
@@ -97,26 +102,24 @@ export class RpOrdersService {
   }
 
   /**
-   * Persists (hashed → real OS id) mappings for every line item's product_id/variant_id so
-   * RpProductsService can later resolve a hashed id RP sends back (e.g. validating a
-   * return's original product). normalize-order.ts already preserves os_product_id/
-   * os_variant_id on each line item for exactly this purpose — this is what actually
-   * writes them into ratio-apps' own durable lookup table (id-mapping module).
+   * Persists (hashed → real OS id) mappings for a list of normalized orders, one write at
+   * a time. Sequential (not Promise.all) to avoid exhausting the MySQL connection pool:
+   * many orders × many line items × 2 writes each fans out to dozens of concurrent DB
+   * connections and hits mysql2's queueLimit ("Queue limit reached"). Callers invoke this
+   * fire-and-forget (void) so sequential execution never blocks the HTTP response.
    */
-  private async persistLineItemIdMappings(order: Record<string, unknown>): Promise<void> {
-    const lineItems = Array.isArray(order.line_items) ? order.line_items : [];
-    await Promise.all(
-      lineItems.flatMap((li) => {
+  private async persistLineItemIdMappingsSequential(orders: Record<string, unknown>[]): Promise<void> {
+    for (const order of orders) {
+      const lineItems = Array.isArray(order.line_items) ? order.line_items : [];
+      for (const li of lineItems) {
         const item = li as Record<string, unknown>;
-        const writes: Promise<unknown>[] = [];
         if (item.os_product_id != null) {
-          writes.push(this.idMapping.hashAndPersist('product', String(item.os_product_id)));
+          await this.idMapping.hashAndPersist('product', String(item.os_product_id));
         }
         if (item.os_variant_id != null) {
-          writes.push(this.idMapping.hashAndPersist('variant', String(item.os_variant_id)));
+          await this.idMapping.hashAndPersist('variant', String(item.os_variant_id));
         }
-        return writes;
-      }),
-    );
+      }
+    }
   }
 }
