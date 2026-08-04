@@ -77,7 +77,7 @@ function fakeTrx(merchantRow: { id: string; isActive: boolean } | undefined) {
 describe('FbtAppUninstalledHandler', () => {
   const handler = () => new FbtAppUninstalledHandler({ findById: vi.fn() } as never);
 
-  it('subscribes to the app.uninstalled topic', () => {
+  it('subscribes to the app/uninstalled topic', () => {
     expect(handler().topic).toBe(FBT_TOPICS.APP_UNINSTALLED);
   });
 

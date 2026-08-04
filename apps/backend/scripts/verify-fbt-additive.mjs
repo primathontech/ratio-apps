@@ -95,7 +95,9 @@ function assertScratchTarget(url) {
   // the opaque-host behaviour is genuinely surprising.
   const dbName = url.pathname.replace(/^\//, '').toLowerCase();
   const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
+  // `mysql` is the docker-compose service hostname — needed so this script can run
+  // from inside the compose network (e.g. CI), not just from the host.
+  const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', 'mysql']);
   if (!dbName.includes('verify')) {
     throw new Error(
       `refusing to DROP/CREATE database '${dbName}': SCRATCH_URL's database name must ` +
@@ -105,7 +107,7 @@ function assertScratchTarget(url) {
   if (!LOCAL_HOSTS.has(host)) {
     throw new Error(
       `refusing to DROP/CREATE database '${dbName}' on host '${host}': ` +
-        `SCRATCH_URL must point at a local host (localhost / 127.0.0.1 / ::1). ` +
+        `SCRATCH_URL must point at a local host (localhost / 127.0.0.1 / ::1 / mysql). ` +
         `Got: ${url.toString()}`,
     );
   }

@@ -100,7 +100,12 @@ describe('fbt 0001_initial is additive', () => {
     ['renameColumn', /\.renameColumn\(/],
     ['dropConstraint', /\.dropConstraint\(/],
     ['dropIndex', /\.dropIndex\(/],
-    ['raw DROP', /\bDROP\s+(TABLE|COLUMN|INDEX|CONSTRAINT)\b/i],
+    // `KEY` and the `PRIMARY KEY` / `FOREIGN KEY` two-word forms matter: MySQL accepts
+    // `DROP KEY` as a synonym for `DROP INDEX`, plus `DROP PRIMARY KEY` and
+    // `DROP FOREIGN KEY <name>`. An alternation of only TABLE|COLUMN|INDEX|CONSTRAINT
+    // is blind to all three, and the empirical verifier does not snapshot indexes or
+    // constraints either — so a dropped unique constraint would evade BOTH mechanisms.
+    ['raw DROP', /\bDROP\s+(TABLE|COLUMN|INDEX|CONSTRAINT|KEY|PARTITION|(PRIMARY|FOREIGN)\s+KEY)\b/i],
     ['raw TRUNCATE', /\bTRUNCATE\b/i],
   ])('up() contains no %s', (_label, pattern) => {
     expect(upBody(migrationSource())).not.toMatch(pattern);
