@@ -33,4 +33,10 @@ GRANT ALL ON `forms_app`.*          TO 'app'@'%';
 GRANT ALL ON `forms_app_test`.*     TO 'app'@'%';
 GRANT ALL ON `fbt_app`.*      TO 'app'@'%';
 GRANT ALL ON `fbt_app_test`.* TO 'app'@'%';
+
+-- `fbt_verify` is the scratch database the additive-safety verifier creates and
+-- drops on every run. The script CREATEs it itself, but the `app` user cannot
+-- GRANT to itself, so the privilege must be provisioned here or a fresh clone
+-- fails with `Access denied`.
+GRANT ALL ON `fbt_verify`.*   TO 'app'@'%';
 FLUSH PRIVILEGES;
