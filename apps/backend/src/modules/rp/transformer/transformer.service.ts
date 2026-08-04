@@ -246,7 +246,7 @@ export class RpTransformerService {
         ),
       ),
     ];
-    const options = [{ name: 'Title', position: 1, values: optionValues.length ? optionValues : ['Default Title'] }];
+    const options = [{ id: Number(id) || 1, product_id: Number(id) || 1, name: 'Title', position: 1, values: optionValues.length ? optionValues : ['Default Title'] }];
 
     return {
       id,
