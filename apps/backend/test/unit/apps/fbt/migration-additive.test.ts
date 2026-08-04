@@ -23,7 +23,7 @@ function migrationSource(): string {
 /** Strip comments so a word inside an explanatory comment can't fail the test. */
 function upBody(src: string): string {
   const withoutBlockComments = src.replace(/\/\*[\s\S]*?\*\//g, '');
-  const withoutLineComments = withoutBlockComments.replace(/^\s*\/\/.*$/gm, '');
+  const withoutLineComments = withoutBlockComments.replace(/\s*\/\/.*$/gm, '');
   const upStart = withoutLineComments.indexOf('export async function up');
   const downStart = withoutLineComments.indexOf('export async function down');
   expect(upStart).toBeGreaterThan(-1);
@@ -60,6 +60,28 @@ describe('fbt 0001_initial is additive', () => {
         expect(call, `NOT NULL without defaultTo:\n${call}`).toMatch(/defaultTo\(/);
       }
     }
+  });
+
+  // The eight patterns above catch Kysely builder calls and raw DROP/TRUNCATE, but
+  // NOT `ALTER TABLE … MODIFY`, which can silently tighten a column out from under
+  // the old backend. We cannot ban MODIFY outright: 0001 legitimately RELAXES
+  // `product_embeddings.embedding_vector` from NOT NULL to NULL, without which the
+  // new module's blob-only insert fails. So gate on direction, not on the keyword.
+  it('up() never TIGHTENS a column to NOT NULL via ALTER … MODIFY', () => {
+    const body = upBody(migrationSource());
+    // Each MODIFY clause up to the end of its template literal / statement.
+    const modifies = body.match(/\bMODIFY\b[\s\S]*?(?=`|;|$)/gi) ?? [];
+    for (const stmt of modifies) {
+      expect(stmt, `MODIFY tightens a column to NOT NULL:\n${stmt}`).not.toMatch(
+        /\bNOT\s+NULL\b/i,
+      );
+    }
+  });
+
+  it('up() renames no column via ALTER … CHANGE', () => {
+    // CHANGE both renames and retypes; a rename is invisible to the old backend
+    // until it errors at runtime. Always destructive, never sanctioned.
+    expect(upBody(migrationSource())).not.toMatch(/\bALTER\s+TABLE\b[\s\S]{0,300}?\bCHANGE\b/i);
   });
 
   it('does not create any table that already exists in production', () => {
