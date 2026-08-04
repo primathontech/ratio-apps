@@ -56,9 +56,22 @@ async function indexExists(db: Kysely<any>, table: string, index: string): Promi
 export async function up(db: Kysely<any>): Promise<void> {
   // ── 1. shared tables ────────────────────────────────────────────────────
   // merchants / oauth_tokens / webhook_log. None exist in the FBT database, so
-  // this is a pure CREATE. createSharedTables deliberately has no
-  // .ifNotExists() — if that assumption is ever wrong, we want a loud failure.
-  await createSharedTables(db);
+  // on a first run this is a pure CREATE.
+  //
+  // `createSharedTables` deliberately has no `.ifNotExists()` — it is designed to
+  // fail loudly on stale state, and that design is right for the eight other
+  // vendors. But it is the FIRST statement here while every other mutation below
+  // is `information_schema`-guarded so a retry can resume. Unguarded, a failure in
+  // ANY later step would leave Kysely with no recorded migration, and the next
+  // `migrate:fbt` would re-enter from the top, hit `CREATE TABLE merchants`, and
+  // die before reaching the guards that exist precisely to let it resume — forcing
+  // a human to drop three tables by hand mid-cutover.
+  //
+  // So gate it HERE, in this migration, and leave `core/db/shared-migrations.ts`
+  // untouched: the other vendors keep the loud-failure behaviour.
+  if (!(await tableExists(db, 'merchants'))) {
+    await createSharedTables(db);
+  }
 
   // ── 2. per-merchant scheduling on merchant_recommendation_config ────────
   // All nullable or defaulted ⇒ online ALTER, invisible to the running old
@@ -80,9 +93,9 @@ export async function up(db: Kysely<any>): Promise<void> {
         () =>
           db.schema
             .alterTable('merchant_recommendation_config')
-            // 'tinyint' isn't in Kysely's built-in ColumnDataType union (MySQL-specific
-            // width variant), so it must go through the sql tag like sync_frequency's
-            // enum(...) below — same DDL, just a type Kysely will accept.
+            // `sql`tinyint`` not `'tinyint'`: Kysely's ColumnDataType union has no
+            // 'tinyint' member (it is MySQL-specific), so the string literal fails
+            // `tsc --noEmit`. Same escape hatch as the enum column above.
             .addColumn('sync_hour_utc', sql`tinyint`, (c) => c.notNull().defaultTo(4))
             .execute(),
       ],
@@ -170,12 +183,33 @@ export async function up(db: Kysely<any>): Promise<void> {
     }
     // REQUIRED, not cosmetic: embedding_vector is NOT NULL today, so the new
     // module's blob-only insert would fail without this. Relaxing NOT NULL is
-    // backward-compatible in the direction that matters — the old ABS always
-    // writes a value, so it never observes a NULL in a row it produced, and by
-    // the time this module writes anything the old ABS is stopped.
-    await sql`
-      ALTER TABLE product_embeddings MODIFY COLUMN embedding_vector JSON NULL
+    // backward-compatible — the old ABS always writes a value, so it never
+    // observes a NULL in a row it produced.
+    //
+    // MySQL has no "alter nullability only" syntax: MODIFY COLUMN requires the
+    // full column definition restated. Hardcoding `JSON` would therefore ASSERT
+    // the production column's type, and silently RETYPE it if that assumption is
+    // wrong (e.g. if production has LONGTEXT) — a data-affecting side effect
+    // smuggled in under a nullability change, which no guard in this file would
+    // catch. So read the live type from information_schema and restate exactly
+    // that, changing only nullability. Nothing here is user input; the value is
+    // the database's own metadata.
+    //
+    // Skipped entirely when the column is already nullable, so a retry is a no-op.
+    const vectorCol = await sql<{ columnType: string; isNullable: string }>`
+      SELECT COLUMN_TYPE AS columnType, IS_NULLABLE AS isNullable
+        FROM information_schema.columns
+       WHERE table_schema = DATABASE()
+         AND table_name = 'product_embeddings'
+         AND column_name = 'embedding_vector'
     `.execute(db);
+    const vector = vectorCol.rows[0];
+    if (vector && vector.isNullable === 'NO') {
+      await sql`
+        ALTER TABLE product_embeddings
+        MODIFY COLUMN embedding_vector ${sql.raw(vector.columnType)} NULL
+      `.execute(db);
+    }
   }
 }
 
