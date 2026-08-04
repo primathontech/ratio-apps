@@ -235,18 +235,38 @@ export class RpTransformerService {
       this.isoDate((ratioProduct.created_at ?? ratioProduct.createdAt) as string) ??
       new Date().toISOString();
 
-    // Shopify products always carry an `options` array, and RP's portal reads
-    // `options[0].name` (SelectVariant) — an empty array crashes it. OS has no named
-    // product options, so emit Shopify's single-variant default: one "Title" option whose
-    // values are the variant titles (variant.option1 is set from these too).
-    const optionValues = [
-      ...new Set(
-        variants.map(
-          (v) => (v.option1 as string) || (v.title as string) || 'Default Title',
+    // Shopify products always carry an `options` array, and RP's exchange picker
+    // (groupVariantsOptionsWithname in return_prime_public_react/src/Components/Utils/Utils.jsx)
+    // assumes ONE options[] entry per distinct populated option1/option2/option3 key across
+    // the variants, indexed in order — options[1] undefined when a variant has a real option2
+    // but options[] only ever had one entry crashed the whole widget ("Cannot read properties
+    // of undefined (reading 'name')", confirmed live on sandbox-momsco 2026-08-04). OS has no
+    // *named* product options, but per-variant option1/option2/option3 values ARE sometimes
+    // populated by the upstream source (e.g. a variant title like "50gm / 100gm"), so build one
+    // entry per key that's actually used across ANY variant, not an unconditional single entry.
+    const optionKeys = ['option1', 'option2', 'option3'] as const;
+    const usedOptionKeys = optionKeys.filter(
+      (key, index) => index === 0 || variants.some((v) => v[key] !== null && v[key] !== undefined),
+    );
+    const options = usedOptionKeys.map((key, index) => {
+      const values = [
+        ...new Set(
+          variants
+            .map((v) => v[key] as string | null | undefined)
+            .filter((v): v is string => v !== null && v !== undefined),
         ),
-      ),
-    ];
-    const options = [{ id: Number(id) || 1, product_id: Number(id) || 1, name: 'Title', position: 1, values: optionValues.length ? optionValues : ['Default Title'] }];
+      ];
+      return {
+        id: Number(id) || 1,
+        product_id: Number(id) || 1,
+        // Real Shopify option names ("Size", "Color") aren't available from OS — "Title"
+        // preserves prior behavior for the common single-dimension case; extra dimensions
+        // get a generic label since we have no real name to give them.
+        name: index === 0 ? 'Title' : `Option ${index + 1}`,
+        position: index + 1,
+        values: values.length ? values : ['Default Title'],
+      };
+    });
 
     return {
       id,
