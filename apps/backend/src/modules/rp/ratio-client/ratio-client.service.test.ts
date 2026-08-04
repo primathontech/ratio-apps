@@ -119,17 +119,27 @@ describe('RpRatioClientService.patchOrder', () => {
       2,
       '/api/v1/orders/ordr_9',
       expect.anything(),
-      // 'Exchanged' in the tags derives fulfillment_status — see the
-      // deriveFulfillmentStatusFromTags describe block below.
-      expect.objectContaining({ body: { tags: 'gokwik, ratio, COD, Exchanged', fulfillment_status: 'exchanged' } }),
+      // 'Exchanged' has no fulfillment_status value of its own anywhere in os-order's real
+      // enum (confirmed against os-order/src/utils/constants.ts) — but the item genuinely
+      // did come back to the merchant (just not for a refund), so it maps to the real,
+      // valid 'returned' value rather than being dropped.
+      expect.objectContaining({ body: { tags: 'gokwik, ratio, COD, Exchanged', fulfillment_status: 'returned' } }),
     );
   });
 
   // ── Deriving fulfillment_status from the tags RP is setting ────────────────
   // RP (return_prime_public) only ever sends `tags` via this call path — it does NOT send
   // fulfillment_status itself. buildReturnedTags there only ever adds "Returned" and/or
-  // "Exchanged" (exact, case-sensitive) among whatever other tags the order already had. We
-  // derive fulfillment_status from those exact tag values before forwarding to Ratio.
+  // "Exchanged" (exact, case-sensitive) at request-APPROVAL time; markOsOrderRefunded adds
+  // "Refunded" SEPARATELY, later, only once an actual refund completes. Both "Returned" and
+  // "Exchanged" mean the same thing at the fulfillment level — the item physically came back
+  // to the merchant — so both map to the real os-order fulfillmentStatus value 'returned'.
+  // "Refunded" is a distinct, later, terminal event (money actually moved) and takes
+  // precedence: a genuine return ends up 'refunded' once its refund call lands, while a pure
+  // exchange has no refund call and correctly stays at 'returned' permanently — it never got
+  // money back, it got a replacement item instead. 'exchanged' itself is never derived: it
+  // is not a real value anywhere in os-order (checked fulfillment_status, financial_status,
+  // and order status).
 
   it('derives fulfillment_status "returned" when the tags include "Returned"', async () => {
     const requestMock = vi.fn();
@@ -149,25 +159,25 @@ describe('RpRatioClientService.patchOrder', () => {
     );
   });
 
-  it('prefers fulfillment_status "exchanged" over "returned" when tags include both', async () => {
+  it('derives fulfillment_status "returned" when the tags include "Exchanged" (item came back, just not for a refund)', async () => {
     const requestMock = vi.fn();
     stubOrderLookup(requestMock, 'ordr_9', '9');
-    requestMock.mockResolvedValueOnce({ order: { id: 'ordr_9', tags: 'Returned, Exchanged' } });
+    requestMock.mockResolvedValueOnce({ order: { id: 'ordr_9', tags: 'VIP, Exchanged' } });
     const svc = makeService(requestMock);
 
     await svc.patchOrder('access-tok-1', 'gk-merchant', '9', {
-      order: { tags: ['Returned', 'Exchanged'] },
+      order: { tags: ['VIP', 'Exchanged'] },
     });
 
     expect(requestMock).toHaveBeenNthCalledWith(
       2,
       '/api/v1/orders/ordr_9',
       expect.anything(),
-      expect.objectContaining({ body: { tags: 'Returned, Exchanged', fulfillment_status: 'exchanged' } }),
+      expect.objectContaining({ body: { tags: 'VIP, Exchanged', fulfillment_status: 'returned' } }),
     );
   });
 
-  it('does not add fulfillment_status when the tags contain neither "Returned" nor "Exchanged" (e.g. the "Refunded" tag call)', async () => {
+  it('derives fulfillment_status "refunded" when the tags include "Refunded"', async () => {
     const requestMock = vi.fn();
     stubOrderLookup(requestMock, 'ordr_9', '9');
     requestMock.mockResolvedValueOnce({ order: { id: 'ordr_9', tags: 'VIP, Refunded' } });
@@ -181,7 +191,25 @@ describe('RpRatioClientService.patchOrder', () => {
       2,
       '/api/v1/orders/ordr_9',
       expect.anything(),
-      expect.objectContaining({ body: { tags: 'VIP, Refunded' } }),
+      expect.objectContaining({ body: { tags: 'VIP, Refunded', fulfillment_status: 'refunded' } }),
+    );
+  });
+
+  it('derives fulfillment_status "refunded" (not "returned") when tags include both "Refunded" and "Returned" — the refund is the later, terminal event', async () => {
+    const requestMock = vi.fn();
+    stubOrderLookup(requestMock, 'ordr_9', '9');
+    requestMock.mockResolvedValueOnce({ order: { id: 'ordr_9', tags: 'Returned, Refunded' } });
+    const svc = makeService(requestMock);
+
+    await svc.patchOrder('access-tok-1', 'gk-merchant', '9', {
+      order: { tags: ['Returned', 'Refunded'] },
+    });
+
+    expect(requestMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/v1/orders/ordr_9',
+      expect.anything(),
+      expect.objectContaining({ body: { tags: 'Returned, Refunded', fulfillment_status: 'refunded' } }),
     );
   });
 

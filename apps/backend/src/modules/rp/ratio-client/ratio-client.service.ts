@@ -131,22 +131,25 @@ export class RpRatioClientService {
   }
 
   /**
-   * RP's markOsOrderReturned.js (return_prime_public) only ever adds two possible tag
-   * values via this call path — "Returned" and/or "Exchanged" (buildReturnedTags), exact
-   * and case-sensitive — alongside whatever other tags the order already had. Derive
-   * fulfillment_status from their presence; "exchanged" takes precedence when both are
-   * present (an exchange fully supersedes what would otherwise be a plain return).
-   * Returns undefined when neither is present (plain tag updates, or the separate
-   * "Refunded" tag call) so unrelated PATCH bodies don't get a fulfillment_status added.
+   * RP tags this PATCH in two separate calls at two separate times: markOsOrderReturned.js
+   * (return_prime_public) adds "Returned" and/or "Exchanged" (buildReturnedTags) at request-
+   * APPROVAL time; markOsOrderRefunded adds "Refunded" SEPARATELY, later, only once an actual
+   * refund completes. "Returned" and "Exchanged" mean the same thing at the fulfillment
+   * level — the item physically came back to the merchant — so both map to os-order's real
+   * fulfillmentStatus value 'returned' ('exchanged' itself is not a real value anywhere in
+   * os-order: checked fulfillment_status, financial_status, and order status). "Refunded" is
+   * a distinct, later, terminal event (money actually moved) and takes precedence over
+   * "returned": a genuine return ends up 'refunded' once its refund call lands, while a pure
+   * exchange never gets a refund call and correctly stays at 'returned' permanently.
    */
-  private deriveFulfillmentStatusFromTags(tags: unknown): 'returned' | 'exchanged' | undefined {
+  private deriveFulfillmentStatusFromTags(tags: unknown): 'returned' | 'refunded' | undefined {
     const list: string[] = Array.isArray(tags)
       ? (tags as unknown[]).map((t) => String(t).trim())
       : typeof tags === 'string'
         ? tags.split(',').map((t) => t.trim())
         : [];
-    if (list.includes('Exchanged')) return 'exchanged';
-    if (list.includes('Returned')) return 'returned';
+    if (list.includes('Refunded')) return 'refunded';
+    if (list.includes('Returned') || list.includes('Exchanged')) return 'returned';
     return undefined;
   }
 
