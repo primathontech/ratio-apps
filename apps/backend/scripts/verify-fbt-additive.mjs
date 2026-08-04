@@ -82,7 +82,19 @@ const EXPECTED_NEW_COLUMNS = {
  * MySQL could have a real database cloned onto it for debugging).
  */
 function assertScratchTarget(url) {
-  const dbName = url.pathname.replace(/^\//, '');
+  // `mysql:` is not a WHATWG "special" scheme (only http/https/ws/wss/ftp/file
+  // are), so the WHATWG URL parser treats its host as OPAQUE: `.hostname` is
+  // NOT lowercased the way it would be for `https://LOCALHOST`, and an IPv6
+  // literal keeps its brackets (`[::1]` stays `[::1]`, not `::1`). Without
+  // normalising both here, `mysql://…@LOCALHOST/fbt_verify` and
+  // `mysql://…@[::1]/fbt_verify` would be (wrongly) refused as non-local, and
+  // a database literally named `FBT_VERIFY` would be (wrongly) refused as not
+  // containing `verify`. These are all fail-CLOSED (reject a valid target,
+  // never accept an invalid one), so there's no safety bug — just a confusing
+  // false rejection. Do not remove this normalisation as a "simplification";
+  // the opaque-host behaviour is genuinely surprising.
+  const dbName = url.pathname.replace(/^\//, '').toLowerCase();
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
   const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
   if (!dbName.includes('verify')) {
     throw new Error(
@@ -90,9 +102,9 @@ function assertScratchTarget(url) {
         `contain 'verify'. Got: ${url.toString()}`,
     );
   }
-  if (!LOCAL_HOSTS.has(url.hostname)) {
+  if (!LOCAL_HOSTS.has(host)) {
     throw new Error(
-      `refusing to DROP/CREATE database '${dbName}' on host '${url.hostname}': ` +
+      `refusing to DROP/CREATE database '${dbName}' on host '${host}': ` +
         `SCRATCH_URL must point at a local host (localhost / 127.0.0.1 / ::1). ` +
         `Got: ${url.toString()}`,
     );
@@ -198,6 +210,12 @@ const conn = await mysql.createConnection({ uri: SCRATCH_URL, multipleStatements
 console.log(`[verify] loading production schema from ${PROD_SCHEMA}`);
 await conn.query(readFileSync(PROD_SCHEMA, 'utf8'));
 
+// Every table in LEGACY_TABLES needs at least one row here, or its row-count
+// check in section 2 below is vacuous: `before.counts[t] !== after.counts[t]`
+// is trivially false when both sides are 0, so a future migration silently
+// deleting rows from an unseeded table would pass unnoticed. (This is exactly
+// how `platform_merchants` slipped through initially — added to the table
+// list and iterated, but never seeded, so its check was 0 !== 0 on every run.)
 console.log('[verify] seeding one row per legacy table');
 await conn.query(`
   INSERT INTO frequently_bought_bundle
@@ -224,9 +242,17 @@ await conn.query(`
     (id, merchant_id, platform, job_type, status)
   VALUES ('j1', 'verify-merch', 'openstore', 'full_sync', 'completed');
 `);
+await conn.query(`
+  INSERT INTO platform_merchants
+    (id, merchant_id, platform, shop_domain, access_token, scopes, is_active)
+  VALUES ('pm1', 'verify-merch', 'openstore', 'verify.example.com', 'enc', 'read_products', 1);
+`);
 
 const before = await snapshot(conn, dbName);
 console.log(`[verify] before: ${Object.keys(before.shape).length} tables`);
+for (const table of LEGACY_TABLES) {
+  console.log(`[verify]   ${table}: ${before.counts[table]} row(s)`);
+}
 
 console.log('[verify] running 0001 in-process against the scratch database');
 await applyMigration(SCRATCH_URL);
