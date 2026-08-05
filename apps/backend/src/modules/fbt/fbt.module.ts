@@ -7,6 +7,9 @@ import { RatioOAuthHttp } from '../../core/oauth/ratio-oauth.http';
 import { FbtBundleLookupService } from './bundles/bundle-lookup.service';
 import { FbtBundlesController } from './bundles/bundles.controller';
 import { FbtBundlesService } from './bundles/bundles.service';
+import { FbtCatalogController } from './catalog/catalog.controller';
+import { FBT_OS_STOREFRONT_URL_TOKEN, FbtOsStorefrontClient } from './catalog/os-storefront.client';
+import { FbtRatioProductsService } from './catalog/ratio-products.service';
 import { FbtConfigController } from './config/config.controller';
 import { FbtConfigService } from './config/config.service';
 import type { FbtDatabase } from './db/types';
@@ -63,12 +66,27 @@ export {
     FbtMerchantsController,
     FbtConfigController,
     FbtBundlesController,
+    FbtCatalogController,
   ],
   providers: [
     FbtBootstrap,
     FbtConfigService,
     FbtBundlesService,
     FbtBundleLookupService,
+    // Catalog pickers for the admin's bundle editor (Task 7): products come
+    // from the Ratio API (Bearer-authenticated via FbtRatioTokenProvider);
+    // collections come from a separate, unauthenticated OpenStore storefront
+    // service, so they get their own client and their own URL provider below.
+    FbtRatioProductsService,
+    FbtOsStorefrontClient,
+    {
+      // Injected as a plain value so the client stays trivially unit-testable
+      // (`new FbtOsStorefrontClient(url)`) instead of needing a ConfigService double.
+      provide: FBT_OS_STOREFRONT_URL_TOKEN,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<Env, true>): string | undefined =>
+        config.get('FBT_OS_STOREFRONT_URL' as never, { infer: true }) as string | undefined,
+    },
     // Webhook handlers (one per subscribed topic). Each must also be listed
     // individually here — `webhooksProvider` (inside `createAppProviders`)
     // injects them by class, so DI needs its own provider entry per handler.

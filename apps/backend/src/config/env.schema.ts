@@ -159,6 +159,14 @@ const baseEnv = z.object({
   FORMS_WEBHOOK_VISIBILITY: z.coerce.number().int().min(30).default(120),
   FORMS_EMAIL_VISIBILITY: z.coerce.number().int().min(30).default(120),
   FORMS_EXPORT_VISIBILITY: z.coerce.number().int().min(30).default(300),
+
+  // ─── fbt app: catalog collections source ──────────────────────────────────
+  // FBT_OS_STOREFRONT_URL: base URL of the OpenStore storefront REST API, the
+  // ONLY source of collection data — the Ratio API has no collections resource.
+  // Authenticated by a `gk-merchant-id` header, not OAuth. Optional: with it
+  // unset, the collections picker returns an empty list and the rest of FBT
+  // works, so a missing key degrades one admin control instead of blocking boot.
+  FBT_OS_STOREFRONT_URL: emptyAsUndefined(z.string().url()),
 });
 
 // builds the schema for a given module subset (baseEnv + each module's RATIO_<UPPER>_* block)
