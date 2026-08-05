@@ -91,10 +91,6 @@ const baseEnv = z.object({
   GMC_STORE_URL: emptyAsUndefined(z.string()),
 
   // ─── return-prime adapter: shared secret + RP server URL ─────────────────
-  // RP_MONGO_URL: MongoDB connection string for RP's database.
-  // Used by RpOrderSyncService to upsert orders received from GoKwik OS webhooks.
-  // Optional — if unset, order sync is disabled (RP fetches on demand instead).
-  RP_MONGO_URL: emptyAsUndefined(z.string().min(1)),
   // OS_RP_TOKEN: same name and value on both sides of the OS↔RP relationship
   // (deliberately separate from RP's own general INTERNAL_API_TOKEN, which
   // gates unrelated internal ops tooling — a leak or rotation on either side
