@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { createAppProviders } from '../../core/factories/app-module.factory';
+import { FbtConfigController } from './config/config.controller';
+import { FbtConfigService } from './config/config.service';
 import type { FbtDatabase } from './db/types';
 import { FbtBootstrap } from './fbt.bootstrap';
 import { FbtMerchantTokenGuard, FbtWebhookSignatureGuard } from './guards';
@@ -33,15 +35,21 @@ export {
  *
  * Nothing crosses modules by design — per-module DB isolation. The Crypto /
  * Ratio / Merchants / OAuth / Webhooks providers are built by the shared
- * `createAppProviders` factory; everything else (bootstrap, handler, guards)
- * is wired here directly because those pieces are app-specific. The real
- * config controller/service is Plan 2; the real storefront serving is Plan 5.
+ * `createAppProviders` factory; everything else (bootstrap, handler, guards,
+ * config controller/service) is wired here directly because those pieces are
+ * app-specific. The real storefront serving is Plan 5.
  */
 @Module({
   imports: [FbtKyselyModule],
-  controllers: [FbtOAuthController, FbtWebhooksController, FbtMerchantsController],
+  controllers: [
+    FbtOAuthController,
+    FbtWebhooksController,
+    FbtMerchantsController,
+    FbtConfigController,
+  ],
   providers: [
     FbtBootstrap,
+    FbtConfigService,
     // Webhook handlers (one per subscribed topic). Each must also be listed
     // individually here — `webhooksProvider` (inside `createAppProviders`)
     // injects them by class, so DI needs its own provider entry per handler.
