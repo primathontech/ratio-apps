@@ -25,11 +25,12 @@ import { FBT_TOPICS } from './topics';
  */
 @Injectable()
 export class FbtAppUninstalledHandler implements WebhookHandler {
-  // NOTE: webhook `topic` must equal the EXACT `event` string the Ratio
-  // runtime delivers. This example uses dot-form (`app.uninstalled`), but the
-  // platform webhook registry documents slash-form (`app/uninstalled`). Verify
-  // against a live delivery when scaffolding — a wrong topic silently no-ops
-  // (the dispatcher's topic-mismatch fast-path). See docs/agent/context/learnings.md.
+  // Webhook `topic` must equal the EXACT `event` string the Ratio runtime delivers.
+  // `WebhooksService.dispatch` routes by exact string match and SILENTLY no-ops on a
+  // mismatch (the topic-mismatch fast path), so a wrong value here does not error —
+  // the handler simply never runs. These values are the platform registry's:
+  // slash-delimited, plural resource, base verb. `_template` still ships the old
+  // dot-form; do not copy it. See docs/agent/context/learnings.md.
   readonly topic = FBT_TOPICS.APP_UNINSTALLED;
   private readonly logger = new Logger(FbtAppUninstalledHandler.name);
 
@@ -44,7 +45,7 @@ export class FbtAppUninstalledHandler implements WebhookHandler {
     trx: Transaction<DatabaseWithMerchants & DatabaseWithWebhookLog>,
   ): Promise<void> {
     if (!merchantId) {
-      this.logger.warn({ msg: 'app.uninstalled for unknown merchant — no-op' });
+      this.logger.warn({ msg: 'app/uninstalled for unknown merchant — no-op' });
       return;
     }
     // S6: Serialize against an in-flight OAuth callback transaction touching
@@ -63,7 +64,7 @@ export class FbtAppUninstalledHandler implements WebhookHandler {
       .executeTakeFirst()) as MerchantRow | undefined;
     if (!merchant?.isActive) {
       this.logger.warn({
-        msg: 'app.uninstalled for already-inactive merchant — no-op (likely a retry)',
+        msg: 'app/uninstalled for already-inactive merchant — no-op (likely a retry)',
         merchantId,
       });
       return;
