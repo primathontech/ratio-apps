@@ -8,7 +8,7 @@ import { FbtBundleLookupService } from './bundles/bundle-lookup.service';
 import { FbtBundlesController } from './bundles/bundles.controller';
 import { FbtBundlesService } from './bundles/bundles.service';
 import { FbtCatalogController } from './catalog/catalog.controller';
-import { FBT_OS_STOREFRONT_URL_TOKEN, FbtOsStorefrontClient } from './catalog/os-storefront.client';
+import { FbtRatioCollectionsService } from './catalog/ratio-collections.service';
 import { FbtRatioProductsService } from './catalog/ratio-products.service';
 import { FbtConfigController } from './config/config.controller';
 import { FbtConfigService } from './config/config.service';
@@ -78,20 +78,15 @@ export {
     FbtBundlesService,
     FbtBundleLookupService,
     FbtDashboardService,
-    // Catalog pickers for the admin's bundle editor (Task 7): products come
-    // from the Ratio API (Bearer-authenticated via FbtRatioTokenProvider);
-    // collections come from a separate, unauthenticated OpenStore storefront
-    // service, so they get their own client and their own URL provider below.
+    // Catalog pickers for the admin's bundle editor: both products (Task 7)
+    // and collections (Task 9) come from the Ratio API, Bearer-authenticated
+    // via FbtRatioTokenProvider. Collections used to come from a separate,
+    // unauthenticated OpenStore storefront service (ADR 0007) because the
+    // Ratio API had no collections resource; it gained one, which was that
+    // ADR's named exit condition, so that client is gone and this now mirrors
+    // FbtRatioProductsService exactly.
     FbtRatioProductsService,
-    FbtOsStorefrontClient,
-    {
-      // Injected as a plain value so the client stays trivially unit-testable
-      // (`new FbtOsStorefrontClient(url)`) instead of needing a ConfigService double.
-      provide: FBT_OS_STOREFRONT_URL_TOKEN,
-      inject: [ConfigService],
-      useFactory: (config: ConfigService<Env, true>): string | undefined =>
-        config.get('FBT_OS_STOREFRONT_URL' as never, { infer: true }) as string | undefined,
-    },
+    FbtRatioCollectionsService,
     // Webhook handlers (one per subscribed topic). Each must also be listed
     // individually here — `webhooksProvider` (inside `createAppProviders`)
     // injects them by class, so DI needs its own provider entry per handler.

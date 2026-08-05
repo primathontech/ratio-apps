@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
-import { FbtOsStorefrontClient } from '../../../../src/modules/fbt/catalog/os-storefront.client';
+import { describe, expect, it } from 'vitest';
+import { FbtRatioCollectionsService } from '../../../../src/modules/fbt/catalog/ratio-collections.service';
 import { FbtRatioProductsService } from '../../../../src/modules/fbt/catalog/ratio-products.service';
 
 function fakeRatio(payload: unknown) {
@@ -94,196 +94,130 @@ describe('FbtRatioProductsService', () => {
   });
 });
 
-describe('FbtOsStorefrontClient', () => {
-  it('returns an empty list without calling fetch when no storefront URL is configured', async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
-
-    const client = new FbtOsStorefrontClient(undefined);
-    await expect(client.listCollections('m-1', { page: 1, limit: 10 })).resolves.toEqual([]);
-    // Pins the short-circuit itself: if the `if (!this.baseUrl) return []`
-    // guard were deleted, `this.baseUrl.replace(...)` would throw on
-    // `undefined` and the outer catch would still yield `[]` — so a bare
-    // `resolves.toEqual([])` here would pass either way and prove nothing.
-    // Asserting fetch was never called proves the guard fired BEFORE any
-    // request was attempted.
-    expect(fetchMock).not.toHaveBeenCalled();
-
-    vi.unstubAllGlobals();
-  });
-
-  it('sends gk-merchant-id and NO Authorization header', async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ data: { collections: [] } }), { status: 200 }),
-    );
-    vi.stubGlobal('fetch', fetchMock);
-
-    await new FbtOsStorefrontClient('https://os.example').listCollections('m-1', {
+describe('FbtRatioCollectionsService', () => {
+  it('calls the doubled-v1 collections path the rest of the monorepo uses', async () => {
+    const { ratio, requests } = fakeRatio({ data: { collections: [] } });
+    await new FbtRatioCollectionsService(ratio, TOKEN_PROVIDER).list('m-1', {
       page: 1,
-      limit: 10,
+      limit: 20,
     });
 
-    const headers = (fetchMock.mock.calls[0]?.[1] as RequestInit).headers as Record<
-      string,
-      string
-    >;
-    // Assert against the ACTUAL headers object passed to fetch, keyed exactly
-    // as the client wrote it, plus a lowercase scan for good measure.
-    expect(headers['gk-merchant-id']).toBe('m-1');
-    expect(headers.authorization).toBeUndefined();
-    // This service is unauthenticated and cross-service; leaking the merchant's
-    // Ratio OAuth token to it would widen the token's blast radius for no gain.
-    expect(Object.keys(headers).map((k) => k.toLowerCase())).not.toContain('authorization');
-
-    vi.unstubAllGlobals();
+    // Anchored to the path start (rather than a bare `toContain`) so a
+    // single-`v1` regression — or a longer path that merely happens to embed
+    // this substring later on — would not pass.
+    expect(requests[0]?.path.startsWith('/api/v1/v1/collections')).toBe(true);
   });
 
-  it('builds the documented collections query', async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ data: { collections: [] } }), { status: 200 }),
-    );
-    vi.stubGlobal('fetch', fetchMock);
+  it('sends the merchant access token as a bearer credential', async () => {
+    const { ratio, requests } = fakeRatio({ data: { collections: [] } });
+    await new FbtRatioCollectionsService(ratio, TOKEN_PROVIDER).list('m-1', {
+      page: 1,
+      limit: 20,
+    });
 
-    await new FbtOsStorefrontClient('https://os.example').listCollections('m-1', {
-      search: 'summer',
+    // Exact equality (not `toMatchObject`): `opts` is exactly `{ accessToken }`
+    // in this service, so this fails both if the token were omitted AND if an
+    // unexpected extra field leaked in.
+    expect(requests[0]?.opts).toEqual({ accessToken: 'tok-123' });
+  });
+
+  it('sends the four confirmed query params with the documented defaults', async () => {
+    const { ratio, requests } = fakeRatio({ data: { collections: [] } });
+    await new FbtRatioCollectionsService(ratio, TOKEN_PROVIDER).list('m-1', {
       page: 2,
-      limit: 25,
+      limit: 15,
     });
 
-    const url = String(fetchMock.mock.calls[0]?.[0]);
-    expect(url).toContain('/api/v1/collections');
-    expect(url).toContain('storeId=m-1');
-    expect(url).toContain('page=2');
-    expect(url).toContain('limit=25');
-    expect(url).toContain('search=summer');
-
-    vi.unstubAllGlobals();
+    expect(requests[0]?.path).toContain('page=2');
+    expect(requests[0]?.path).toContain('limit=15');
+    expect(requests[0]?.path).toContain('published=true');
+    expect(requests[0]?.path).toContain('includeProducts=false');
   });
 
-  it('degrades to an empty list when the storefront service errors', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 500 })));
-
-    // One unauthenticated third-party service being down must not take out the
-    // whole bundle editor — the merchant just sees no collections to pick.
-    await expect(
-      new FbtOsStorefrontClient('https://os.example').listCollections('m-1', {
-        page: 1,
-        limit: 10,
-      }),
-    ).resolves.toEqual([]);
-
-    vi.unstubAllGlobals();
-  });
-
-  it('degrades to an empty list when the response body is malformed', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('<html>', { status: 200 })));
-
-    await expect(
-      new FbtOsStorefrontClient('https://os.example').listCollections('m-1', {
-        page: 1,
-        limit: 10,
-      }),
-    ).resolves.toEqual([]);
-
-    vi.unstubAllGlobals();
-  });
-
-  it('degrades to an empty list when the body is valid JSON of the wrong shape', async () => {
-    // Unlike the '<html>' case above (non-JSON text, caught by res.json()
-    // throwing before the schema check runs), this body IS valid JSON — so
-    // this is the only test that actually exercises the `!parsed.success`
-    // branch and the 'collections' in data discrimination, rather than the
-    // outer catch.
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => new Response(JSON.stringify({ foo: 'bar' }), { status: 200 })),
-    );
-
-    await expect(
-      new FbtOsStorefrontClient('https://os.example').listCollections('m-1', {
-        page: 1,
-        limit: 10,
-      }),
-    ).resolves.toEqual([]);
-
-    vi.unstubAllGlobals();
-  });
-
-  it('degrades to an empty list when fetch throws (network error)', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => {
-        throw new TypeError('fetch failed');
-      }),
-    );
-
-    await expect(
-      new FbtOsStorefrontClient('https://os.example').listCollections('m-1', {
-        page: 1,
-        limit: 10,
-      }),
-    ).resolves.toEqual([]);
-
-    vi.unstubAllGlobals();
-  });
-
-  it('degrades to an empty list when the storefront service times out', async () => {
-    // A fetch mock that only settles when the passed-in AbortSignal fires —
-    // this mirrors what real fetch does internally, so this test genuinely
-    // drives the client's own AbortController/timeout logic rather than
-    // resolving on its own. NOTE: a bare `new Promise(() => {})` here would
-    // NOT work — nothing links an AbortSignal to an arbitrary promise except
-    // code that explicitly listens for it (verified: without the
-    // `addEventListener('abort', ...)` below, aborting the controller does
-    // not settle the promise, and the test just hangs to a timeout instead of
-    // exercising the degrade-to-[] path).
-    //
-    // Passing `20` as the constructor's timeoutMs override means the
-    // client's own AbortController fires in ~20ms instead of the real 5s
-    // production default, so this test costs milliseconds, not seconds.
-    vi.stubGlobal(
-      'fetch',
-      vi.fn((_url: unknown, init?: RequestInit) => {
-        return new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener('abort', () => {
-            const err = new Error('The operation was aborted');
-            err.name = 'AbortError';
-            reject(err);
-          });
-        });
-      }),
-    );
-
-    await expect(
-      new FbtOsStorefrontClient('https://os.example', 20).listCollections('m-1', {
-        page: 1,
-        limit: 10,
-      }),
-    ).resolves.toEqual([]);
-
-    vi.unstubAllGlobals();
-  });
-
-  it('normalises collections to the picker shape', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
-        async () =>
-          new Response(
-            JSON.stringify({
-              data: { collections: [{ id: 'c-1', title: 'Summer', handle: 'summer' }] },
-            }),
-            { status: 200 },
-          ),
-      ),
-    );
-
-    const out = await new FbtOsStorefrontClient('https://os.example').listCollections('m-1', {
+  it('honours an explicit published: false rather than falling back to the true default', async () => {
+    // Guards the `??` vs `||` distinction: `opts.published || true` would
+    // silently turn an explicit `false` back into `true`. Only `??` gets this
+    // right, and only a literal `false` input exercises the difference.
+    const { ratio, requests } = fakeRatio({ data: { collections: [] } });
+    await new FbtRatioCollectionsService(ratio, TOKEN_PROVIDER).list('m-1', {
       page: 1,
-      limit: 10,
+      limit: 20,
+      published: false,
     });
-    expect(out).toEqual([{ id: 'c-1', title: 'Summer', handle: 'summer' }]);
 
-    vi.unstubAllGlobals();
+    expect(requests[0]?.path).toContain('published=false');
+  });
+
+  it('normalises a collection to the picker shape', async () => {
+    const { ratio } = fakeRatio({
+      data: { collections: [{ id: 'c-1', title: 'Summer', handle: 'summer' }] },
+    });
+    const out = await new FbtRatioCollectionsService(ratio, TOKEN_PROVIDER).list('m-1', {
+      page: 1,
+      limit: 20,
+    });
+
+    expect(out.items).toEqual([{ id: 'c-1', title: 'Summer', handle: 'summer' }]);
+  });
+
+  it('tolerates a collection with no handle, yielding handle: null', async () => {
+    const { ratio } = fakeRatio({ data: { collections: [{ id: 'c-2', title: 'Bare' }] } });
+    const out = await new FbtRatioCollectionsService(ratio, TOKEN_PROVIDER).list('m-1', {
+      page: 1,
+      limit: 20,
+    });
+
+    expect(out.items[0]).toEqual({ id: 'c-2', title: 'Bare', handle: null });
+  });
+
+  it('coerces a numeric id to a string', async () => {
+    const { ratio } = fakeRatio({ data: { collections: [{ id: 42, title: 'Numeric' }] } });
+    const out = await new FbtRatioCollectionsService(ratio, TOKEN_PROVIDER).list('m-1', {
+      page: 1,
+      limit: 20,
+    });
+
+    expect(out.items[0]?.id).toBe('42');
+    expect(typeof out.items[0]?.id).toBe('string');
+  });
+
+  it('getById hits the single-collection path with the id encoded, and passes includeProducts', async () => {
+    const { ratio, requests } = fakeRatio({
+      data: { id: 'c-3', title: 'Winter', handle: 'winter' },
+    });
+    await new FbtRatioCollectionsService(ratio, TOKEN_PROVIDER).getById('m-1', 'c 3', {
+      includeProducts: true,
+    });
+
+    // 'c 3' (with a space) only encodes to 'c%203' if `encodeURIComponent`
+    // actually ran — a literal `id` interpolated unencoded would produce
+    // 'c 3' instead and fail this `startsWith`.
+    expect(requests[0]?.path.startsWith('/api/v1/v1/collections/c%203')).toBe(true);
+    expect(requests[0]?.path).toContain('includeProducts=true');
+  });
+
+  it('getById defaults includeProducts to false when not passed', async () => {
+    const { ratio, requests } = fakeRatio({ data: { id: 'c-4', title: 'Spring' } });
+    await new FbtRatioCollectionsService(ratio, TOKEN_PROVIDER).getById('m-1', 'c-4');
+
+    expect(requests[0]?.path).toContain('includeProducts=false');
+  });
+
+  it('errors propagate rather than degrading to an empty list', async () => {
+    // Pins design decision 2 over the deleted client's contract: the old
+    // `FbtOsStorefrontClient` degraded every failure (bad status, malformed
+    // body, network error, timeout) to `[]`. This service must NOT do that.
+    // Asserting `.rejects` here — rather than `.resolves.toEqual([])` — is
+    // what actually pins the new contract: a resolves-based assertion would
+    // pass under either the old or the new behaviour and would prove nothing.
+    const ratio = {
+      async request() {
+        throw new Error('ratio upstream error');
+      },
+    } as never;
+
+    await expect(
+      new FbtRatioCollectionsService(ratio, TOKEN_PROVIDER).list('m-1', { page: 1, limit: 20 }),
+    ).rejects.toThrow('ratio upstream error');
   });
 });
