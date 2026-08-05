@@ -1,5 +1,9 @@
 import { Module } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import type { Env } from '../../config/env.schema';
 import { createAppProviders } from '../../core/factories/app-module.factory';
+import type { RatioOAuthCreds } from '../../core/oauth/ratio-oauth.http';
+import { RatioOAuthHttp } from '../../core/oauth/ratio-oauth.http';
 import { FbtBundleLookupService } from './bundles/bundle-lookup.service';
 import { FbtBundlesController } from './bundles/bundles.controller';
 import { FbtBundlesService } from './bundles/bundles.service';
@@ -11,7 +15,16 @@ import { FbtMerchantTokenGuard, FbtWebhookSignatureGuard } from './guards';
 import { FBT_DB_TOKEN, FbtKyselyModule } from './kysely.module';
 import { FbtMerchantsController } from './merchants/merchants.controller';
 import { FbtOAuthController } from './oauth/oauth.controller';
-import { FBT_CRYPTO, FBT_MERCHANTS, FBT_OAUTH, FBT_RATIO, FBT_WEBHOOKS } from './tokens';
+import { FbtRatioTokenProvider } from './oauth/ratio-token.provider';
+import {
+  FBT_CRYPTO,
+  FBT_MERCHANTS,
+  FBT_OAUTH,
+  FBT_RATIO,
+  FBT_RATIO_OAUTH_CREDS,
+  FBT_RATIO_OAUTH_HTTP,
+  FBT_WEBHOOKS,
+} from './tokens';
 import { FbtAppUninstalledHandler } from './webhooks/app-uninstalled.handler';
 import { FbtProductCreatedHandler } from './webhooks/product-created.handler';
 import { FbtProductDeletedHandler } from './webhooks/product-deleted.handler';
@@ -68,6 +81,24 @@ export {
     // controllers can reference them in @UseGuards(GuardClass).
     FbtWebhookSignatureGuard,
     FbtMerchantTokenGuard,
+    // Ratio access-token refresh plumbing (Task 6): `core`'s OAuthService only
+    // stores tokens at install, so product-source calls need this to obtain a
+    // still-valid access token, refreshing + rotating when it has expired.
+    FbtRatioTokenProvider,
+    {
+      provide: FBT_RATIO_OAUTH_HTTP,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<Env, true>): RatioOAuthHttp =>
+        new RatioOAuthHttp(config.get('RATIO_API_BASE_URL', { infer: true }) as string),
+    },
+    {
+      provide: FBT_RATIO_OAUTH_CREDS,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<Env, true>): RatioOAuthCreds => ({
+        clientId: config.get('RATIO_FBT_CLIENT_ID' as never, { infer: true }) as string,
+        clientSecret: config.get('RATIO_FBT_CLIENT_SECRET' as never, { infer: true }) as string,
+      }),
+    },
     ...createAppProviders<FbtDatabase>(
       {
         slug: 'fbt',

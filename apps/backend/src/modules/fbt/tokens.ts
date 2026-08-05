@@ -12,3 +12,11 @@ export const FBT_RATIO = Symbol.for('ratio-app:fbt:ratio');
 export const FBT_MERCHANTS = Symbol.for('ratio-app:fbt:merchants');
 export const FBT_OAUTH = Symbol.for('ratio-app:fbt:oauth');
 export const FBT_WEBHOOKS = Symbol.for('ratio-app:fbt:webhooks');
+
+/**
+ * Ratio OAuth refresh plumbing, needed because the merchant access token stored
+ * at install expires and product-source calls must refresh it. `core`'s
+ * `OAuthService` only handles the install callback — it exposes no token getter.
+ */
+export const FBT_RATIO_OAUTH_HTTP = Symbol.for('ratio-app:fbt:ratio-oauth-http');
+export const FBT_RATIO_OAUTH_CREDS = Symbol.for('ratio-app:fbt:ratio-oauth-creds');
