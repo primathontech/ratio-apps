@@ -37,16 +37,29 @@ all_products/specific_product/specific_collections · `mode` = auto/manual ·
 | `auth/*` (Shopify + OS OAuth) | `core/oauth` → `fbt/api/v1/oauth` | Plan 1 | ✅ |
 | `webhooks/receive` | `core/webhooks` → `fbt/api/webhooks` | Plan 1 | ✅ |
 | `health` | platform-level, already in `ratio-apps` | — | ✅ |
-| `bundles` (9 routes: CRUD, `lookup`, `duplicate`, `:id/status`, `:id/preview`) | `fbt/api/bundles` | Plan 2 | ☐ |
-| `merchant/:id/recom-config` GET+PUT | `fbt/api/config` | Plan 2 | ☐ |
-| `dashboard` | `fbt/api/dashboard` | Plan 2 | ☐ |
-| `merchants/products`, `products/ids`, `products/variants/ids`, `collections`, `collections/ids` | `fbt/api/catalog/*` | Plan 2 | ☐ |
+| `bundles` (9 routes: CRUD, `lookup`, `duplicate`, `:id/status`, `:id/preview`) | `fbt/api/bundles` | Plan 2 | ✅ |
+| `merchant/:id/recom-config` GET+PUT | `fbt/api/config` | Plan 2 | ✅ |
+| `dashboard` | `fbt/api/dashboard` | Plan 2 | ✅ |
+| `merchants/products`, `products/ids`, `products/variants/ids`, `collections`, `collections/ids` | `fbt/api/catalog/*` | Plan 2 | ✅ |
 | ABS scheduler + embedding + similarity + bundle-creation services | the sweep | Plan 3 | ☐ |
 
-`useConfig`'s path is unassigned on purpose: the deleted scaffold hook called
-`/api/fbt-config`, which never existed. `api()` prepends `/fbt`, so Plan 2's
-controller should be `@Controller('fbt/api/config')` and the hook should call
-`/api/config`.
+`useConfig`'s path is resolved: `FbtConfigController` shipped as
+`@Controller('fbt/api/config')`
+(`apps/backend/src/modules/fbt/config/config.controller.ts`). `api()` prepends
+`/fbt`, so the admin's `useConfig` hook — deleted in the scaffold cleanup,
+not yet rewritten; that is Plan 4 — must call `/api/config`, not the old
+scaffold's `/api/fbt-config`.
+
+**Catalog is two backends wearing one route prefix.**
+`fbt/api/catalog/products` and `.../products/by-ids` call the Ratio API
+(OAuth'd via `FbtRatioTokenProvider`, doubled-`v1` path `/api/v1/v1/products` —
+deliberate, see CONTEXT.md). `fbt/api/catalog/collections` calls a *different*,
+unauthenticated backend — the OpenStore storefront REST API at
+`FBT_OS_STOREFRONT_URL`, keyed by a `gk-merchant-id` header — because the
+Ratio API has no collections resource at all (documented resources are only
+`products` and `orders`). Every failure path on the collections side degrades
+to an empty list rather than erroring the picker. See
+[ADR 0007](../../context/decisions/0007-fbt-collections-from-unauthenticated-openstore-storefront.md).
 
 ## Admin screens
 
@@ -55,16 +68,16 @@ Route skeleton and navigation exist and are pinned by
 
 | Source screen | Route | Status |
 |---|---|---|
-| `dashboard.tsx` | `/` | ◐ install status live; bundle metrics need Plan 2 |
+| `dashboard.tsx` | `/` | ◐ install status live; `fbt/api/dashboard/summary` shipped in Plan 2, but the screen does not consume it yet — Plan 4 |
 | `bundles-new.tsx` + `CampaignTable` | `/bundles` | ☐ placeholder |
 | `recommendations.tsx` | `/recommendations` | ☐ placeholder |
 | `appearance.tsx` | `/appearance` | ☐ placeholder |
 | `preview.tsx` | `/preview` | ☐ placeholder |
 
 The three-step bundle wizard is **Basics & Scope → UI Module → Review &
-Publish**. The Appearance screen writes `fbt_merchant_config.ui_config` — a
-column that exists but is **absent from `fbtMerchantConfigSchema`**; Plan 2
-must add it to the write shape.
+Publish**. The Appearance screen writes `fbt_merchant_config.ui_config`; Plan 2
+added that field to `fbtMerchantConfigSchema`, so the write shape now carries it
+and the screen has somewhere to save.
 
 ## Storefront SDK
 

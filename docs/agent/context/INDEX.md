@@ -12,6 +12,7 @@ prefer editing through it over hand-editing.
 - [0004 — Storefront SDK as an opt-in third pillar](./decisions/0004-storefront-sdk-pillar.md) — pasted-`<script>` Lit SDK calling the vendor's public search API directly; `_template-sdk` + `hasStorefrontSdk` flag; wizzy is the first opt-in.
 - [0005 — Three-workload EKS placement](./decisions/0005-three-workload-eks-placement.md) — shared Google/PostHog/MoEngage/Wizzy API with Google/Wizzy consumers, dedicated Meta API, dedicated Meta worker; future app placement is an explicit PRD/STATE decision.
 - [0006 — FBT greenfield schema over in-place](./decisions/0006-fbt-greenfield-schema-over-in-place.md) — `fbt_app` is a fresh empty database, not the old FBT production schema reused additively; retired by only 1–5 live merchants plus the embedding-model switch discarding all cached vectors.
+- [0007 — FBT collections from an unauthenticated OpenStore storefront](./decisions/0007-fbt-collections-from-unauthenticated-openstore-storefront.md) — the Ratio API exposes no collections resource, so collection scoping reads a second backend via `FBT_OS_STOREFRONT_URL` with a `gk-merchant-id` header, never the merchant's OAuth token, degrading to an empty list on every failure.
 
 ## Learnings
 See [learnings.md](./learnings.md).

@@ -100,11 +100,16 @@ touching this module. Standing context first; dated change journal below
   **Plan 6** — the per-merchant cutover.
 
 - **Four carry-forwards later plans must not lose:**
-  1. **The toggle-on contract.** Enabling `allowAutomaticRecommendation` must
-     set `nextRunAt = NOW(3)` in the *same write*. `fbt.bootstrap.ts`'s
-     docstring and the spec both commit to this; Plan 2's config controller
-     must implement it as one atomic update, not flip the boolean and leave
-     scheduling stale.
+  1. ~~**The toggle-on contract.**~~ **RESOLVED 2026-08-05 in Plan 2** —
+     implemented in `apps/backend/src/modules/fbt/config/config.service.ts`.
+     The semantics that shipped, which Plan 3's sweep depends on: off→on sets
+     `nextRunAt = now` in the *same* update as the boolean; on→off sets it to
+     `NULL` so a later re-enable starts fresh rather than inheriting a stale
+     past timestamp that fires immediately; and an **unchanged** toggle leaves
+     `nextRunAt` absent from the update entirely, so repeatedly saving unrelated
+     fields cannot be used to jump the sweep queue. Six tests pin these three
+     branches, and the reviewer confirmed each would fail under the
+     corresponding broken behaviour.
   2. ~~**The admin scaffold describes the wrong install mechanism.**~~
      **RESOLVED 2026-08-05** — the PostHog-shaped scaffold content is deleted,
      not deferred. See the journal entry below. The replacement route skeleton
@@ -122,15 +127,138 @@ touching this module. Standing context first; dated change journal below
      or a dashboard `postMessage` — it never calls that endpoint. Plan 4 must
      decide: finish the `install/session` path, or delete it as dead code and
      commit to the iframe/`postMessage` route.
-  4. **`previewBaseUrl` is a nullable column and schema field nothing writes
-     yet.** Plan 2 must decide whether it is merchant-editable in the admin or
-     derived from the Ratio merchant record.
-  5. **`fbt_merchant_config.ui_config` exists in the DDL but is missing from
-     `fbtMerchantConfigSchema`.** The source app stores the global widget theme
-     there, and it is what the Appearance screen writes. Plan 2 must add it to
-     the write shape, or the Appearance screen will have nowhere to save to.
+  4. ~~**`previewBaseUrl` is a nullable column and schema field nothing writes
+     yet.**~~ **RESOLVED 2026-08-05 in Plan 2** — merchant-editable via the
+     config `PUT`, not derived from the Ratio merchant record. It is already in
+     `fbtMerchantConfigSchema` (validated as a URL, nullable), and
+     `FbtConfigService.upsert` writes it like any other field.
+  5. ~~**`fbt_merchant_config.ui_config` exists in the DDL but is missing from
+     `fbtMerchantConfigSchema`.**~~ **RESOLVED 2026-08-05 in Plan 2 (Task 1)** —
+     added to the write shape as `z.record(z.string(), z.unknown()).nullable()
+     .default(null)`, so Plan 4's Appearance screen has somewhere to save. The
+     service writes SQL `NULL` when it is cleared, never the string `"null"`.
+
+- **Plan 2 standing context — decisions not to re-litigate:**
+  - **Admin API routes are `fbt/api/<resource>` with NO `v1` segment.** The spec
+    said `/fbt/api/v1/{bundles,config,dashboard,catalog}` and **the spec is
+    wrong** — it contradicted its own claim of following `wizzy` exactly.
+    Verified across all 8 vendors: `v1` appears only in OAuth prefixes
+    (`wizzy/api/v1/oauth`) plus a few special cases (`meta/api/v1/capi`); every
+    admin API is unprefixed (`wizzy/api/catalog`, `loyalty/api/dashboard`).
+    Plan 1 had already shipped `fbt/api/merchants`. Follow the repo.
+  - **The Ratio products path is `/api/v1/v1/products` — the doubled `v1` is
+    deliberate.** The platform's published docs say `/api/v1/products`, but
+    every vendor in this repo calls the doubled form against the live gateway
+    (`wizzy`, `google`, `meta`, `loyalty`). Do not "correct" it toward the docs.
+  - **Collections have no Ratio API endpoint at all** — the documented resources
+    are only `products` and `orders`. They come from a second, unauthenticated
+    backend via `FBT_OS_STOREFRONT_URL` and a `gk-merchant-id` header. The
+    merchant's OAuth token is never forwarded there, and every failure path
+    degrades to an empty list. Full rationale: ADR
+    [0007](../../context/decisions/0007-fbt-collections-from-unauthenticated-openstore-storefront.md).
+  - **Bundle scope matching uses `JSON_CONTAINS(col, JSON_QUOTE(?))`, and the
+    column name is written LITERALLY inside the raw `sql` fragment.** Two
+    reasons, both load-bearing. First, the source app used
+    `scope_product_ids LIKE '%"<id>"%'`, a substring scan over JSON text that
+    breaks on any id containing a quote or bracket and fails by matching
+    *nothing* rather than raising. Second, `CamelCasePlugin` does **not** rewrite
+    identifiers inside raw fragments, so a `sql.ref('scopeProductIds')` there
+    emits camelCase and fails at runtime with "unknown column" — which is why
+    `findByProduct`/`findByCollection` are two small literal branches rather than
+    one clever shared helper. A test pins both the function name and the
+    snake_case column, verified by mutation: reintroducing `sql.ref` fails it.
+  - **`packages/shared` resolves types from `src` but runtime from a gitignored
+    `dist`, and `apps/backend`'s own `test` script does not build it.** Only the
+    root `verify` script gets the order right (it runs
+    `pnpm --filter @ratio-app/shared build` before `pnpm -r test`). Any backend
+    test that imports a shared schema as a **runtime value** — not just a type —
+    needs that build first, or it fails with a module-resolution error. This bit
+    Plan 2's Task 5. `forms` and `meta` import shared schemas the same way, so
+    this is a repo-wide trait, not FBT-specific.
+
+- **Plan 2 known gaps and follow-ups, deliberately not fixed:**
+  1. **A concurrent-refresh race in every Ratio token provider except two.**
+     Ratio refresh tokens are single-use, so two overlapping `getAccessToken`
+     calls for one merchant on an expired token can both refresh; the loser's
+     rotated token is overwritten and dies, **permanently breaking that merchant
+     until reinstall**. `google` and `rp` guard this with `SELECT … FOR UPDATE`
+     plus a re-check inside a transaction. `wizzy`, `loyalty`, `meta`, and `fbt`
+     do not. Not fixed in Plan 2 because it is a repo-wide gap affecting four
+     vendors identically and fixing FBT alone would leave the repo inconsistent.
+     **This is the highest-value follow-up on this list.**
+  2. **`.set({...} as never)` in `oauth/ratio-token.provider.ts`** disables
+     Kysely's column-name checking for that update, so a typo would not be
+     caught by `tsc`. Byte-identical to `wizzy`'s existing pattern; worth a
+     cleanup across all five providers, not one.
+  3. **Envelope-shape coverage is shallow on both catalog clients.**
+     `productSchema`'s envelope accepts four wrapper shapes but only
+     `data.products` is exercised; collections accept three but only
+     `data.collections` is tested.
+  4. **`FbtBundlesService.remove()` has no ownership pre-check**, unlike every
+     other mutator, so deleting a foreign or already-absent id silently no-ops
+     rather than raising `BUNDLE_NOT_FOUND`. Plan 4 should decide what HTTP
+     status a no-op delete returns.
+  5. **`FbtBundleLookupService.resolve()`'s 404 message interpolates the raw
+     product/collection id.** Harmless today; revisit in Plan 5, when that
+     method goes onto a public unauthenticated storefront route.
+  6. **The "null expiry must refresh" rule guards a state the schema forbids.**
+     `BaseOauthTokensTable.expiresAt` is non-nullable and the DDL declares
+     `expires_at NOT NULL`, so that branch is belt-and-braces rather than a
+     reproduction of an observed failure mode.
 
 ## Change journal
+
+### 2026-08-05 — feature — Plan 2 of 6: the admin API (bundles, config, catalog, dashboard)
+- **What:** The merchant-guarded HTTP surface the admin needs, in eight reviewed
+  tasks. Shared bundle schemas in `packages/shared` (plus the missing
+  `uiConfig` config field); merchant config `GET`/`PUT` at `fbt/api/config`
+  carrying the toggle-on scheduling contract; bundle CRUD with a `merchantId`
+  filter on **every** query; bundle lookup precedence and preview; the
+  nine-route bundles controller; a Ratio access-token provider handling
+  single-use refresh rotation; catalog pickers for products (Ratio, OAuth'd) and
+  collections (a second unauthenticated backend); and dashboard metrics from one
+  grouped query rather than the source app's five `COUNT` round-trips.
+- **Why:** Plan 1 left an installable app with no way to do anything. This is
+  what `PARITY.md`'s four Plan 2 endpoint rows required, and it unblocks Plan 4's
+  admin screens, which currently render inert placeholders.
+- **Two security properties worth stating plainly.** First, **tenancy**: the
+  source app took `merchant_id` from a *query parameter* on every route, so any
+  merchant could read or mutate another's bundles by changing one value. Identity
+  now comes only from the guard-populated `@CurrentMerchant()`, and every read,
+  update, and delete filters on it — including `getById`, where that clause is
+  the only thing preventing a cross-tenant read by UUID. Second, **token
+  rotation**: a refresh returns a new access *and* refresh token and kills the
+  old one, so both are re-encrypted and persisted in the same write as the new
+  expiry.
+- **Definition of done / fix:** All 8 tasks complete, each independently
+  reviewed. 0 Critical and 0 Important findings survive. Tasks 5, 6, and 8
+  passed first time; the other five each took exactly one fix round. Gates:
+  `test/unit/apps/fbt` is 12 files / 131 tests green; backend `tsc --noEmit` and
+  `biome check src/modules/fbt` both exit 0; `test/unit/config/env.schema.test.ts`
+  still carries exactly its 8 pre-existing failures after the one env-key
+  addition, not 9.
+- **Worth knowing for the next plan:** every one of the six Important findings
+  was a defect in the *plan's own test code*, not in an implementation — an
+  assertion that named a property without guarding it. Two were outright
+  vacuous: a `JSON.stringify` over a Kysely raw builder that returned `{}`
+  (so the test "proving" we emit `JSON_CONTAINS` inspected an empty object), and
+  an `indexOf` route-order comparison that passed with the handler deleted
+  because `-1 < n`. The tenancy tests initially passed on an internal
+  `getById` pre-check's `WHERE` clause and would not have caught the filter
+  being dropped from the `UPDATE` itself. **The technique that actually settled
+  these was requiring a deliberate-break check as evidence** — delete the
+  filter, watch the named test fail, restore it. Assertions that survive that
+  are trustworthy; ones that don't were measuring nothing.
+- **Files:** `apps/backend/src/modules/fbt/{config,bundles,catalog,dashboard,oauth}/**`,
+  `apps/backend/src/modules/fbt/{fbt.module.ts,tokens.ts}`,
+  `packages/shared/src/schemas/fbt-{bundle,config}.ts`,
+  `packages/shared/src/index.ts`, `apps/backend/test/unit/apps/fbt/**`,
+  `apps/backend/src/config/env.schema.ts` (one key: `FBT_OS_STOREFRONT_URL`),
+  `.env.example`.
+- **Links:** plan `docs/superpowers/plans/2026-08-05-fbt-02-admin-api.md`
+  (gitignored); ADR
+  [0007](../../context/decisions/0007-fbt-collections-from-unauthenticated-openstore-storefront.md);
+  parity checklist [PARITY.md](./PARITY.md).
 
 ### 2026-08-05 — cleanup — strip the PostHog pixel scaffold from `admin-fbt`
 - **What:** Deleted the `_template` scaffold content the admin had inherited
