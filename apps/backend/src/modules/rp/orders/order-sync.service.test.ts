@@ -23,7 +23,7 @@ function makeService(opts: { rpBaseUrl?: string; osRpToken?: string }) {
 
 describe('RpOrderSyncService.upsertOrder — id-mapping persistence', () => {
   it('persists product/variant mappings even when RP is not configured', async () => {
-    const { service, hashAndPersist } = makeService({ rpBaseUrl: undefined, osRpToken: undefined });
+    const { service, hashAndPersist } = makeService({});
 
     await service.upsertOrder(
       {
@@ -39,7 +39,7 @@ describe('RpOrderSyncService.upsertOrder — id-mapping persistence', () => {
   });
 
   it('skips entirely (no persistence attempted) when the order has no numeric id after normalization', async () => {
-    const { service, hashAndPersist } = makeService({ rpBaseUrl: undefined, osRpToken: undefined });
+    const { service, hashAndPersist } = makeService({});
 
     await service.upsertOrder({ id: '', currency: 'INR', line_items: [] }, 'shop.example');
 
@@ -75,7 +75,7 @@ describe('RpOrderSyncService.upsertOrder — order sync call', () => {
     await service.upsertOrder({ id: 'ordr_496', currency: 'INR', line_items: [] }, 'shop.example');
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0];
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
     expect(url).toBe('http://rp.example/shopify-webhook/v1/order-sync');
     expect(init.method).toBe('POST');
     expect(init.headers['X-OS-Internal-Token']).toBe('test-token');
@@ -86,7 +86,7 @@ describe('RpOrderSyncService.upsertOrder — order sync call', () => {
   });
 
   it('skips the sync call (but still persists id-mappings) when RP is not configured', async () => {
-    const { service, hashAndPersist } = makeService({ rpBaseUrl: undefined, osRpToken: undefined });
+    const { service, hashAndPersist } = makeService({});
 
     await service.upsertOrder({ id: 'ordr_496', currency: 'INR', line_items: [] }, 'shop.example');
 
