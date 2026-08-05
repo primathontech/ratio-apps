@@ -1,5 +1,8 @@
 import { Module } from '@nestjs/common';
 import { createAppProviders } from '../../core/factories/app-module.factory';
+import { FbtBundleLookupService } from './bundles/bundle-lookup.service';
+import { FbtBundlesController } from './bundles/bundles.controller';
+import { FbtBundlesService } from './bundles/bundles.service';
 import { FbtConfigController } from './config/config.controller';
 import { FbtConfigService } from './config/config.service';
 import type { FbtDatabase } from './db/types';
@@ -46,10 +49,13 @@ export {
     FbtWebhooksController,
     FbtMerchantsController,
     FbtConfigController,
+    FbtBundlesController,
   ],
   providers: [
     FbtBootstrap,
     FbtConfigService,
+    FbtBundlesService,
+    FbtBundleLookupService,
     // Webhook handlers (one per subscribed topic). Each must also be listed
     // individually here — `webhooksProvider` (inside `createAppProviders`)
     // injects them by class, so DI needs its own provider entry per handler.
