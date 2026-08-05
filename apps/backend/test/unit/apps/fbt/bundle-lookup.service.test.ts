@@ -105,13 +105,42 @@ describe('FbtBundleLookupService.resolve — precedence', () => {
     ).rejects.toThrow();
   });
 
-  it('matches JSON arrays with JSON_CONTAINS, never a LIKE substring scan', async () => {
+  it('matches JSON arrays with JSON_CONTAINS on the snake_case column, never a LIKE scan', async () => {
     const { handle, sqlFragments } = fakeHandle([BASE]);
     await new FbtBundleLookupService(handle).resolve('m-1', { productId: 'p-1' });
 
     const all = sqlFragments.join(' ');
     expect(all).toContain('JSON_CONTAINS');
     expect(all).not.toContain('LIKE');
+    // Pin the literal snake_case column. CamelCasePlugin does NOT rewrite
+    // identifiers inside raw fragments, so a `sql.ref('scopeProductIds')`
+    // regression would emit camelCase and fail at runtime with "unknown
+    // column" — while still satisfying the two assertions above.
+    expect(all).toContain('scope_product_ids');
+    expect(all).not.toContain('scopeProductIds');
+  });
+
+  it('matches the collection scope on the snake_case column', async () => {
+    const { handle, sqlFragments } = fakeHandle([
+      { ...BASE, id: 'b-coll', scopeType: 'specific_collections' },
+    ]);
+    await new FbtBundleLookupService(handle).resolve('m-1', { collectionId: 'c-1' });
+
+    const all = sqlFragments.join(' ');
+    expect(all).toContain('JSON_CONTAINS');
+    expect(all).toContain('scope_collection_ids');
+    expect(all).not.toContain('scopeCollectionIds');
+  });
+
+  it('goes straight to the all_products bundle when neither id is supplied', async () => {
+    const { handle, scopeTypesQueried } = fakeHandle([
+      { ...BASE, id: 'b-all', scopeType: 'all_products', scopeProductIds: null },
+    ]);
+    const out = await new FbtBundleLookupService(handle).resolve('m-1', {});
+
+    expect(out.id).toBe('b-all');
+    // No scoped query should have been attempted at all.
+    expect(scopeTypesQueried).toEqual(['all_products']);
   });
 });
 
