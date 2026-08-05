@@ -105,12 +105,13 @@ touching this module. Standing context first; dated change journal below
      docstring and the spec both commit to this; Plan 2's config controller
      must implement it as one atomic update, not flip the boolean and leave
      scheduling stale.
-  2. **The admin scaffold describes the wrong install mechanism.**
-     `ScriptTagPanel.tsx`, `routes/install.tsx`, and `routes/config.tsx` are
-     inherited `_template` content about pasting a `<script>` tag and a
-     PostHog-style API-key form. FBT's real model is an already-deployed
-     storefront wrapper fetching `/fbt/sdk/config/:merchantId` — nothing to
-     paste. Plan 4 must **gut and rewrite** these, not adapt them.
+  2. ~~**The admin scaffold describes the wrong install mechanism.**~~
+     **RESOLVED 2026-08-05** — the PostHog-shaped scaffold content is deleted,
+     not deferred. See the journal entry below. The replacement route skeleton
+     mirrors the source admin, and `Navbar.test.tsx` pins the five screens so a
+     future scaffold refresh cannot reintroduce Config/Events/Install.
+     Parity is now tracked in [PARITY.md](./PARITY.md), which is the checklist
+     Plans 2–5 close out.
   3. **An unresolved admin session seam, inherited from `_template` and shared
      by every scaffolded vendor** (confirmed present verbatim in google, meta,
      loyalty, posthog, moengage, and fbt's own OAuth controllers): the install
@@ -124,8 +125,41 @@ touching this module. Standing context first; dated change journal below
   4. **`previewBaseUrl` is a nullable column and schema field nothing writes
      yet.** Plan 2 must decide whether it is merchant-editable in the admin or
      derived from the Ratio merchant record.
+  5. **`fbt_merchant_config.ui_config` exists in the DDL but is missing from
+     `fbtMerchantConfigSchema`.** The source app stores the global widget theme
+     there, and it is what the Appearance screen writes. Plan 2 must add it to
+     the write shape, or the Appearance screen will have nowhere to save to.
 
 ## Change journal
+
+### 2026-08-05 — cleanup — strip the PostHog pixel scaffold from `admin-fbt`
+- **What:** Deleted the `_template` scaffold content the admin had inherited
+  verbatim: `ScriptTagPanel.tsx`, `EventMapTable.tsx` (+ its test),
+  `routes/install.tsx`, `routes/events.tsx`, `routes/config.tsx`,
+  `hooks/useDefaults.ts`, `hooks/useConfig.ts`, the `.event-map-table` CSS, and
+  the unused `defaults`/`config` query keys. Replaced the navigation and route
+  skeleton with the source admin's five screens — Dashboard, Bundles,
+  Recommendations, Appearance, Preview — and added
+  `docs/agent/apps/fbt/PARITY.md` as the parity checklist.
+- **Why:** The user's ruling: *"i dont want any pixel or anythign in this, i
+  need this app same as osapp-freq-bought same functionality."* This was not
+  cosmetic. `routes/config.tsx` imported `_templateConfigInputSchema` and
+  `@shared/constants/_template-events`, and rendered a form asking the merchant
+  for a *"Project API Key (starts with `phc_`)"* with hosts
+  `https://us.i.fbt.com` — PostHog copy with a find-and-replace of the vendor
+  name. `useConfig.ts` was typed against `TemplateConfig` and called
+  `/api/fbt-config`, an endpoint that does not exist. Left in place, the first
+  merchant to open the admin would have been asked to paste a `<script>` tag
+  and enter a PostHog API key.
+- **Definition of done / fix:** `admin-fbt` typecheck, lint, test, and build
+  all exit 0; monorepo-wide `pnpm -r typecheck` exits 0. Zero `_template`,
+  `event-map`, `phc_`, or pixel references remain in `apps/admin-fbt`.
+  Deleting the only test file would have made `pnpm test` exit 1 (no test
+  files) and broken the recursive run, so `Navbar.test.tsx` replaces it with a
+  real guard: it pins the five screens as **literals**, asserts `/config`,
+  `/events`, and `/install` are absent as both nav entries and route files, and
+  checks every nav path has a backing route file.
+- **Files:** `apps/admin-fbt/src/**`, `docs/agent/apps/fbt/PARITY.md`.
 
 ### 2026-08-05 — feature — Plan 1 of 6: greenfield foundation (scaffold, schema, install, webhooks)
 - **What:** Stood up `fbt` as a wired, installable vendor app: scaffolded from

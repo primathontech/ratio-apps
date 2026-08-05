@@ -1,24 +1,53 @@
 import {
-  BarChartOutlined,
   Button,
-  CheckSquareOutlined,
   Drawer,
+  FontColorsOutlined,
   HomeOutlined,
   Layout,
   Menu,
   MenuOutlined,
-  SettingOutlined,
+  PictureOutlined,
+  ThunderboltOutlined,
   Typography,
+  UnorderedListOutlined,
 } from '@primathonos/orion';
 import { Link, useRouterState } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 
-const items = [
-  { key: '/', icon: <HomeOutlined />, label: <Link to="/">Overview</Link> },
-  { key: '/config', icon: <SettingOutlined />, label: <Link to="/config">Config</Link> },
-  { key: '/events', icon: <CheckSquareOutlined />, label: <Link to="/events">Events</Link> },
-  { key: '/install', icon: <BarChartOutlined />, label: <Link to="/install">Install</Link> },
-];
+/**
+ * The admin's screens, mirroring the standalone FBT admin
+ * (`osapp-freq-bought/admin`): dashboard, bundle list/editor,
+ * automatic-recommendation settings, widget appearance, storefront preview.
+ *
+ * This deliberately does NOT carry the `_template` scaffold's
+ * Config/Events/Install screens. Those are PostHog pixel concepts — a
+ * 13-row event map and a `<script>` snippet for the merchant to paste — and
+ * FBT has neither: it forwards no storefront events, and its widget is
+ * served by an already-deployed storefront wrapper, so there is nothing to
+ * paste. `SCREENS` is exported and pinned by `Navbar.test.tsx` so a future
+ * scaffold refresh cannot quietly reintroduce them.
+ */
+export const SCREENS = [
+  { path: '/', label: 'Dashboard' },
+  { path: '/bundles', label: 'Bundles' },
+  { path: '/recommendations', label: 'Recommendations' },
+  { path: '/appearance', label: 'Appearance' },
+  { path: '/preview', label: 'Preview' },
+] as const;
+
+const ICONS: Record<(typeof SCREENS)[number]['path'], React.ReactNode> = {
+  '/': <HomeOutlined />,
+  '/bundles': <UnorderedListOutlined />,
+  '/recommendations': <ThunderboltOutlined />,
+  '/appearance': <FontColorsOutlined />,
+  '/preview': <PictureOutlined />,
+};
+
+const items = SCREENS.map(({ path, label }) => ({
+  key: path,
+  icon: ICONS[path],
+  label: <Link to={path}>{label}</Link>,
+}));
 
 const MOBILE_BREAKPOINT = 720;
 
@@ -66,7 +95,7 @@ export function Navbar() {
           textOverflow: 'ellipsis',
         }}
       >
-        Fbt · Ratio
+        Frequently Bought Together
       </Typography.Text>
 
       {isMobile ? (

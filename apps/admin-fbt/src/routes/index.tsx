@@ -1,25 +1,25 @@
 import {
+  Alert,
   Card,
   CheckCircleOutlined,
   MinusCircleOutlined,
-  PrimaryButton,
   Space,
   Typography,
 } from '@primathonos/orion';
-import { createFileRoute, Link } from '@tanstack/react-router';
-import { useConfig } from '@/hooks/useConfig';
+import { createFileRoute } from '@tanstack/react-router';
 import { useMerchant } from '@/hooks/useMerchant';
 
-// TEMPLATE: This is the admin dashboard shell. Build your vendor's admin
-// screens as TanStack Router routes under src/routes/ (config form, dashboards,
-// etc.) and back them with the `/fbt/api/*` endpoints from your backend
-// module. The config form pattern lives in src/routes/config.tsx.
-export const Route = createFileRoute('/')({ component: Overview });
+// The FBT dashboard. Mirrors `osapp-freq-bought/admin`'s dashboard screen,
+// whose metrics come from `GET /dashboard`: bundle counts split by status
+// (published / draft / paused) and by origin (manual / automatic), over the
+// "All Campaigns" table.
+//
+// Only the install state is live here — `GET /fbt/api/merchants/me` exists.
+// The metrics need the bundles API, which Plan 2 delivers.
+export const Route = createFileRoute('/')({ component: Dashboard });
 
-function Overview() {
+function Dashboard() {
   const merchant = useMerchant();
-  const config = useConfig();
-  const apiKeySet = !!(config.data?.apiKey && config.data.apiKey.length > 0);
 
   return (
     <Space direction="vertical" size="large" style={{ display: 'flex' }}>
@@ -28,29 +28,32 @@ function Overview() {
           level={2}
           style={{ marginBottom: 0, fontSize: 'clamp(20px, 5vw, 30px)', lineHeight: 1.2 }}
         >
-          Fbt for Ratio
+          Dashboard
         </Typography.Title>
         <Typography.Text type="secondary">
-          Forward storefront events to your Fbt project.
+          Frequently-bought-together bundles for your storefront.
         </Typography.Text>
       </div>
-      <Card title="Setup status">
+
+      <Card title="Install status">
         <Space direction="vertical" style={{ display: 'flex' }}>
-          <Step done={!!merchant.data?.isActive} label="Ratio install" />
-          <Step done={apiKeySet} label="Fbt credentials" />
-          <Step done={false} label="Storefront script installed (manual)" />
-        </Space>
-        <div style={{ marginTop: 16 }}>
-          {!apiKeySet ? (
-            <Link to="/config">
-              <PrimaryButton>Enter Fbt credentials</PrimaryButton>
-            </Link>
-          ) : (
-            <Link to="/install">
-              <PrimaryButton>Get script tag</PrimaryButton>
-            </Link>
+          <Step done={!!merchant.data?.isActive} label="Connected to Ratio" />
+          {merchant.data && (
+            <Typography.Text type="secondary">
+              Merchant #{merchant.data.id} · installed{' '}
+              {new Date(merchant.data.installedAt).toLocaleDateString()}
+            </Typography.Text>
           )}
-        </div>
+        </Space>
+      </Card>
+
+      <Card title="Bundle metrics">
+        <Alert
+          type="info"
+          showIcon
+          message="Delivered by Plan 2 (bundles API)."
+          description="Published, draft, and paused bundle counts, split by manual vs automatic origin."
+        />
       </Card>
     </Space>
   );
