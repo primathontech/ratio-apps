@@ -6,6 +6,7 @@ import type { DatabaseWithWebhookLog } from '../../../core/webhooks/webhook-log.
 import type { WebhookHandler } from '../../../core/webhooks/webhooks.types';
 import type { FbtDatabase } from '../db/types';
 import { FBT_MERCHANTS } from '../tokens';
+import { FBT_TOPICS } from './topics';
 
 /**
  * Soft-delete the merchant on uninstall.
@@ -29,11 +30,11 @@ export class FbtAppUninstalledHandler implements WebhookHandler {
   // platform webhook registry documents slash-form (`app/uninstalled`). Verify
   // against a live delivery when scaffolding — a wrong topic silently no-ops
   // (the dispatcher's topic-mismatch fast-path). See docs/agent/context/learnings.md.
-  readonly topic = 'app.uninstalled';
+  readonly topic = FBT_TOPICS.APP_UNINSTALLED;
   private readonly logger = new Logger(FbtAppUninstalledHandler.name);
 
   constructor(
-    // biome-ignore lint/correctness/noUnusedPrivateClassMembers: MerchantsService is injected per the module's DI wiring convention; this handler deliberately writes via `trx` (see note above)
+    // biome-ignore lint/correctness/noUnusedPrivateClassMembers: this handler soft-deletes the merchant via `trx` (see note above), not through the injected service, so this field goes unused
     @Inject(FBT_MERCHANTS) private readonly merchants: MerchantsService<FbtDatabase>,
   ) {}
 
