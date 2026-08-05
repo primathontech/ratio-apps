@@ -554,4 +554,46 @@ describe('RpAdminController.register', () => {
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it('rejects with RP_DOMAIN_UNKNOWN and never calls RP when the stored domain is still the merchantId placeholder (e.g. right after a reinstall) and no store_domain is supplied', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    // domain === merchantId is exactly the placeholder state a reinstall's OAuth
+    // callback can leave behind (rp-auth.controller.ts) before registration
+    // re-confirms the real domain.
+    const findByMerchantId = vi.fn().mockResolvedValue({ ...MERCHANT, domain: 'm1' });
+    const controller = makeController({ findByMerchantId });
+
+    await expect(
+      controller.register(makeReq({ authorization: 'Bearer m1' })),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        error_code: 'RP_DOMAIN_UNKNOWN',
+        side: 'rp-adapter',
+        reason: 'domain_placeholder',
+      }),
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('proceeds normally when domain is the placeholder but store_domain is explicitly supplied', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ status: 'ok' }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const findByMerchantId = vi.fn().mockResolvedValue({ ...MERCHANT, domain: 'm1' });
+    const updateDomain = vi.fn().mockResolvedValue(undefined);
+    const setRpRegistered = vi.fn().mockResolvedValue(undefined);
+    const controller = makeController({ findByMerchantId, updateDomain, setRpRegistered });
+
+    await controller.register(
+      makeReq({ authorization: 'Bearer m1' }, { store_domain: 'real-store.gokwik.co' }),
+    );
+
+    expect(fetchMock).toHaveBeenCalled();
+    expect(updateDomain).toHaveBeenCalledWith('m1', 'real-store.gokwik.co');
+    expect(setRpRegistered).toHaveBeenCalledWith('m1', true);
+  });
 });
