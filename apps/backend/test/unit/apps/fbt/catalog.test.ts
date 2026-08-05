@@ -95,9 +95,21 @@ describe('FbtRatioProductsService', () => {
 });
 
 describe('FbtOsStorefrontClient', () => {
-  it('returns an empty list when no storefront URL is configured', async () => {
+  it('returns an empty list without calling fetch when no storefront URL is configured', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
     const client = new FbtOsStorefrontClient(undefined);
     await expect(client.listCollections('m-1', { page: 1, limit: 10 })).resolves.toEqual([]);
+    // Pins the short-circuit itself: if the `if (!this.baseUrl) return []`
+    // guard were deleted, `this.baseUrl.replace(...)` would throw on
+    // `undefined` and the outer catch would still yield `[]` — so a bare
+    // `resolves.toEqual([])` here would pass either way and prove nothing.
+    // Asserting fetch was never called proves the guard fired BEFORE any
+    // request was attempted.
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    vi.unstubAllGlobals();
   });
 
   it('sends gk-merchant-id and NO Authorization header', async () => {
@@ -176,6 +188,27 @@ describe('FbtOsStorefrontClient', () => {
     vi.unstubAllGlobals();
   });
 
+  it('degrades to an empty list when the body is valid JSON of the wrong shape', async () => {
+    // Unlike the '<html>' case above (non-JSON text, caught by res.json()
+    // throwing before the schema check runs), this body IS valid JSON — so
+    // this is the only test that actually exercises the `!parsed.success`
+    // branch and the 'collections' in data discrimination, rather than the
+    // outer catch.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ foo: 'bar' }), { status: 200 })),
+    );
+
+    await expect(
+      new FbtOsStorefrontClient('https://os.example').listCollections('m-1', {
+        page: 1,
+        limit: 10,
+      }),
+    ).resolves.toEqual([]);
+
+    vi.unstubAllGlobals();
+  });
+
   it('degrades to an empty list when fetch throws (network error)', async () => {
     vi.stubGlobal(
       'fetch',
@@ -194,13 +227,25 @@ describe('FbtOsStorefrontClient', () => {
     vi.unstubAllGlobals();
   });
 
-  it('degrades to an empty list when the request times out', async () => {
+  it('degrades to an empty list when the storefront service times out', async () => {
+    // A fetch mock that only settles when the passed-in AbortSignal fires —
+    // this mirrors what real fetch does internally, so this test genuinely
+    // drives the client's own AbortController/timeout logic rather than
+    // resolving on its own. NOTE: a bare `new Promise(() => {})` here would
+    // NOT work — nothing links an AbortSignal to an arbitrary promise except
+    // code that explicitly listens for it (verified: without the
+    // `addEventListener('abort', ...)` below, aborting the controller does
+    // not settle the promise, and the test just hangs to a timeout instead of
+    // exercising the degrade-to-[] path).
+    //
+    // Passing `20` as the constructor's timeoutMs override means the
+    // client's own AbortController fires in ~20ms instead of the real 5s
+    // production default, so this test costs milliseconds, not seconds.
     vi.stubGlobal(
       'fetch',
       vi.fn((_url: unknown, init?: RequestInit) => {
         return new Promise<Response>((_resolve, reject) => {
-          const signal = init?.signal;
-          signal?.addEventListener('abort', () => {
+          init?.signal?.addEventListener('abort', () => {
             const err = new Error('The operation was aborted');
             err.name = 'AbortError';
             reject(err);
@@ -210,14 +255,14 @@ describe('FbtOsStorefrontClient', () => {
     );
 
     await expect(
-      new FbtOsStorefrontClient('https://os.example').listCollections('m-1', {
+      new FbtOsStorefrontClient('https://os.example', 20).listCollections('m-1', {
         page: 1,
         limit: 10,
       }),
     ).resolves.toEqual([]);
 
     vi.unstubAllGlobals();
-  }, 10_000);
+  });
 
   it('normalises collections to the picker shape', async () => {
     vi.stubGlobal(

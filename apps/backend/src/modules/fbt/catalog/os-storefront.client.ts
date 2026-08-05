@@ -23,7 +23,7 @@ const envelopeSchema = z.union([
 ]);
 
 /** How long we are willing to wait on a third-party service we do not own. */
-const TIMEOUT_MS = 5_000;
+const DEFAULT_TIMEOUT_MS = 5_000;
 
 /**
  * Collections come from the OpenStore storefront REST API, NOT from Ratio — the
@@ -46,6 +46,13 @@ export class FbtOsStorefrontClient {
     @Optional()
     @Inject(FBT_OS_STOREFRONT_URL_TOKEN)
     private readonly baseUrl: string | undefined,
+    /**
+     * Overridable so tests can drive the abort path without a real 5s wait.
+     * Not a DI token — production always takes the default (verified: Nest
+     * resolves the JS default for an un-decorated trailing primitive ctor
+     * param when nothing is registered for it).
+     */
+    private readonly timeoutMs: number = DEFAULT_TIMEOUT_MS,
   ) {}
 
   async listCollections(
@@ -66,7 +73,7 @@ export class FbtOsStorefrontClient {
 
     const url = `${this.baseUrl.replace(/\/$/, '')}/api/v1/collections?${params.toString()}`;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
     try {
       const res = await fetch(url, {
