@@ -69,7 +69,7 @@ touching this module. Standing context first; dated change journal below
   that survived a fully green test suite and seven separate reviews, because
   every test asserted `handler.topic === FBT_TOPICS.X` — the constant compared
   to itself, proving only internal consistency. Only cross-checking against
-  the platform's registry caught it. `webhooks/topics.test.ts` on this branch
+  the platform's registry caught it. `test/unit/apps/fbt/topics.test.ts` on this branch
   therefore pins the **literal wire strings**, not the imported constant.
   `apps/backend/src/modules/_template/` still hardcodes the wrong dot-form
   (`'app.uninstalled'`) in its uninstall handler — do **not** copy it when
