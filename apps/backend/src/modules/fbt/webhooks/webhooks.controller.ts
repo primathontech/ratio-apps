@@ -18,9 +18,7 @@ import { FBT_WEBHOOKS } from '../tokens';
 @Controller('fbt/api/v1/oauth')
 @UseGuards(FbtWebhookSignatureGuard)
 export class FbtWebhooksController {
-  constructor(
-    @Inject(FBT_WEBHOOKS) private readonly webhooks: WebhooksService<FbtDatabase>,
-  ) {}
+  constructor(@Inject(FBT_WEBHOOKS) private readonly webhooks: WebhooksService<FbtDatabase>) {}
 
   @Post('webhook')
   @HttpCode(200)

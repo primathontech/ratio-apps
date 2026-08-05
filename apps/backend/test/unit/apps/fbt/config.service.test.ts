@@ -7,7 +7,6 @@ import { FbtConfigService } from '../../../../src/modules/fbt/config/config.serv
  */
 function fakeHandle(existingRow: Record<string, unknown> | undefined) {
   const updates: Array<Record<string, unknown>> = [];
-  const inserts: Array<Record<string, unknown>> = [];
   const db = {
     selectFrom() {
       return {
@@ -39,22 +38,8 @@ function fakeHandle(existingRow: Record<string, unknown> | undefined) {
         },
       };
     },
-    insertInto() {
-      return {
-        values(values: Record<string, unknown>) {
-          inserts.push(values);
-          return this;
-        },
-        onDuplicateKeyUpdate() {
-          return this;
-        },
-        async execute() {
-          return [];
-        },
-      };
-    },
   };
-  return { handle: { db } as never, updates, inserts };
+  return { handle: { db } as never, updates };
 }
 
 const BASE_ROW = {
@@ -172,7 +157,9 @@ describe('FbtConfigService.upsert — the toggle-on contract', () => {
 describe('FbtConfigService.getByMerchantId', () => {
   it('throws CONFIG_NOT_FOUND when the merchant has no row', async () => {
     const { handle } = fakeHandle(undefined);
-    await expect(new FbtConfigService(handle).getByMerchantId('nope')).rejects.toThrow();
+    await expect(new FbtConfigService(handle).getByMerchantId('nope')).rejects.toMatchObject({
+      response: { message: 'no fbt config for merchant', error_code: 'CONFIG_NOT_FOUND' },
+    });
   });
 
   it('serialises Date columns to ISO strings', async () => {

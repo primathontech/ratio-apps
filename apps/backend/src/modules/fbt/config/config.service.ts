@@ -34,20 +34,7 @@ export class FbtConfigService {
   constructor(@Inject(FBT_DB_TOKEN) private readonly handle: KyselyClient<FbtDatabase>) {}
 
   async getByMerchantId(merchantId: string): Promise<FbtConfigOutput> {
-    const row = await this.handle.db
-      .selectFrom('fbt_merchant_config')
-      .selectAll()
-      .where('merchantId', '=', merchantId)
-      .limit(1)
-      .executeTakeFirst();
-
-    if (!row) {
-      throw new NotFoundException({
-        message: 'no fbt config for merchant',
-        error_code: 'CONFIG_NOT_FOUND',
-      });
-    }
-    return this.toOutput(row);
+    return this.toOutput(await this.getRowOrThrow(merchantId));
   }
 
   /**
@@ -63,19 +50,7 @@ export class FbtConfigService {
    *                used to jump the sweep queue.
    */
   async upsert(merchantId: string, input: FbtMerchantConfigInput): Promise<FbtConfigOutput> {
-    const current = await this.handle.db
-      .selectFrom('fbt_merchant_config')
-      .selectAll()
-      .where('merchantId', '=', merchantId)
-      .limit(1)
-      .executeTakeFirst();
-
-    if (!current) {
-      throw new NotFoundException({
-        message: 'no fbt config for merchant',
-        error_code: 'CONFIG_NOT_FOUND',
-      });
-    }
+    const current = await this.getRowOrThrow(merchantId);
 
     const toggledOn = !current.allowAutomaticRecommendation && input.allowAutomaticRecommendation;
     const toggledOff = current.allowAutomaticRecommendation && !input.allowAutomaticRecommendation;
@@ -103,6 +78,24 @@ export class FbtConfigService {
       .execute();
 
     return this.getByMerchantId(merchantId);
+  }
+
+  /** Fetch the merchant's row or 404. The row is seeded at install by FbtBootstrap. */
+  private async getRowOrThrow(merchantId: string): Promise<FbtMerchantConfigRow> {
+    const row = await this.handle.db
+      .selectFrom('fbt_merchant_config')
+      .selectAll()
+      .where('merchantId', '=', merchantId)
+      .limit(1)
+      .executeTakeFirst();
+
+    if (!row) {
+      throw new NotFoundException({
+        message: 'no fbt config for merchant',
+        error_code: 'CONFIG_NOT_FOUND',
+      });
+    }
+    return row;
   }
 
   private toOutput(row: FbtMerchantConfigRow): FbtConfigOutput {
