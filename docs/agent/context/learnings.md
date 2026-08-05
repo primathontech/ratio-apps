@@ -3,6 +3,22 @@
 Non-obvious facts discovered while building. Newest first. Add via the `remember`
 skill. Keep each entry 1–3 lines.
 
+- **2026-08-05** — FBT's four webhook topics are confirmed slash-delimited, plural,
+  base-verb (`app/uninstalled`, `products/create`, `products/update`,
+  `products/delete`) against the platform's own webhook-events registry — reinforces
+  the 2026-06-08 finding below. `apps/backend/src/modules/_template/` still hardcodes
+  the wrong dot-form (`'app.uninstalled'`) in its uninstall handler; do not copy it
+  when scaffolding a new vendor. On the superseded `feat/fbt-foundation` branch all
+  four topic values were dot-form and wrong, and it survived a green suite and seven
+  reviews because every test asserted `handler.topic === CONSTANT.X` — the constant
+  compared to itself, proving only internal consistency, never checked against the
+  registry. `google`'s handler tests (`app-uninstalled.handler.test.ts`,
+  `product-{created,updated,deleted}.handler.test.ts`) have this identical blind spot
+  today, asserting against `GOOGLE_WEBHOOK_TOPICS.X` rather than the literal string;
+  `wizzy` has no handler-level topic tests at all to exhibit the pattern either way.
+  `loyalty`'s `order-{created,cancelled}.handler.test.ts` already assert the literal
+  wire string (e.g. `expect(handler.topic).toBe('orders/create')`) and are the
+  pattern to copy.
 - **2026-07-31** — The `/<slug>/api/` write bucket in `main.ts` is **20/min per IP**, which silently assumes one user action ⇒ one POST. Any **chunked/fan-out route** (bulk CSV row ingest: `ceil(rows/chunk)` POSTs) blows through it mid-operation and 429s partway, leaving a half-ingested job. Such routes need their own `classify()` bucket — keep it **IP-keyed**, never merchantId-keyed (the Authorization header is attacker-rotatable — S1). Pair it with a chunk size checked against Fastify's 1 MiB `bodyLimit` × the row's max field sizes, or the same flow 413s instead.
 - **2026-07-31** — When a client mirrors server validation for a **preview**, the two must be exact ports, not "close enough": a looser client phone regex made the loyalty CSV preview promise rows the server then rejected, **and** miscounted duplicates (`9876543210` vs `+919876543210` read as two customers, inflating the coin total). Normalize to the canonical form **client-side** so previews, dedupe and totals agree with what will be written.
 - **2026-07-31** — An enum value declared in a DB types file is **not** evidence anything writes it. Loyalty's `firstSeenSource` had `'bulk'`/`'manual'` declared but unwritten, so bulk/manual credits ran a mirror `UPDATE` matching zero rows: Core held the coins while the customer was absent from every admin screen — reading to the merchant as "the credit did nothing". Grep for actual writers of each enum member before trusting it as a code path.

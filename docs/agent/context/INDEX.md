@@ -11,6 +11,7 @@ prefer editing through it over hand-editing.
 - [0003 — Four-vendor monorepo consolidation](./decisions/0003-four-vendor-monorepo-consolidation.md) — historical consolidation phase for google/meta/posthog/moengage; Wizzy was later added as the fifth live app.
 - [0004 — Storefront SDK as an opt-in third pillar](./decisions/0004-storefront-sdk-pillar.md) — pasted-`<script>` Lit SDK calling the vendor's public search API directly; `_template-sdk` + `hasStorefrontSdk` flag; wizzy is the first opt-in.
 - [0005 — Three-workload EKS placement](./decisions/0005-three-workload-eks-placement.md) — shared Google/PostHog/MoEngage/Wizzy API with Google/Wizzy consumers, dedicated Meta API, dedicated Meta worker; future app placement is an explicit PRD/STATE decision.
+- [0006 — FBT greenfield schema over in-place](./decisions/0006-fbt-greenfield-schema-over-in-place.md) — `fbt_app` is a fresh empty database, not the old FBT production schema reused additively; retired by only 1–5 live merchants plus the embedding-model switch discarding all cached vectors.
 
 ## Learnings
 See [learnings.md](./learnings.md).
@@ -23,6 +24,7 @@ See [learnings.md](./learnings.md).
 - [forms — CONTEXT.md](../apps/forms/CONTEXT.md) — Form Builder (first-party app: drag-and-drop builder admin + public submission intake + storefront form SDK)
 - [wizzy — CONTEXT.md](../apps/wizzy/CONTEXT.md) — Wizzy AI Search (catalog sync + storefront search SDK)
 - [loyalty — CONTEXT.md](../apps/loyalty/CONTEXT.md) — Coins program (earning rules, bulk credit/debit, QR scan-to-earn, exports; Core Loyalty is the ledger, `loyalty_customers` is a mirror)
+- [fbt — CONTEXT.md](../apps/fbt/CONTEXT.md) — Frequently Bought Together (AI bundle recommendations via OpenAI embeddings + cosine similarity); greenfield `fbt_app` schema, Plan 1 of 6 complete
 
 ## Change journals
 - Repo-level: [CHANGELOG.md](./CHANGELOG.md)

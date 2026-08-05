@@ -129,6 +129,12 @@ Tie-breakers (apply in order):
 - Never commit `.env` or secrets (and never write secrets into context files).
 - Run `pnpm verify` and satisfy the Definition of Done before claiming work complete.
 - Record notable features/fixes in the app's `CONTEXT.md` change journal via `remember`.
+- Webhook-topic tests must assert the handler's `topic` against the **literal wire
+  string** (e.g. `'products/create'`), never against the constant it's imported from.
+  Asserting through the constant only proves internal consistency — it is exactly how
+  four wrong FBT topic values (dot-form instead of slash-form) survived a green suite
+  and seven reviews on a superseded branch. `google`'s handler tests have this same
+  blind spot today; `loyalty`'s do not and are the pattern to follow.
 
 ## State
 
