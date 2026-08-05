@@ -12,6 +12,8 @@ import { FBT_OS_STOREFRONT_URL_TOKEN, FbtOsStorefrontClient } from './catalog/os
 import { FbtRatioProductsService } from './catalog/ratio-products.service';
 import { FbtConfigController } from './config/config.controller';
 import { FbtConfigService } from './config/config.service';
+import { FbtDashboardController } from './dashboard/dashboard.controller';
+import { FbtDashboardService } from './dashboard/dashboard.service';
 import type { FbtDatabase } from './db/types';
 import { FbtBootstrap } from './fbt.bootstrap';
 import { FbtMerchantTokenGuard, FbtWebhookSignatureGuard } from './guards';
@@ -56,7 +58,8 @@ export {
  * Ratio / Merchants / OAuth / Webhooks providers are built by the shared
  * `createAppProviders` factory; everything else (bootstrap, handler, guards,
  * config controller/service) is wired here directly because those pieces are
- * app-specific. The real storefront serving is Plan 5.
+ * app-specific. config / bundles / catalog / dashboard are wired here; the
+ * storefront SDK serving is Plan 5 and the recommendation sweep is Plan 3.
  */
 @Module({
   imports: [FbtKyselyModule],
@@ -67,12 +70,14 @@ export {
     FbtConfigController,
     FbtBundlesController,
     FbtCatalogController,
+    FbtDashboardController,
   ],
   providers: [
     FbtBootstrap,
     FbtConfigService,
     FbtBundlesService,
     FbtBundleLookupService,
+    FbtDashboardService,
     // Catalog pickers for the admin's bundle editor (Task 7): products come
     // from the Ratio API (Bearer-authenticated via FbtRatioTokenProvider);
     // collections come from a separate, unauthenticated OpenStore storefront
