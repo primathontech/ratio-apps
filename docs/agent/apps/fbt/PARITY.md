@@ -50,16 +50,24 @@ all_products/specific_product/specific_collections · `mode` = auto/manual ·
 not yet rewritten; that is Plan 4 — must call `/api/config`, not the old
 scaffold's `/api/fbt-config`.
 
-**Catalog is two backends wearing one route prefix.**
-`fbt/api/catalog/products` and `.../products/by-ids` call the Ratio API
-(OAuth'd via `FbtRatioTokenProvider`, doubled-`v1` path `/api/v1/v1/products` —
-deliberate, see CONTEXT.md). `fbt/api/catalog/collections` calls a *different*,
-unauthenticated backend — the OpenStore storefront REST API at
-`FBT_OS_STOREFRONT_URL`, keyed by a `gk-merchant-id` header — because the
-Ratio API has no collections resource at all (documented resources are only
-`products` and `orders`). Every failure path on the collections side degrades
-to an empty list rather than erroring the picker. See
-[ADR 0007](../../context/decisions/0007-fbt-collections-from-unauthenticated-openstore-storefront.md).
+**Catalog is one backend.** Products and collections both call the Ratio API,
+OAuth'd via `FbtRatioTokenProvider`, on the doubled-`v1` paths
+`/api/v1/v1/products` and `/api/v1/v1/collections` — the doubling is deliberate,
+see CONTEXT.md. Failures propagate rather than degrading to an empty list.
+
+This was briefly two backends: when Plan 2 shipped, the Ratio API had no
+collections resource, so collections came from a separate unauthenticated
+OpenStore storefront service ([ADR 0007](../../context/decisions/0007-fbt-collections-from-unauthenticated-openstore-storefront.md)).
+The platform then added `/api/v1/v1/collections`, and that client, its env key,
+and its degrade-to-empty-list contract were all deleted
+([ADR 0008](../../context/decisions/0008-fbt-collections-move-to-the-ratio-api.md)).
+
+**Open:** the collections *response* schema has not been supplied yet, so the
+row mapping in `catalog/ratio-collections.service.ts` is marked `PROVISIONAL:`
+and maps only `id`/`title`/`handle`. Finalise it when the schema arrives. Note
+also that the Ratio collections endpoint has no `search` parameter, so the
+collection picker cannot search server-side — Plan 4 must either find a
+parameter that exists or filter client-side over a page.
 
 ## Admin screens
 

@@ -1,7 +1,13 @@
 # 0007 — FBT reads collections from an unauthenticated OpenStore storefront service
 
 - **Date:** 2026-08-05
-- **Status:** accepted
+- **Status:** superseded by [0008](./0008-fbt-collections-move-to-the-ratio-api.md) on 2026-08-06
+
+> **Superseded.** The Ratio API gained a collections resource, which is the exit
+> condition this ADR named for itself. Collections now come from `RatioClient` with
+> the merchant's OAuth token; the OpenStore storefront client, the
+> `FBT_OS_STOREFRONT_URL` env key, and the degrade-to-empty-list contract are all
+> deleted. Kept for the reasoning, not as current design.
 
 ## Context
 

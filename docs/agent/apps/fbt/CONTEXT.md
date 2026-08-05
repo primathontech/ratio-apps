@@ -146,16 +146,29 @@ touching this module. Standing context first; dated change journal below
     (`wizzy/api/v1/oauth`) plus a few special cases (`meta/api/v1/capi`); every
     admin API is unprefixed (`wizzy/api/catalog`, `loyalty/api/dashboard`).
     Plan 1 had already shipped `fbt/api/merchants`. Follow the repo.
-  - **The Ratio products path is `/api/v1/v1/products` — the doubled `v1` is
-    deliberate.** The platform's published docs say `/api/v1/products`, but
-    every vendor in this repo calls the doubled form against the live gateway
-    (`wizzy`, `google`, `meta`, `loyalty`). Do not "correct" it toward the docs.
-  - **Collections have no Ratio API endpoint at all** — the documented resources
-    are only `products` and `orders`. They come from a second, unauthenticated
-    backend via `FBT_OS_STOREFRONT_URL` and a `gk-merchant-id` header. The
-    merchant's OAuth token is never forwarded there, and every failure path
-    degrades to an empty list. Full rationale: ADR
-    [0007](../../context/decisions/0007-fbt-collections-from-unauthenticated-openstore-storefront.md).
+  - **Ratio catalog paths carry a doubled `v1` — `/api/v1/v1/products` and
+    `/api/v1/v1/collections` — and that is deliberate.** The platform's published
+    docs say `/api/v1/products`, but every vendor in this repo calls the doubled
+    form against the live gateway (`wizzy`, `google`, `meta`, `loyalty`). Do not
+    "correct" it toward the docs.
+  - **Collections come from the Ratio API, OAuth'd like products.** Confirmed
+    live on UAT: `GET /api/v1/v1/collections?limit&page&published&includeProducts`
+    and `GET /api/v1/v1/collections/{id}?includeProducts`. Neither takes a
+    `storeId`, so merchant scoping comes from the access token — which is why
+    this runs through `RatioClient` and `FbtRatioTokenProvider`. Failures
+    propagate; they do not degrade to an empty list.
+    **History worth knowing:** when Plan 2 shipped, the Ratio API had no
+    collections resource, so this read a second, *unauthenticated* OpenStore
+    storefront service via `FBT_OS_STOREFRONT_URL` and a `gk-merchant-id` header
+    (ADR [0007](../../context/decisions/0007-fbt-collections-from-unauthenticated-openstore-storefront.md)).
+    The platform then added the endpoints and that client, its env key, and its
+    degrade-to-empty contract were deleted — ADR
+    [0008](../../context/decisions/0008-fbt-collections-move-to-the-ratio-api.md).
+    FBT talks to exactly one backend again; do not reintroduce a second.
+    **Two open items:** the collections *response* schema has not been supplied
+    yet, so the mapping in `catalog/ratio-collections.service.ts` is marked
+    `PROVISIONAL:` and covers only `id`/`title`/`handle`; and the endpoint has no
+    `search` parameter, so the collection picker cannot search server-side.
   - **Bundle scope matching uses `JSON_CONTAINS(col, JSON_QUOTE(?))`, and the
     column name is written LITERALLY inside the raw `sql` fragment.** Two
     reasons, both load-bearing. First, the source app used
