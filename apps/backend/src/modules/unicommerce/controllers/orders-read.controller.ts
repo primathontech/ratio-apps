@@ -8,7 +8,7 @@ import { UcRatioApiService } from '../services/uc-ratio-api.service';
 export class UcOrdersReadController {
   private readonly logger = new Logger(UcOrdersReadController.name);
 
-  constructor(private readonly ratio: UcRatioApiService) {}
+  constructor(private readonly ratio: UcRatioApiService) { }
 
   // TRD §2.3/§2.4, confirmed routing bug fix: UC calls the SAME path,
   // `GET /orders`, for both the mandatory bulk pull (`orderStatus=CREATED`)
@@ -56,10 +56,23 @@ export class UcOrdersReadController {
   private async statusLookup(merchantId: string, orderIds: string) {
     const ids = orderIds.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
     if (ids.length === 0) return { orders: [] };
+
+    const mapToUcFormat = (order: Record<string, unknown>) => {
+      const saleOrderCode = String(order.id);
+      if (order.status === 'cancelled') return { saleOrderCode, orderStatus: 'CANCELLED', ...order };
+      const fs = String(order.fulfillment_status || 'unfulfilled');
+      let orderStatus = 'CREATED';
+      if (fs === 'fulfilled' || fs === 'partially_fulfilled') orderStatus = 'DISPATCHED';
+      else if (fs === 'delivered') orderStatus = 'DELIVERED';
+      else if (fs === 'return_in_progress' || fs === 'return_pickup_scheduled') orderStatus = 'RETURN_REQUESTED';
+      else if (fs === 'returned' || fs === 'restocked' || fs === 'return_failed') orderStatus = 'COURIER_RETURN';
+      return { saleOrderCode, orderStatus, ...order };
+    };
+
     if (ids.length === 1) {
       try {
         const order = await this.ratio.getOrder(merchantId, ids[0]!);
-        return order ? { orders: [order] } : { orders: [] };
+        return order ? { orders: [mapToUcFormat(order)] } : { orders: [] };
       } catch (err) {
         this.logger.error({ msg: 'failed to get order status from Ratio', orderId: ids[0], err: err instanceof Error ? err.message : String(err) });
         return { orders: [] };
@@ -81,7 +94,7 @@ export class UcOrdersReadController {
     return {
       orders: results
         .filter((r) => r.status === 'fulfilled' && r.value !== null)
-        .map((r) => (r as PromiseFulfilledResult<unknown>).value),
+        .map((r) => mapToUcFormat((r as PromiseFulfilledResult<Record<string, unknown>>).value)),
     };
   }
 }

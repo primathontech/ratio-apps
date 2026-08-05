@@ -3,7 +3,7 @@ import { UcOrderPushWorkerService } from '../../../../src/modules/unicommerce/se
 
 describe('UcOrderPushWorkerService.push', () => {
   it('sends clientid/merchantid/securitykey headers and the real order payload (no saleOrderDTO wrapper)', async () => {
-    const credentials = { getUcUsername: vi.fn().mockResolvedValue('merchant-uc-login') };
+    const credentials = { getRatioUsername: vi.fn().mockResolvedValue('merchant-uc-login') };
     const httpClient = {
       post: vi.fn().mockResolvedValue({ status: 'success', message: 'Order created successfully', data: null }),
     };
@@ -28,7 +28,7 @@ describe('UcOrderPushWorkerService.push', () => {
   });
 
   it('throws when the merchant has no UC username on file (cannot build the merchantid header)', async () => {
-    const credentials = { getUcUsername: vi.fn().mockResolvedValue(null) };
+    const credentials = { getRatioUsername: vi.fn().mockResolvedValue(null) };
     const httpClient = { post: vi.fn() };
     const worker = new UcOrderPushWorkerService(credentials as never, httpClient as never, {
       clientId: 'x',
@@ -38,12 +38,12 @@ describe('UcOrderPushWorkerService.push', () => {
 
     await expect(
       worker.push({ merchantId: 'm1', ratioOrderId: 'order-1', order: {} as never }),
-    ).rejects.toThrow('no Unicommerce username on file for merchant m1');
+    ).rejects.toThrow('no Unicommerce ratio_username on file for merchant m1');
     expect(httpClient.post).not.toHaveBeenCalled();
   });
 
   it("throws when the response resolves with status: 'failure', surfacing Unicommerce's message", async () => {
-    const credentials = { getUcUsername: vi.fn().mockResolvedValue('merchant-uc-login') };
+    const credentials = { getRatioUsername: vi.fn().mockResolvedValue('merchant-uc-login') };
     const httpClient = {
       post: vi.fn().mockResolvedValue({
         status: 'failure',
@@ -63,7 +63,7 @@ describe('UcOrderPushWorkerService.push', () => {
   });
 
   it("throws a generic error when status: 'failure' has no message (defaults conservatively)", async () => {
-    const credentials = { getUcUsername: vi.fn().mockResolvedValue('merchant-uc-login') };
+    const credentials = { getRatioUsername: vi.fn().mockResolvedValue('merchant-uc-login') };
     const httpClient = {
       post: vi.fn().mockResolvedValue({ status: 'failure', data: null }),
     };

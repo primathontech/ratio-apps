@@ -122,6 +122,10 @@ describe('UcDispatchController.dispatch', () => {
         { namespace: 'unicommerce', key: 'courier', value: 'Delhivery', type: 'string' },
         { namespace: 'unicommerce', key: 'invoice_number', value: 'INV-1', type: 'string' },
         { namespace: 'unicommerce', key: 'invoice_date', value: '2026-07-20', type: 'string' },
+        { namespace: 'unicommerce', key: 'tracking_url', value: 'https://track.example.com/AWB123', type: 'string' },
+        { namespace: 'unicommerce', key: 'tentative_delivery_date', value: '2026-07-23', type: 'string' },
+        { namespace: 'unicommerce', key: 'dispatch_date', value: '2026-07-20', type: 'string' },
+        { namespace: 'unicommerce', key: 'delivery_partner', value: 'Self', type: 'string' },
       ],
     });
     expect(result).toEqual({ status: 'SUCCESS', orderItems: [{ orderItemId: 'item-1' }] });

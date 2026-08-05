@@ -23,7 +23,7 @@ export class UcInventoryService {
   constructor(
     private readonly ratio: UcRatioApiService,
     @Inject(UC_DB_TOKEN) private readonly handle: KyselyClient<UnicommerceDatabase>,
-  ) {}
+  ) { }
 
   async apply(merchantId: string, items: InventoryUpdateItem[]): Promise<ApplyResult> {
     const failed: { productId: string; message: string }[] = [];
@@ -39,35 +39,32 @@ export class UcInventoryService {
       const qty = Number(item.inventory);
 
       try {
-        if (item.facilityCode) {
-          await this.handle.db
-            .insertInto('ucVariantInventory')
-            .values({
-              merchantId,
-              variantId: ratioVariantId,
-              facilityCode: item.facilityCode,
-              sku: item.sku ?? item.variantId,
-              inventory: qty,
-              updatedAt: new Date(),
-            })
-            .onDuplicateKeyUpdate({
-              inventory: qty,
-              sku: item.sku ?? item.variantId,
-              updatedAt: new Date(),
-            })
-            .execute();
+        const facilityCode = item.facilityCode || '_default';
+        await this.handle.db
+          .insertInto('ucVariantInventory')
+          .values({
+            merchantId,
+            variantId: ratioVariantId,
+            facilityCode,
+            sku: item.sku ?? item.variantId,
+            inventory: qty,
+            updatedAt: new Date(),
+          })
+          .onDuplicateKeyUpdate({
+            inventory: qty,
+            sku: item.sku ?? item.variantId,
+            updatedAt: new Date(),
+          })
+          .execute();
 
-          const aggregation = await this.handle.db
-            .selectFrom('ucVariantInventory')
-            .select(this.handle.db.fn.sum<number>('inventory').as('total'))
-            .where('merchantId', '=', merchantId)
-            .where('variantId', '=', ratioVariantId)
-            .executeTakeFirst();
-          const totalQty = Number(aggregation?.total ?? qty);
-          await this.ratio.updateVariantInventory(merchantId, ratioVariantId, totalQty);
-        } else {
-          await this.ratio.updateVariantInventory(merchantId, ratioVariantId, qty);
-        }
+        const aggregation = await this.handle.db
+          .selectFrom('ucVariantInventory')
+          .select(this.handle.db.fn.sum<number>('inventory').as('total'))
+          .where('merchantId', '=', merchantId)
+          .where('variantId', '=', ratioVariantId)
+          .executeTakeFirst();
+        const totalQty = Number(aggregation?.total ?? qty);
+        await this.ratio.updateVariantInventory(merchantId, ratioVariantId, totalQty);
       } catch (err) {
         // Without a local cache pre-check, a real failure (e.g. Ratio has no
         // variant with this id) can only be detected by the Ratio call

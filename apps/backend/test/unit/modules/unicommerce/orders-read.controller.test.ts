@@ -53,7 +53,7 @@ describe('UcOrdersReadController', () => {
 
     expect(ratio.listOrders).not.toHaveBeenCalled();
     expect(ratio.getOrder).toHaveBeenCalledWith('m1', 'order-1');
-    expect(result).toEqual({ orders: [{ id: 'order-1', status: 'fulfilled' }] });
+    expect(result).toEqual({ orders: [{ saleOrderCode: 'order-1', orderStatus: 'CREATED', id: 'order-1', status: 'fulfilled' }] });
   });
 
   // Confirmed by UC's team: orderIds accepts a comma-separated list.
@@ -80,9 +80,9 @@ describe('UcOrdersReadController', () => {
     expect(ratio.getOrder).toHaveBeenNthCalledWith(3, 'm1', 'order-3');
     expect(result).toEqual({
       orders: [
-        { id: 'order-1', status: 'fulfilled' },
-        { id: 'order-2', status: 'fulfilled' },
-        { id: 'order-3', status: 'fulfilled' },
+        { saleOrderCode: 'order-1', orderStatus: 'CREATED', id: 'order-1', status: 'fulfilled' },
+        { saleOrderCode: 'order-2', orderStatus: 'CREATED', id: 'order-2', status: 'fulfilled' },
+        { saleOrderCode: 'order-3', orderStatus: 'CREATED', id: 'order-3', status: 'fulfilled' },
       ],
     });
   });
@@ -106,7 +106,7 @@ describe('UcOrdersReadController', () => {
       'order-1,missing',
     );
 
-    expect(result).toEqual({ orders: [{ id: 'order-1', status: 'fulfilled' }] });
+    expect(result).toEqual({ orders: [{ saleOrderCode: 'order-1', orderStatus: 'CREATED', id: 'order-1', status: 'fulfilled' }] });
   });
 
   // Found via local verification: a downstream Ratio-call failure must
@@ -159,8 +159,8 @@ describe('UcOrdersReadController', () => {
 
     expect(result).toEqual({
       orders: [
-        { id: 'order-1', status: 'fulfilled' },
-        { id: 'order-3', status: 'fulfilled' },
+        { saleOrderCode: 'order-1', orderStatus: 'CREATED', id: 'order-1', status: 'fulfilled' },
+        { saleOrderCode: 'order-3', orderStatus: 'CREATED', id: 'order-3', status: 'fulfilled' },
       ],
     });
   });

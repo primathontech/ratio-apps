@@ -41,7 +41,7 @@ export class UcCredentialsService {
   constructor(
     @Inject(UC_DB_TOKEN) private readonly handle: KyselyClient<UnicommerceDatabase>,
     @Inject(UC_CRYPTO) private readonly crypto: CryptoService,
-  ) {}
+  ) { }
 
   private get db(): Kysely<UnicommerceDatabase> {
     return 'db' in this.handle
@@ -186,6 +186,15 @@ export class UcCredentialsService {
       .where('merchantId', '=', merchantId)
       .executeTakeFirst();
     return row?.ucUsername ?? null;
+  }
+
+  async getRatioUsername(merchantId: string): Promise<string | null> {
+    const row = await this.db
+      .selectFrom('ucCredentials')
+      .selectAll()
+      .where('merchantId', '=', merchantId)
+      .executeTakeFirst();
+    return row?.ratioUsername ?? null;
   }
 
   /**

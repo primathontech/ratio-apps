@@ -277,6 +277,23 @@ async function main() {
   const { username, password, baseUrl } = connect.body || {};
   log('ONBOARD', 'Merchant copies these into Unicommerce\'s "Ratio" channel settings:', { username, baseUrl });
 
+  // Feature flags default to OFF per-merchant (uc_configs, all-false until
+  // a merchant visits /settings) — a freshly-installed merchant has never
+  // done that, so every gated flow would silently no-op below without this.
+  // Mirrors the merchant flipping every toggle on in the real Settings UI.
+  log('ONBOARD', 'Merchant opens Settings and enables every sync toggle...');
+  const enableFlags = await call('SETTINGS', 'PUT', `/unicommerce/admin/config?merchantId=${encodeURIComponent(MERCHANT_ID)}`, {
+    body: {
+      productSyncEnabled: true,
+      inventorySyncEnabled: true,
+      orderPushEnabled: true,
+      dispatchStatusSyncEnabled: true,
+      cancelSyncEnabled: true,
+      notificationsEnabled: true,
+    },
+  });
+  record('onboarding_enable_flags', enableFlags.status === 200);
+
   // ============================================================
   phase('PHASE 2 — UNICOMMERCE VERIFIES THE CONNECTION (clicks "Verify" in UC)');
   // ============================================================

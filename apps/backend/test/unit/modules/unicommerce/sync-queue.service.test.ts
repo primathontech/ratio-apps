@@ -299,7 +299,7 @@ describe('UcSyncQueueService.attemptImmediate', () => {
       status: 'PENDING',
     };
     const { handle, updates, inserts } = fakeHandle([job]);
-    const credentials = { getUcUsername: vi.fn().mockResolvedValue('uc-user') };
+    const credentials = { getRatioUsername: vi.fn().mockResolvedValue('uc-user') };
     const httpClient = {
       post: vi.fn().mockResolvedValue({
         status: 'failure',
@@ -333,7 +333,7 @@ describe('UcSyncQueueService.attemptImmediate', () => {
       status: 'PENDING',
     };
     const { handle, updates } = fakeHandle([job]);
-    const credentials = { getUcUsername: vi.fn().mockResolvedValue('uc-user') };
+    const credentials = { getRatioUsername: vi.fn().mockResolvedValue('uc-user') };
     const httpClient = {
       post: vi.fn().mockResolvedValue({ status: 'failure', data: null }),
     };
@@ -634,7 +634,7 @@ describe('UcSyncQueueService.attemptImmediate — cancel_push jobs', () => {
     const job = cancelJob();
     const { handle, updates } = fakeHandle([job]);
     const pushWorker = { push: vi.fn() };
-    const credentials = { getUcUsername: vi.fn().mockResolvedValue('uc-user') };
+    const credentials = { getRatioUsername: vi.fn().mockResolvedValue('uc-user') };
     const httpClient = {
       post: vi.fn().mockResolvedValue({ status: 'failure', message: 'Order already dispatched, cannot cancel', data: null }),
     };

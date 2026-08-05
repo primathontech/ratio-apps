@@ -9,7 +9,7 @@ services:
   # resolves correctly FROM INSIDE the container's own network namespace —
   # a single shared advertised address can't satisfy both audiences at once).
   kafka:
-    ports: !override
+    ports:
       - "9095:9095"
     environment:
       KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:9092,EXTERNAL://0.0.0.0:9095,CONTROLLER://0.0.0.0:9093"

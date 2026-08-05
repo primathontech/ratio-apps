@@ -16,7 +16,7 @@ export class UcCancelPushWorkerService {
     private readonly credentials: UcCredentialsService,
     private readonly http: UcHttpClient,
     private readonly config: { clientId: string; securityKey: string; baseUrl: string },
-  ) {}
+  ) { }
 
   async push(
     merchantId: string,
@@ -24,13 +24,13 @@ export class UcCancelPushWorkerService {
     saleOrderCode: string,
     reason: string,
   ): Promise<{ alreadyDispatched: boolean }> {
-    const ucUsername = await this.credentials.getUcUsername(merchantId);
-    if (!ucUsername) throw new Error(`no Unicommerce username on file for merchant ${merchantId}`);
+    const ratioUsername = await this.credentials.getRatioUsername(merchantId);
+    if (!ratioUsername) throw new Error(`no Unicommerce ratio_username on file for merchant ${merchantId}`);
 
     const result = await this.http.post(
       `${this.config.baseUrl}/uc/v1/order/cancel`,
       { saleOrderCode, cancellationReason: reason },
-      { headers: { clientid: this.config.clientId, merchantid: ucUsername, securitykey: this.config.securityKey } },
+      { headers: { clientid: this.config.clientId, merchantid: ratioUsername, securitykey: this.config.securityKey } },
     );
 
     if (result.status === 'success') {

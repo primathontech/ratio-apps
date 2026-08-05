@@ -50,7 +50,7 @@ export class UcDispatchController {
     private readonly ratio: UcRatioApiService,
     private readonly eventLog: UcEventLogService,
     private readonly featureFlags: UcFeatureFlagsService,
-  ) {}
+  ) { }
 
   @Post('orders/dispatch')
   @HttpCode(200)
@@ -93,10 +93,41 @@ export class UcDispatchController {
         value: body.selfShipping.invoiceDate,
         type: 'string',
       },
+      {
+        namespace: 'unicommerce',
+        key: 'tracking_url',
+        value: body.selfShipping.trackingURL,
+        type: 'string',
+      },
+      {
+        namespace: 'unicommerce',
+        key: 'tentative_delivery_date',
+        value: body.selfShipping.tentativeDeliveryDate,
+        type: 'string',
+      },
+      {
+        namespace: 'unicommerce',
+        key: 'dispatch_date',
+        value: body.selfShipping.dispatchDate,
+        type: 'string',
+      },
+      {
+        namespace: 'unicommerce',
+        key: 'delivery_partner',
+        value: body.selfShipping.deliveryPartner,
+        type: 'string',
+      },
     ];
 
+    // Pre-resolve all items to compute accurate total dispatched quantities
+    const resolvedItemsMap = new Map();
     for (const item of body.orderItems) {
       const full = await this.orderItemMap.resolveFull(item.orderItemId);
+      resolvedItemsMap.set(item.orderItemId, full);
+    }
+
+    for (const item of body.orderItems) {
+      const full = resolvedItemsMap.get(item.orderItemId);
       if (!full || full.merchantId !== req.ucMerchantId) {
         results.push({ orderItemId: item.orderItemId, errorMessage: 'unknown orderItemId' });
         continue;
@@ -118,7 +149,21 @@ export class UcDispatchController {
           full.ratioOrderId,
         );
         const totalRemaining = siblings.reduce((s, r) => s + r.remainingQuantity, 0);
-        if (totalRemaining > qty) {
+
+        // Sum what is genuinely being dispatched for this order in this payload
+        const totalDispatched = body.orderItems.reduce((sum, i) => {
+          const matchingFull = resolvedItemsMap.get(i.orderItemId);
+          if (matchingFull && matchingFull.ratioOrderId === full.ratioOrderId) {
+            // Only count if it will pass the quantity check
+            const iQty = i.quantity ?? 1;
+            if (matchingFull.remainingQuantity >= iQty) {
+              return sum + iQty;
+            }
+          }
+          return sum;
+        }, 0);
+
+        if (totalRemaining > totalDispatched) {
           fulfillmentStatus = 'partially_fulfilled';
         }
 
