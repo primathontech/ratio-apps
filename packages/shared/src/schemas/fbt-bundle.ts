@@ -56,10 +56,16 @@ export const fbtBundleInputSchema = z
       path: ['scopeCollectionIds'],
     },
   )
-  .refine((v) => !v.startDate || !v.endDate || v.startDate <= v.endDate, {
-    message: 'endDate must not be earlier than startDate',
-    path: ['endDate'],
-  });
+  .refine(
+    (v) =>
+      !v.startDate ||
+      !v.endDate ||
+      new Date(v.startDate).getTime() <= new Date(v.endDate).getTime(),
+    {
+      message: 'endDate must not be earlier than startDate',
+      path: ['endDate'],
+    },
+  );
 
 export type FbtBundleInput = z.infer<typeof fbtBundleInputSchema>;
 

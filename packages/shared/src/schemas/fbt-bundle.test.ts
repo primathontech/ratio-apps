@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   fbtBundleInputSchema,
   fbtBundleStatusSchema,
+  fbtBundleModeSchema,
   fbtScopeTypeSchema,
 } from './fbt-bundle';
 import { fbtMerchantConfigSchema } from './fbt-config';
@@ -19,6 +20,10 @@ describe('fbt bundle enums', () => {
       'specific_product',
       'specific_collections',
     ]);
+  });
+
+  it('pins the bundle mode values', () => {
+    expect(fbtBundleModeSchema.options).toEqual(['auto', 'manual']);
   });
 });
 
@@ -63,6 +68,16 @@ describe('fbtBundleInputSchema', () => {
       endDate: '2026-05-01T00:00:00.000Z',
     });
     expect(r.success).toBe(false);
+  });
+
+  it('compares dates chronologically, not lexicographically', () => {
+    // '...00Z' vs '...00.500Z': valid range, but a string compare rejects it.
+    const r = fbtBundleInputSchema.safeParse({
+      ...valid,
+      startDate: '2026-06-01T00:00:00Z',
+      endDate: '2026-06-01T00:00:00.500Z',
+    });
+    expect(r.success).toBe(true);
   });
 
   it('caps recommendationCount at 10 to bound the OpenAI spend per bundle', () => {
