@@ -35,4 +35,5 @@ export * from './schemas/loyalty-export';
 // fbt vendor (Frequently Bought Together) — per-merchant recommendation config.
 // No events file: FBT serves recommendations and forwards no storefront events, so it
 // ships no DEFAULT_FBT_EVENT_MAP (same as wizzy).
+export * from './schemas/fbt-bundle';
 export * from './schemas/fbt-config';

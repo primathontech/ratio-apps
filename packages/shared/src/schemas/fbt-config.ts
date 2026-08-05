@@ -28,6 +28,12 @@ export const fbtMerchantConfigSchema = z
     syncWeekday: z.number().int().min(0).max(6).nullable().default(null),
     productExcludedList: z.array(z.string()).default([]),
     productsWidgetDisabledList: z.array(z.string()).default([]),
+    /**
+     * Global widget theme, written by the admin's Appearance screen. The column
+     * has existed since `0001_initial`; this field was missing, which would
+     * have left that screen with nowhere to save.
+     */
+    uiConfig: z.record(z.string(), z.unknown()).nullable().default(null),
     previewBaseUrl: z.string().url().nullable().default(null),
   })
   .refine((v) => v.syncFrequency !== 'weekly' || v.syncWeekday !== null, {
