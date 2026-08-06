@@ -1,10 +1,12 @@
 import { Controller, Get, Logger, Query, Req, UseGuards } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
+import { RawResponse } from '../../../core/common/decorators/raw-response.decorator';
 import { UcApiKeyGuard } from '../guards';
 import { UcRatioApiService } from '../services/uc-ratio-api.service';
 
 @Controller('unicommerce/api/v1')
 @UseGuards(UcApiKeyGuard)
+@RawResponse()
 export class UcOrdersReadController {
   private readonly logger = new Logger(UcOrdersReadController.name);
 

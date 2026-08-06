@@ -1,6 +1,7 @@
 import { Body, Controller, HttpCode, Logger, Post, Req, UseGuards } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { RawResponse } from '../../../core/common/decorators/raw-response.decorator';
 import { ZodValidationPipe } from '../../../core/common/pipes/zod-validation.pipe';
 import { UcApiKeyGuard } from '../guards';
 import { UcEventLogService } from '../services/event-log.service';
@@ -21,6 +22,7 @@ const updateInventorySchema = z.object({
 
 @Controller('unicommerce/api/v1')
 @UseGuards(UcApiKeyGuard)
+@RawResponse()
 export class UcInventoryController {
   private readonly logger = new Logger(UcInventoryController.name);
 
