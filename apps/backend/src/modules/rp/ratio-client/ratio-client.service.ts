@@ -83,6 +83,10 @@ export class RpRatioClientService {
     if (Array.isArray(order.tags)) {
       order.tags = (order.tags as unknown[]).map((t) => String(t).trim()).filter(Boolean).join(', ');
     }
+    // TEMPORARY DEBUG LOGGING (remove once the "still shows fulfilled" investigation is
+    // closed): the full outbound body — not just on error — so it's clear exactly what
+    // was sent to Ratio (e.g. did fulfillment_status actually get derived and included).
+    this.logger.log({ merchantId, orderId, osId, body: order }, 'Ratio order patch — outbound body');
     for (let attempt = 1; attempt <= MAX_PATCH_ATTEMPTS; attempt++) {
       if (attempt > 1) await new Promise((resolve) => setTimeout(resolve, PATCH_RETRY_DELAY_MS));
       try {
@@ -90,6 +94,9 @@ export class RpRatioClientService {
           method: 'PATCH',
           accessToken,
           body: order,
+          // Safe here: a non-2xx body from order-patch is a validation-error list, never
+          // a secret-bearing OAuth response — same rationale as createOrder above.
+          logErrorBody: true,
         });
       } catch (err) {
         if (this.isRetryableRatioError(err) && attempt < MAX_PATCH_ATTEMPTS) {
@@ -285,6 +292,12 @@ export class RpRatioClientService {
   // Resolves an order_number (e.g. "2484") to the real OS order ID ("ordr_17835966307325080").
   // Needed because normalizeOrder uses order_number as the Shopify id to avoid lossy hashing.
   private async resolveOsOrderId(accessToken: string, orderNumber: string): Promise<string> {
+    // Already a real OS id (e.g. RP's markOsOrderReturned passes order.id straight from
+    // its synced OrderModel doc, which the OS order-sync webhook stores as the real
+    // ordr_... id, not a Shopify-style order_number) — searching Ratio by this value
+    // would either match nothing or, worse, silently fall back to an unrelated order
+    // (orders[0] of a non-matching search). Same short-circuit as getOrder() above.
+    if (/^ordr_/i.test(orderNumber)) return orderNumber;
     const data = (await this.ratio.request(`/api/v1/orders?search=${encodeURIComponent(orderNumber)}`, anySchema, {
       accessToken,
     })) as Record<string, unknown>;
