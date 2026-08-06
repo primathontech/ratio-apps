@@ -396,6 +396,108 @@ export class RpTransformerService {
     };
   }
 
+  // ISO 3166-2:IN state/UT codes. RP/OS merchants are India-only in practice, so this
+  // covers the real space — an unmapped name falls back to its own uppercased value
+  // rather than blocking order creation outright (Ratio only validates "is a string").
+  private static readonly INDIA_STATE_CODES: Record<string, string> = {
+    'andaman and nicobar islands': 'AN',
+    'andhra pradesh': 'AP',
+    'arunachal pradesh': 'AR',
+    assam: 'AS',
+    bihar: 'BR',
+    chandigarh: 'CH',
+    chhattisgarh: 'CT',
+    'dadra and nagar haveli and daman and diu': 'DN',
+    delhi: 'DL',
+    goa: 'GA',
+    gujarat: 'GJ',
+    haryana: 'HR',
+    'himachal pradesh': 'HP',
+    'jammu and kashmir': 'JK',
+    jharkhand: 'JH',
+    karnataka: 'KA',
+    kerala: 'KL',
+    ladakh: 'LA',
+    lakshadweep: 'LD',
+    'madhya pradesh': 'MP',
+    maharashtra: 'MH',
+    manipur: 'MN',
+    meghalaya: 'ML',
+    mizoram: 'MZ',
+    nagaland: 'NL',
+    odisha: 'OR',
+    puducherry: 'PY',
+    punjab: 'PB',
+    rajasthan: 'RJ',
+    sikkim: 'SK',
+    'tamil nadu': 'TN',
+    telangana: 'TG',
+    tripura: 'TR',
+    'uttar pradesh': 'UP',
+    uttarakhand: 'UT',
+    'west bengal': 'WB',
+  };
+
+  private static readonly COUNTRY_CODES: Record<string, string> = {
+    india: 'IN',
+  };
+
+  /** "Madhya Pradesh" -> "MP". Falls back to the input, uppercased, if unrecognized —
+   *  Ratio only validates this is a non-empty string, so an unmapped value still passes. */
+  private stateCode(province: unknown): string {
+    const name = typeof province === 'string' ? province.trim() : '';
+    if (!name) return '';
+    return RpTransformerService.INDIA_STATE_CODES[name.toLowerCase()] ?? name.toUpperCase();
+  }
+
+  /** "India" -> "IN". Same unmapped-fallback rationale as stateCode. */
+  private countryCode(country: unknown): string {
+    const name = typeof country === 'string' ? country.trim() : '';
+    if (!name) return '';
+    if (name.length === 2) return name.toUpperCase();
+    return RpTransformerService.COUNTRY_CODES[name.toLowerCase()] ?? name.slice(0, 2).toUpperCase();
+  }
+
+  /**
+   * RP sends Shopify's native address shape (first_name/last_name, province, country as
+   * full names) — Ratio's schema wants a single `name` plus ISO-style province_code/
+   * country_code. Everything else (address1, city, zip, phone) passes through unchanged;
+   * only the fields Ratio's validator actually rejected are added/renamed.
+   */
+  private mapAddress(address: unknown): Rec | undefined {
+    if (!address || typeof address !== 'object') return undefined;
+    const a = address as Rec;
+    const name = [a.first_name, a.last_name].filter(Boolean).join(' ').trim() || undefined;
+    return {
+      ...a,
+      name,
+      province_code: this.stateCode(a.province),
+      country_code: this.countryCode(a.country),
+    };
+  }
+
+  /**
+   * RP's exchange-order customer is always just `{ id }` (returnExchangeRequest.service.js
+   * never sends more) — Ratio's schema requires email/first_name/last_name/state/phone/
+   * currency explicitly. Derive what we can from the rest of the order body (email/phone
+   * are already top-level on `o`, name/state come from the shipping address, which for an
+   * exchange order belongs to the same customer) rather than leaving them missing.
+   */
+  private mapCustomer(o: Rec): Rec | undefined {
+    if (!o.customer || typeof o.customer !== 'object') return undefined;
+    const customer = o.customer as Rec;
+    const shipping = (o.shipping_address ?? {}) as Rec;
+    return {
+      ...customer,
+      email: o.email,
+      first_name: shipping.first_name,
+      last_name: shipping.last_name,
+      state: shipping.province,
+      phone: o.phone,
+      currency: o.currency ?? 'INR',
+    };
+  }
+
   /**
    * Map a Shopify REST Order create body (what RP's createExchangeOrder builds and
    * ShopifyAxios.createOrder would POST as `{order}`) into the OS CreateOrderDto.
@@ -416,6 +518,12 @@ export class RpTransformerService {
           sku: li.sku as string | undefined,
           tax_lines: li.tax_lines,
           discount_allocations: li.discount_allocations,
+          // Required by Ratio's order-create schema; RP's exchange-order line items never
+          // carry either flag (not modeled in RP's Order schema), so default to Shopify's
+          // own defaults for a physical, taxable good rather than leaving them undefined
+          // and failing validation outright.
+          taxable: li.taxable ?? true,
+          requires_shipping: li.requires_shipping ?? true,
         }))
       : [];
 
@@ -439,9 +547,9 @@ export class RpTransformerService {
       fulfillment_status: o.fulfillment_status ?? null,
       status: 'open',
       currency: o.currency ?? 'INR',
-      customer: o.customer ?? undefined,
-      shipping_address: o.shipping_address ?? undefined,
-      billing_address: o.billing_address ?? undefined,
+      customer: this.mapCustomer(o),
+      shipping_address: this.mapAddress(o.shipping_address),
+      billing_address: this.mapAddress(o.billing_address),
       line_items: lineItems,
       shipping_lines: o.shipping_lines,
       discount_codes: o.discount_codes,
@@ -450,6 +558,10 @@ export class RpTransformerService {
       total_price: o.price != null ? String(o.price) : o.total_price != null ? String(o.total_price) : undefined,
       note_attributes: o.note_attributes,
       name: o.name,
+      // Required by Ratio's order-create schema. This is Shopify's own "test order"
+      // flag (bogus-gateway/dev-store orders) — RP's exchange orders are always real
+      // business transactions, so this is always false, never derived from `o`.
+      test: false,
     };
     for (const k of Object.keys(dto)) if (dto[k] === undefined) delete dto[k];
     return dto;

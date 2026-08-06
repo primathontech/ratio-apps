@@ -1,29 +1,20 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { ConfigService } from '@nestjs/config';
 import type { Env } from '../../../config/env.schema';
 import type { RpIdMappingService } from '../id-mapping/id-mapping.service';
 import { RpOrderSyncService } from './order-sync.service';
 
-const updateOne = vi.fn().mockResolvedValue({ acknowledged: true });
-vi.mock('mongodb', () => ({
-  MongoClient: vi.fn().mockImplementation(() => ({
-    connect: vi.fn().mockResolvedValue(undefined),
-    db: vi.fn().mockReturnValue({ collection: vi.fn().mockReturnValue({ updateOne }) }),
-    close: vi.fn().mockResolvedValue(undefined),
-  })),
-}));
-
 /**
  * upsertOrder is the webhook-driven counterpart to RpOrdersService's getOrder/getOrders —
- * same id-mapping persistence requirement, but it must run even when RP_MONGO_URL is
- * unconfigured (id-mapping is backed by ratio-apps' own DB, not RP's Mongo, so it must not
- * be gated behind Mongo availability — that was the original bug this fixes).
+ * same id-mapping persistence requirement, but it must run even when RP isn't configured
+ * (id-mapping is backed by ratio-apps' own DB, not RP's, so it must not be gated behind
+ * RP's reachability — that was the original bug this fixes).
  */
-function makeService(opts: { rpMongoUrl?: string | undefined }) {
+function makeService(opts: { rpBaseUrl?: string; osRpToken?: string }) {
   const hashAndPersist = vi.fn().mockResolvedValue('irrelevant');
   const idMapping = { hashAndPersist } as unknown as RpIdMappingService;
   const config = {
-    get: vi.fn().mockReturnValue(opts.rpMongoUrl),
+    get: vi.fn((key: string) => (key === 'RP_BASE_URL' ? opts.rpBaseUrl : opts.osRpToken)),
   } as unknown as ConfigService<Env, true>;
 
   const service = new RpOrderSyncService(config, idMapping);
@@ -31,8 +22,8 @@ function makeService(opts: { rpMongoUrl?: string | undefined }) {
 }
 
 describe('RpOrderSyncService.upsertOrder — id-mapping persistence', () => {
-  it('persists product/variant mappings even when RP_MONGO_URL is not configured', async () => {
-    const { service, hashAndPersist } = makeService({ rpMongoUrl: undefined });
+  it('persists product/variant mappings even when RP is not configured', async () => {
+    const { service, hashAndPersist } = makeService({});
 
     await service.upsertOrder(
       {
@@ -48,7 +39,7 @@ describe('RpOrderSyncService.upsertOrder — id-mapping persistence', () => {
   });
 
   it('skips entirely (no persistence attempted) when the order has no numeric id after normalization', async () => {
-    const { service, hashAndPersist } = makeService({ rpMongoUrl: undefined });
+    const { service, hashAndPersist } = makeService({});
 
     await service.upsertOrder({ id: '', currency: 'INR', line_items: [] }, 'shop.example');
 
@@ -60,17 +51,46 @@ describe('RpOrderSyncService.upsertOrder — id-mapping persistence', () => {
 // path through this service. RP's resolveStoreUrl (a dual-platform store's order-to-domain
 // routing) reads order_platform to tell an OS-originated order apart from a Shopify one;
 // without this stamp every OS order looks unlabeled and routing falls back to guesswork.
-describe('RpOrderSyncService.upsertOrder — order_platform stamp', () => {
-  it('stamps order_platform:"os" on every upserted order', async () => {
-    updateOne.mockClear();
-    const { service } = makeService({ rpMongoUrl: 'mongodb://localhost/rp' });
+describe('RpOrderSyncService.upsertOrder — order sync call', () => {
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', fetchMock);
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      clone: () => ({ text: async () => '{"status":true}' }),
+      text: async () => '{"status":true}',
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('POSTs the order to RP\'s order-sync endpoint with platform:"os" and does not touch mongodb directly', async () => {
+    const { service } = makeService({ rpBaseUrl: 'http://rp.example', osRpToken: 'test-token' });
 
     await service.upsertOrder({ id: 'ordr_496', currency: 'INR', line_items: [] }, 'shop.example');
 
-    expect(updateOne).toHaveBeenCalledWith(
-      { id: expect.any(Number), store: 'shop.example' },
-      expect.objectContaining({ $set: expect.objectContaining({ order_platform: 'os' }) }),
-      { upsert: true },
-    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(url).toBe('http://rp.example/shopify-webhook/v1/order-sync');
+    expect(init.method).toBe('POST');
+    expect(init.headers['X-OS-Internal-Token']).toBe('test-token');
+    expect(init.headers['X-OS-Store']).toBe('shop.example');
+    const body = JSON.parse(init.body);
+    expect(body.platform).toBe('os');
+    expect(body.id).toEqual(expect.any(Number));
+  });
+
+  it('skips the sync call (but still persists id-mappings) when RP is not configured', async () => {
+    const { service, hashAndPersist } = makeService({});
+
+    await service.upsertOrder({ id: 'ordr_496', currency: 'INR', line_items: [] }, 'shop.example');
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(hashAndPersist).not.toHaveBeenCalled(); // no line items in this order
   });
 });

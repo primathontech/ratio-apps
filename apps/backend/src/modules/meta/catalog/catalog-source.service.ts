@@ -49,18 +49,11 @@ function extractTotalItems(env: unknown): number | null {
   return typeof t === 'number' && t >= 0 ? t : null;
 }
 
-function hasNextPage(env: unknown): boolean {
-  if (!env || typeof env !== 'object' || Array.isArray(env)) return false;
-  const o = env as Rec;
-  // Explicit false = no more pages; undefined/true = keep going
-  return o.hasNext !== false;
-}
-
 @Injectable()
 export class CatalogSourceService {
   private readonly logger = new Logger(CatalogSourceService.name);
-  // The products API caps the page size at 10. Requesting more returns page 1's
-  // rows for every page, so always request exactly 10.
+  // `page` doesn't reliably advance upstream (can return the same rows
+  // regardless of page number) — `all=true` + `offset` does.
   private static readonly PAGE_SIZE = 10;
   private static readonly MAX_PAGES = 1000;
   private static readonly FILTERS = 'status=active&published=true&show_variants=true';
@@ -78,22 +71,24 @@ export class CatalogSourceService {
     const accessToken = await this.tokenProvider.getAccessToken(merchantId);
     let total = 0;
 
-    // os-item caps page size at ~10 regardless of the requested limit.
-    // Page via the API's own hasNext signal rather than "fewer items than limit".
     for (let page = 1; page <= CatalogSourceService.MAX_PAGES; page++) {
       if (isCancelled?.()) {
-        this.logger.warn({ msg: 'ratio products paging cancelled', merchantId, page });
+        this.logger.warn({ msg: 'ratio products paging cancelled', merchantId, offset: total });
         break;
       }
       const env = await this.request(
-        `page=${page}&limit=${CatalogSourceService.PAGE_SIZE}&${CatalogSourceService.FILTERS}`,
+        `all=true&offset=${total}&limit=${CatalogSourceService.PAGE_SIZE}&${CatalogSourceService.FILTERS}`,
         accessToken,
       );
       const items = this.toProducts(extractItems(env));
       if (items.length === 0) break;
       total += items.length;
       await onPage(items);
-      if (!hasNextPage(env)) break;
+
+      // No total metadata → trust this response as complete. Otherwise keep
+      // going until we've accounted for the reported total.
+      const reportedTotal = extractTotalItems(env);
+      if (reportedTotal === null || total >= reportedTotal) break;
     }
 
     this.logger.log({ msg: 'streamed ratio products', merchantId, count: total });

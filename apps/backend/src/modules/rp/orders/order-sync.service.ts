@@ -1,24 +1,24 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { MongoClient, type Db } from 'mongodb';
 import type { Env } from '../../../config/env.schema';
 import { RpIdMappingService } from '../id-mapping/id-mapping.service';
 import { normalizeOrder } from './normalize-order';
+import { fetchWithCurlLog } from '../curl-log.util';
 
 /**
- * Syncs OS orders into RP's MongoDB `orders` collection.
+ * Syncs OS orders into RP via RP's own `/shopify-webhook/v1/order-sync` endpoint.
  * Called by the order webhook handlers so RP has order data at return time
  * without needing to fetch on demand (reduces latency + decouples from OS API).
  *
- * IMPORTANT: RP's return/exchange flow reads the `Order` model, which maps to
- * the `orders` collection. Writing anywhere else (e.g. `shopifyorders`, which no
- * RP code reads) leaves orders invisible to validateOrder at return time.
+ * Deliberately goes through RP's HTTP API, not a direct database connection —
+ * ratio-apps has no business reaching into another service's database directly
+ * (no access control at that layer, no validation, breaks the moment RP changes
+ * its own schema/indexes without knowing this exists). RP's endpoint upserts via
+ * its own Mongoose model, respecting whatever hooks/validation it already has.
  */
 @Injectable()
-export class RpOrderSyncService implements OnModuleDestroy {
+export class RpOrderSyncService {
   private readonly logger = new Logger(`RP:${RpOrderSyncService.name}`);
-  private client: MongoClient | null = null;
-  private db: Db | null = null;
 
   constructor(
     private readonly config: ConfigService<Env, true>,
@@ -34,30 +34,41 @@ export class RpOrderSyncService implements OnModuleDestroy {
       return;
     }
 
-    // Runs regardless of whether RP_MONGO_URL is configured below: id-mapping is backed by
-    // ratio-apps' own database (id-mapping module), not RP's Mongo, so it must not be gated
-    // behind Mongo availability — that would defeat the point of not depending on RP's Mongo.
+    // Runs regardless of whether the RP sync call below succeeds: id-mapping is backed by
+    // ratio-apps' own database (id-mapping module), not RP's, so it must not be gated
+    // behind RP's reachability — that would defeat the point of a separate mapping table.
     await this.persistLineItemIdMappings(normalized);
 
-    const db = await this.getDb();
-    if (!db) return;
+    const baseUrl = this.config.get('RP_BASE_URL', { infer: true }) as string | undefined;
+    const token = this.config.get('OS_RP_TOKEN', { infer: true }) as string | undefined;
+
+    if (!baseUrl || !token) {
+      this.logger.error({ id: numericId, storeDomain }, 'RP not configured — skipping order sync');
+      return;
+    }
 
     try {
-      await db.collection('orders').updateOne(
-        { id: numericId, store: storeDomain },
-        {
-          // Every order this service ever upserts came from an OS order-service webhook —
-          // there's no Shopify-side path through here. RP's resolveStoreUrl reads this on a
-          // dual-platform store (one StoreDetail, two domains) to know which of the two
-          // client APIs (createStoreApi.js) a given order actually belongs to; without it,
-          // an OS-originated order looks identical to a Shopify one and gets routed wrong.
-          $set: { ...normalized, store: storeDomain, order_platform: 'os', updated_at: new Date() },
+      const res = await fetchWithCurlLog(`${baseUrl}/shopify-webhook/v1/order-sync`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-OS-Internal-Token': token,
+          'X-OS-Store': storeDomain,
         },
-        { upsert: true },
-      );
-      this.logger.log({ id: numericId, store: storeDomain }, 'order upserted into RP MongoDB');
+        body: JSON.stringify({ ...normalized, platform: 'os' }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        this.logger.error(
+          { id: numericId, storeDomain, status: res.status, body: text },
+          'order sync to RP failed',
+        );
+        return;
+      }
+      this.logger.log({ id: numericId, storeDomain }, 'order synced to RP');
     } catch (err) {
-      this.logger.error({ err, id: numericId, store: storeDomain }, 'failed to upsert order');
+      this.logger.error({ err, id: numericId, storeDomain }, 'order sync to RP threw');
     }
   }
 
@@ -77,37 +88,5 @@ export class RpOrderSyncService implements OnModuleDestroy {
         return writes;
       }),
     );
-  }
-
-  /**
-   * Get or establish connection to RP MongoDB. Used only by order sync (caching order
-   * documents for RP's own return-flow reads) — hashed-id resolution no longer depends on
-   * this; see id-mapping module.
-   */
-  async getDb(): Promise<Db | null> {
-    if (this.db) return this.db;
-
-    const url = (this.config.get as (key: string) => string | undefined)('RP_MONGO_URL');
-    if (!url) {
-      this.logger.warn('RP_MONGO_URL not set — order sync into RP MongoDB disabled');
-      return null;
-    }
-
-    try {
-      this.client = new MongoClient(url);
-      await this.client.connect();
-      this.db = this.client.db();
-      this.logger.log('connected to RP MongoDB');
-      return this.db;
-    } catch (err) {
-      this.logger.error({ err }, 'failed to connect to RP MongoDB');
-      this.client = null;
-      this.db = null;
-      return null;
-    }
-  }
-
-  async onModuleDestroy(): Promise<void> {
-    await this.client?.close();
   }
 }

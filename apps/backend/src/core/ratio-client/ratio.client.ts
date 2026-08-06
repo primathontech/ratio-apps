@@ -8,6 +8,14 @@ export interface RatioRequestOptions {
   accessToken?: string;
   headers?: Record<string, string>;
   timeoutMs?: number;
+  /**
+   * Opt-in exception to Finding #12 (below) for call sites where the upstream body is
+   * known to be a validation-error list, not something that could echo a secret (OAuth
+   * token/code exchanges must never set this). When true, a non-2xx response body is
+   * included in the log and thrown exception so callers aren't stuck debugging a bare
+   * status code.
+   */
+  logErrorBody?: boolean;
 }
 
 /**
@@ -104,11 +112,22 @@ export class RatioClient {
       if (!res.ok) {
         // Finding #12: do NOT log the upstream body verbatim at error level
         // (always-on in prod) — it may echo client_secret/code/etc. that the
-        // pino redact list doesn't catch.
-        this.logger.error({ msg: 'ratio upstream error', url, status: res.status });
-        // DEBUG only (opt-in via LOG_LEVEL=debug) — redacted (known
-        // credential-shaped keys stripped), so this is the "why did it fail"
-        // detail Finding #12's always-on error log deliberately omits.
+        // pino redact list doesn't catch. Two escape hatches for call sites
+        // that need more than the bare status code:
+        //  - `logErrorBody: true` (per-call opt-in) includes the RAW body in
+        //    both this log and the thrown exception's `details` — only safe
+        //    for endpoints whose error body is a known validation-error list,
+        //    never an OAuth/token exchange that could echo a secret.
+        //  - The DEBUG-level log below (opt-in via LOG_LEVEL=debug, not a
+        //    per-call-site decision) includes the body with redactSensitive
+        //    applied, so it's safe to enable broadly without vetting each
+        //    endpoint individually.
+        this.logger.error({
+          msg: 'ratio upstream error',
+          url,
+          status: res.status,
+          ...(options.logErrorBody ? { body: json } : {}),
+        });
         this.logger.debug({
           msg: 'ratio upstream error body',
           url,
@@ -119,7 +138,7 @@ export class RatioClient {
           {
             message: 'ratio upstream error',
             error_code: 'RATIO_UPSTREAM_ERROR',
-            details: { status: res.status },
+            details: { status: res.status, ...(options.logErrorBody ? { body: json } : {}) },
           },
           502,
         );

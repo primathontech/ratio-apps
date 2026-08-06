@@ -1,5 +1,6 @@
 import {
   BadGatewayException,
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -188,6 +189,23 @@ export class RpAdminController {
     // anything. Both `domain` and `rpRegistered` are now written together, only
     // after a genuine 2xx from RP — see the success branch below.
     const storeDomain = (body.store_domain as string | undefined)?.trim() || merchant.domain;
+
+    // Never let the merchantId placeholder itself reach RP's os-install as a real
+    // domain — for a dual-platform merchant this would overwrite a correct
+    // os_store_url with garbage (RP's login-mode linking logic only skips touching
+    // os_store_url when the submitted domain matches an EXISTING value; a
+    // placeholder differs from everything, so it looks like a genuine new domain to
+    // link). Require the caller to explicitly supply the real one instead of
+    // silently falling through on a merchant.domain that was never actually
+    // corrected (e.g. right after a reinstall — see merchants.service.ts's upsert).
+    if (storeDomain === merchantId) {
+      throw new BadRequestException({
+        message: 'Store domain could not be determined — please provide store_domain explicitly.',
+        error_code: 'RP_DOMAIN_UNKNOWN',
+        side: 'rp-adapter',
+        reason: 'domain_placeholder',
+      });
+    }
 
     const adminEmail =
       (body.admin_email as string | undefined) ??

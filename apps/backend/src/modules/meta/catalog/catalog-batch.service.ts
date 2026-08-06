@@ -20,6 +20,18 @@ export interface CatalogFailure {
   error: string;
 }
 
+/** Every item fails for the same reason (e.g. expired token) — bisecting can't help. */
+class CatalogAuthError extends Error {}
+
+/** Best-effort parse of Meta's `{error: {message, type, code}}` body. */
+function parseMetaError(text: string): { code?: number; message?: string } | null {
+  try {
+    return (JSON.parse(text) as { error?: { code?: number; message?: string } }).error ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Meta Catalog Batch API client (Phase 2 push path).
  *
@@ -30,6 +42,9 @@ export interface CatalogFailure {
  * item is invalid** — so on a content (4xx) rejection we BISECT: split the batch
  * and retry halves until the single offender is isolated, log+drop it, and let
  * the rest through. Throttle (429) / transient (5xx) retry the whole chunk.
+ * An expired token (code 190) or Meta's catalog rate limit (#80014, which can
+ * arrive on a non-429 status) fail/retry the WHOLE batch instead — bisecting
+ * those only multiplies calls for an error no single item caused.
  */
 @Injectable()
 export class CatalogBatchService {
@@ -76,10 +91,20 @@ export class CatalogBatchService {
     const failures: CatalogFailure[] = [];
     for (let i = 0; i < requests.length; i += CatalogBatchService.MAX_BATCH) {
       const chunk = requests.slice(i, i + CatalogBatchService.MAX_BATCH);
-      const r = await this.sendChunk(catalogId, accessToken, chunk);
-      sent += r.sent;
-      failed += r.failed;
-      failures.push(...r.failures);
+      try {
+        const r = await this.sendChunk(catalogId, accessToken, chunk);
+        sent += r.sent;
+        failed += r.failed;
+        failures.push(...r.failures);
+      } catch (err) {
+        if (!(err instanceof CatalogAuthError)) throw err;
+        // Token is bad — stop calling Meta; record the rest as failed too.
+        const remaining = requests.slice(i);
+        failed += remaining.length;
+        failures.push(...remaining.map((r) => ({ retailerId: r.retailer_id, error: err.message })));
+        this.logger.error({ msg: 'catalog sync aborted — access token invalid/expired', err: err.message });
+        break;
+      }
     }
     return { sent, failed, failures };
   }
@@ -145,8 +170,17 @@ export class CatalogBatchService {
         }
 
         const text = await res.text().catch(() => '');
-        // Content rejection (one bad item kills the batch) → bisect to isolate.
-        if (res.status >= 400 && res.status < 500 && res.status !== 429) {
+        const metaError = parseMetaError(text);
+
+        // code 190 = expired/invalid token — every item fails the same way.
+        if (metaError?.code === 190) {
+          throw new CatalogAuthError(metaError.message ?? text.slice(0, 300));
+        }
+
+        // #80014 = catalog batch rate limit, sometimes on a non-429 status.
+        const isRateLimited = res.status === 429 || metaError?.code === 80014;
+        if (!isRateLimited && res.status >= 400 && res.status < 500) {
+          // Content rejection (one bad item kills the batch) → bisect to isolate.
           if (requests.length === 1) {
             const id = requests[0]?.retailer_id ?? '';
             const error = text.slice(0, 300);
@@ -162,10 +196,11 @@ export class CatalogBatchService {
           const b = await this.sendChunk(catalogId, accessToken, requests.slice(mid), depth + 1);
           return { sent: a.sent + b.sent, failed: a.failed + b.failed, failures: [...a.failures, ...b.failures] };
         }
-        // 429 / 5xx → retry whole chunk
+        // 429 / rate-limited / 5xx → retry whole chunk
         lastError = `Meta ${res.status}: ${text.slice(0, 200)}`;
         this.logger.warn({ msg: 'catalog batch retryable error', status: res.status, attempt });
       } catch (err) {
+        if (err instanceof CatalogAuthError) throw err;
         lastError = err instanceof Error ? err.message : String(err);
         this.logger.warn({ msg: 'catalog batch network error', attempt, err });
       } finally {
