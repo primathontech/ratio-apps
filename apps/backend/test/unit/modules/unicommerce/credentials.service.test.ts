@@ -69,7 +69,9 @@ describe('UcCredentialsService.generate', () => {
       insertInto: () => ({
         values: () => ({
           execute: async () => {
-            const err = new Error("Duplicate entry 'm1' for key 'uc_credentials.PRIMARY'") as Error & {
+            const err = new Error(
+              "Duplicate entry 'm1' for key 'uc_credentials.PRIMARY'",
+            ) as Error & {
               code: string;
               errno: number;
             };
@@ -210,5 +212,23 @@ describe('UcCredentialsService.verify', () => {
     const svc = new UcCredentialsService(db as never, realCrypto());
 
     expect(await svc.verify('ratio-abc', 'any-password')).toBeNull();
+  });
+});
+
+describe('UcCredentialsService storeDomain', () => {
+  it('setStoreDomain then getStoreDomain round-trips the stored domain', async () => {
+    const { db } = fakeDb();
+    const svc = new UcCredentialsService(db as never, realCrypto());
+
+    await svc.setStoreDomain('m1', 'https://bblunt.com');
+
+    expect(await svc.getStoreDomain('m1')).toBe('https://bblunt.com');
+  });
+
+  it('returns null when the merchant has never had a store domain set', async () => {
+    const { db } = fakeDb(undefined);
+    const svc = new UcCredentialsService(db as never, realCrypto());
+
+    expect(await svc.getStoreDomain('unknown-merchant')).toBeNull();
   });
 });

@@ -7,6 +7,7 @@ import { ZodValidationPipe } from '../../../core/common/pipes/zod-validation.pip
 import { type CallbackDto, callbackDtoSchema } from '../../../core/oauth/dto/callback.dto';
 import type { OAuthService } from '../../../core/oauth/oauth.service';
 import type { UnicommerceDatabase } from '../db/types';
+import { UcCredentialsService } from '../services/credentials.service';
 import { UC_OAUTH } from '../tokens';
 
 /**
@@ -43,6 +44,7 @@ export class UcOAuthController {
   constructor(
     @Inject(UC_OAUTH) private readonly oauth: OAuthService<UnicommerceDatabase>,
     private readonly config: ConfigService<Env, true>,
+    private readonly credentials: UcCredentialsService,
   ) {}
 
   /**
@@ -65,7 +67,13 @@ export class UcOAuthController {
     query: CallbackDto,
     @Res() reply: FastifyReply,
   ): Promise<void> {
-    const { merchantId } = await this.oauth.handleCallback(query.code);
+    const { merchantId, storeDomain } = await this.oauth.handleCallback(query.code);
+    // Persist the merchant's real storefront domain (from the token response's
+    // `merchantStoreId`, or the access-token JWT) so the catalog pull builds
+    // product URLs per-merchant instead of from the single global env var.
+    if (storeDomain) {
+      await this.credentials.setStoreDomain(merchantId, storeDomain);
+    }
     const adminBase = this.config.get('RATIO_UNICOMMERCE_ADMIN_BASE_URL' as never, {
       infer: true,
     }) as string;

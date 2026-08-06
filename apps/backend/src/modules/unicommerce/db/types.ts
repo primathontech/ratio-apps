@@ -1,4 +1,4 @@
-import type { ColumnType, Generated } from 'kysely';
+import type { Generated } from 'kysely';
 import type { BaseMerchantsTable } from '../../../core/merchants/merchant.types';
 import type { BaseOauthTokensTable } from '../../../core/oauth/oauth-tokens.types';
 import type { BaseWebhookLogTable } from '../../../core/webhooks/webhook-log.types';
@@ -11,6 +11,7 @@ export interface UcCredentialsTable {
   ratioUsername: string;
   passwordEnc: string;
   ucUsername: string;
+  storeDomain: string | null;
   status: 'active' | 'paused' | 'uninstalled';
   lastInboundCallAt: Date | null;
   lastStatusNotificationAt: Date | null;

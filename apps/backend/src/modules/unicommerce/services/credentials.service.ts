@@ -1,8 +1,8 @@
-import { Inject, Injectable } from '@nestjs/common';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { Inject, Injectable } from '@nestjs/common';
 import type { Kysely } from 'kysely';
-import type { KyselyClient } from '../../../core/db/kysely-factory';
 import { CryptoService } from '../../../core/crypto/crypto.service';
+import type { KyselyClient } from '../../../core/db/kysely-factory';
 import type { UnicommerceDatabase } from '../db/types';
 import { UC_DB_TOKEN } from '../kysely.module';
 import { UC_CRYPTO } from '../tokens';
@@ -41,7 +41,7 @@ export class UcCredentialsService {
   constructor(
     @Inject(UC_DB_TOKEN) private readonly handle: KyselyClient<UnicommerceDatabase>,
     @Inject(UC_CRYPTO) private readonly crypto: CryptoService,
-  ) { }
+  ) {}
 
   private get db(): Kysely<UnicommerceDatabase> {
     return 'db' in this.handle
@@ -60,7 +60,10 @@ export class UcCredentialsService {
    * table's primary key) rather than silently overwriting; use `regenerate()`
    * to intentionally replace an existing merchant's credentials.
    */
-  async generate(merchantId: string, ucUsername: string): Promise<{ username: string; password: string }> {
+  async generate(
+    merchantId: string,
+    ucUsername: string,
+  ): Promise<{ username: string; password: string }> {
     const username = `ratio-${randomBytes(6).toString('hex')}`;
     const password = randomBytes(18).toString('base64url');
 
@@ -195,6 +198,30 @@ export class UcCredentialsService {
       .where('merchantId', '=', merchantId)
       .executeTakeFirst();
     return row?.ratioUsername ?? null;
+  }
+
+  /**
+   * Persists the merchant's real storefront domain, captured at OAuth install
+   * time from the token response (`merchantStoreId` or the access-token JWT).
+   * Read back per-merchant by the catalog pull so each merchant's `productUrl`
+   * uses THEIR domain instead of the global env-var fallback (see migration
+   * 0014). No-op if the merchant row doesn't exist (UPDATE matches zero rows).
+   */
+  async setStoreDomain(merchantId: string, domain: string): Promise<void> {
+    await this.db
+      .updateTable('ucCredentials')
+      .set({ storeDomain: domain })
+      .where('merchantId', '=', merchantId)
+      .execute();
+  }
+
+  async getStoreDomain(merchantId: string): Promise<string | null> {
+    const row = await this.db
+      .selectFrom('ucCredentials')
+      .selectAll()
+      .where('merchantId', '=', merchantId)
+      .executeTakeFirst();
+    return row?.storeDomain ?? null;
   }
 
   /**

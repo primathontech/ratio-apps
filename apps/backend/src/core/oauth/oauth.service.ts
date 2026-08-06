@@ -51,10 +51,38 @@ export function extractMerchantIdFromJwt(token: string): string | undefined {
   }
 }
 
+/**
+ * Extract the storefront domain from a JWT access token payload.
+ * Ratio's token response only includes `merchantStoreId` on newer platform
+ * versions; when it's absent, the merchant's real storefront domain may still
+ * be inside the JWT. Claim lookup order mirrors the `rp` module exactly:
+ * `domain` → `store_url` → `store`.
+ *
+ * @param token JWT access token
+ * @returns domain from JWT payload, or undefined if not found
+ */
+export function extractDomainFromJwt(token: string): string | undefined {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return undefined;
+
+    // Decode the payload (second segment)
+    const payload = Buffer.from(parts[1]!, 'base64').toString('utf-8');
+    const decoded = JSON.parse(payload) as Record<string, unknown>;
+    const domain = decoded.domain ?? decoded.store_url ?? decoded.store;
+    return typeof domain === 'string' ? domain : undefined;
+  } catch {
+    // If decoding fails, return undefined — caller will fall back to the env var
+    return undefined;
+  }
+}
+
 export class OAuthService<DB extends DatabaseWithMerchants & DatabaseWithOauthTokens> {
   constructor(private readonly deps: OAuthServiceDeps<DB>) {}
 
-  async handleCallback(code: string): Promise<{ merchantId: string }> {
+  async handleCallback(
+    code: string,
+  ): Promise<{ merchantId: string; storeDomain: string | undefined }> {
     if (!this.deps.creds.clientId || !this.deps.creds.clientSecret) {
       throw new HttpException(
         { message: 'app credentials missing', error_code: 'RATIO_CREDENTIALS_MISSING' },
@@ -77,13 +105,20 @@ export class OAuthService<DB extends DatabaseWithMerchants & DatabaseWithOauthTo
 
     // GoKwik returns merchant_id either top-level OR only inside the access
     // token JWT (varies by environment). Prefer top-level; fall back to the JWT.
-    const merchantId = tokenResponse.merchant_id ?? extractMerchantIdFromJwt(tokenResponse.access_token);
+    const merchantId =
+      tokenResponse.merchant_id ?? extractMerchantIdFromJwt(tokenResponse.access_token);
     if (!merchantId) {
       throw new HttpException(
         { message: 'no merchant_id in token response or JWT', error_code: 'RATIO_NO_MERCHANT_ID' },
         502,
       );
     }
+    // Ratio's token response includes `merchantStoreId` only on newer platform
+    // versions; fall back to decoding the domain out of the access-token JWT
+    // (claim lookup order mirrors the `rp` module). Stored per-merchant at
+    // install so each merchant's product URLs use their own storefront domain.
+    const storeDomain =
+      tokenResponse.merchantStoreId ?? extractDomainFromJwt(tokenResponse.access_token);
     // Subtract a 60-second safety margin so we never store an expiresAt that
     // already accounts for network latency between the upstream token-endpoint
     // response and the row write. Floors at 0 in the unlikely case the
@@ -140,6 +175,6 @@ export class OAuthService<DB extends DatabaseWithMerchants & DatabaseWithOauthTo
       await this.deps.bootstrap.run(trx as Transaction<DB>, merchantId);
     });
 
-    return { merchantId };
+    return { merchantId, storeDomain };
   }
 }

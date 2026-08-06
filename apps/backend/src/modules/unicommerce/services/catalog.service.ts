@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { UcCredentialsService } from './credentials.service';
 import { UcRatioApiService } from './uc-ratio-api.service';
 
 export interface UcVariant {
@@ -57,7 +58,11 @@ export class UcCatalogService {
 
   constructor(
     private readonly ratio: UcRatioApiService,
-    private readonly storefrontDomain: string,
+    private readonly credentials: UcCredentialsService,
+    // Per-merchant storefront domain (persisted at install) takes precedence;
+    // this global env var is only the fallback for merchants installed before
+    // migration 0014 that have no stored domain yet.
+    private readonly fallbackStorefrontDomain: string,
   ) {}
 
   private mapVariant(v: RatioVariant): UcVariant {
@@ -82,9 +87,9 @@ export class UcCatalogService {
     };
   }
 
-  private mapProduct(p: RatioProduct): UcProduct {
+  private mapProduct(p: RatioProduct, domain: string): UcProduct {
     const live = p.status === 'active' && p.published_at != null;
-    const productUrl = `${this.storefrontDomain}/products/${p.handle}`;
+    const productUrl = `${domain}/products/${p.handle}`;
     return {
       id: p.id,
       parentTitle: p.title,
@@ -94,12 +99,17 @@ export class UcCatalogService {
   }
 
   async list(merchantId: string, pageNumber: number): Promise<UcProduct[]> {
+    // Resolve the merchant's own storefront domain once per pull (stored at
+    // install time), falling back to the global env var for merchants that
+    // installed before migration 0014 and have nothing stored yet.
+    const domain =
+      (await this.credentials.getStoreDomain(merchantId)) ?? this.fallbackStorefrontDomain;
     const offset = (pageNumber - 1) * this.pageSize;
     const products = (await this.ratio.listProducts(merchantId, {
       offset,
       limit: this.pageSize,
     })) as unknown as RatioProduct[];
-    return products.map((p) => this.mapProduct(p));
+    return products.map((p) => this.mapProduct(p, domain));
   }
 
   async count(merchantId: string): Promise<number> {

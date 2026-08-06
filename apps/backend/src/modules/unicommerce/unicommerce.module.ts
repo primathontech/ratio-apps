@@ -2,8 +2,8 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import type { Env } from '../../config/env.schema';
-import { KafkaService } from '../../core/kafka/kafka.service';
 import { createAppProviders } from '../../core/factories/app-module.factory';
+import { KafkaService } from '../../core/kafka/kafka.service';
 import type { RatioOAuthCreds } from '../../core/oauth/ratio-oauth.http';
 import { RatioOAuthHttp } from '../../core/oauth/ratio-oauth.http';
 import { UcAdminDashboardController } from './controllers/admin-dashboard.controller';
@@ -23,8 +23,8 @@ import {
   UcMerchantTokenGuard,
   UcWebhookSignatureGuard,
 } from './guards';
-import { UcMerchantsController } from './merchants/merchants.controller';
 import { UC_DB_TOKEN, UnicommerceKyselyModule } from './kysely.module';
+import { UcMerchantsController } from './merchants/merchants.controller';
 import { UcOAuthController } from './oauth/oauth.controller';
 import { UcRatioTokenProvider } from './oauth/ratio-token.provider';
 import { UcAlertingService } from './services/alerting.service';
@@ -37,10 +37,10 @@ import { UcFeatureFlagsService } from './services/feature-flags.service';
 import { UcInventoryService } from './services/inventory.service';
 import { UcOrderItemMapService } from './services/order-item-map.service';
 import { UcOrderPushWorkerService } from './services/order-push-worker.service';
+import { UcOutboundConsumerService } from './services/outbound-consumer.service';
 import { UcReconciliationSweepService } from './services/reconciliation-sweep.service';
 import { UcSkuCacheService } from './services/sku-cache.service';
 import { UcStatusMappingService } from './services/status-mapping.service';
-import { UcOutboundConsumerService } from './services/outbound-consumer.service';
 import { UcSyncQueueService } from './services/sync-queue.service';
 import { UcAuthService } from './services/uc-auth.service';
 import { UcHttpClientImpl } from './services/uc-http-client';
@@ -179,16 +179,24 @@ export const UC_PRODUCT_UPDATE_HANDLER = Symbol.for('ratio-app:unicommerce:produ
         }) as string,
       }),
     },
-    // UcCatalogService takes a plain `storefrontDomain: string` as its second
-    // constructor arg (not a NestJS-injectable token by type alone), so it's
-    // wired via useFactory rather than a bare class reference — Nest's
-    // reflection-based DI can't resolve an undecorated `string` param.
+    // UcCatalogService takes a plain `fallbackStorefrontDomain: string` as its
+    // third constructor arg (not a NestJS-injectable token by type alone), so
+    // it's wired via useFactory rather than a bare class reference — Nest's
+    // reflection-based DI can't resolve an undecorated `string` param. The
+    // per-merchant storefront domain (persisted at install, read back per
+    // pull) takes precedence; this env var is only the fallback for merchants
+    // installed before migration 0014 that have nothing stored yet.
     {
       provide: UcCatalogService,
-      inject: [UcRatioApiService, ConfigService],
-      useFactory: (ratio: UcRatioApiService, config: ConfigService<Env, true>) =>
+      inject: [UcRatioApiService, UcCredentialsService, ConfigService],
+      useFactory: (
+        ratio: UcRatioApiService,
+        credentials: UcCredentialsService,
+        config: ConfigService<Env, true>,
+      ) =>
         new UcCatalogService(
           ratio,
+          credentials,
           (config.get('RATIO_UNICOMMERCE_STOREFRONT_DOMAIN', { infer: true }) as
             | string
             | undefined) ?? '',
