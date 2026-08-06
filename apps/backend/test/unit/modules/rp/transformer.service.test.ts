@@ -53,3 +53,48 @@ describe('RpTransformerService.shopifyProduct', () => {
     expect(variants[0].inventory_item_id).not.toBeUndefined();
   });
 });
+
+// Ratio's order-create endpoint 400s without these — confirmed empirically against
+// the live sandbox API: {"message":["test should not be empty","test must be a
+// boolean value","line_items.0.taxable must be a boolean value",
+// "line_items.0.requires_shipping must be a boolean value"]}. RP's exchange-order
+// line items never carry taxable/requires_shipping (not modeled in RP's Order
+// schema) and RP never sends a `test` flag at all — every OS exchange-order
+// creation failed with this 400 until these were defaulted here.
+describe('RpTransformerService.mapCreateOrder', () => {
+  const service = new RpTransformerService();
+
+  function shopifyOrder(overrides: Record<string, unknown> = {}) {
+    return {
+      email: 'test@example.com',
+      phone: '9999999999',
+      financial_status: 'paid',
+      payment_gateway_names: ['ReturnPrime'],
+      line_items: [{ variant_id: '1', product_id: '2', title: 'test item', quantity: 1, price: '100' }],
+      ...overrides,
+    };
+  }
+
+  it('always sets test: false, regardless of input', () => {
+    const result = service.mapCreateOrder(shopifyOrder());
+    expect(result.test).toBe(false);
+  });
+
+  it('defaults taxable and requires_shipping to true on every line item when RP does not send them', () => {
+    const result = service.mapCreateOrder(shopifyOrder());
+    const lineItems = result.line_items as Array<Record<string, unknown>>;
+
+    expect(lineItems[0].taxable).toBe(true);
+    expect(lineItems[0].requires_shipping).toBe(true);
+  });
+
+  it('forwards an explicit taxable/requires_shipping value instead of overriding it', () => {
+    const result = service.mapCreateOrder(
+      shopifyOrder({ line_items: [{ variant_id: '1', quantity: 1, price: '100', taxable: false, requires_shipping: false }] }),
+    );
+    const lineItems = result.line_items as Array<Record<string, unknown>>;
+
+    expect(lineItems[0].taxable).toBe(false);
+    expect(lineItems[0].requires_shipping).toBe(false);
+  });
+});
