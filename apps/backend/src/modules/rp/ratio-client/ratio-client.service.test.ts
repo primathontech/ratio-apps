@@ -103,6 +103,33 @@ describe('RpRatioClientService.patchOrder', () => {
     expect(result).toEqual({ order: { id: 'ordr_17846309512358540', tags: 'Returned' } });
   });
 
+  it('PATCHes a real OS order id (ordr_…) directly, skipping the order_number search entirely', async () => {
+    // Regression: markOsOrderReturned.js (return_prime_public) passes order.id straight
+    // from RP's synced OrderModel doc, which the OS order-sync webhook stores as the real
+    // ordr_... id — NOT a Shopify-style order_number. Searching Ratio by that id string
+    // either matches nothing or silently falls back to an unrelated order (orders[0] of a
+    // non-matching search), so a real ordr_... id must skip the search and PATCH directly.
+    const requestMock = vi.fn();
+    requestMock.mockResolvedValueOnce({ order: { id: 'ordr_17860013548741545', tags: 'Returned' } });
+    const svc = makeService(requestMock);
+
+    const result = await svc.patchOrder('access-tok-1', 'gk-merchant', 'ordr_17860013548741545', {
+      order: { tags: 'Returned' },
+    });
+
+    expect(requestMock).toHaveBeenCalledTimes(1);
+    expect(requestMock).toHaveBeenCalledWith(
+      '/api/v1/orders/ordr_17860013548741545',
+      expect.anything(),
+      expect.objectContaining({
+        method: 'PATCH',
+        accessToken: 'access-tok-1',
+        body: { tags: 'Returned', fulfillment_status: 'returned' },
+      }),
+    );
+    expect(result).toEqual({ order: { id: 'ordr_17860013548741545', tags: 'Returned' } });
+  });
+
   it('joins an array-shaped tags field into a comma-separated string before PATCHing — Ratio\'s UpdateOrderDto types tags as a string', async () => {
     // Matches return_prime_public's markOsOrderReturned.js: buildReturnedTags() returns
     // [...new Set([...existing, ...add])] — a plain array.

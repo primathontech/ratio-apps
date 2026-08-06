@@ -28,6 +28,10 @@ export class RpOrdersController {
     return this.orders.getOrder(req.rpMerchant.merchantId, id);
   }
 
+  // Patch an order (used to mark it returned/exchanged/refunded via tags). TEMPORARY
+  // DEBUG LOGGING (remove once the "still shows fulfilled" investigation is closed):
+  // logs the exact payload RP sends here, same rationale as the create() logging above.
+  @UseInterceptors(RpCurlLoggingInterceptor)
   @Patch(':id')
   patch(
     @Req() req: RpRequest,
