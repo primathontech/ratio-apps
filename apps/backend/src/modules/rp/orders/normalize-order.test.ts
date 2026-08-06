@@ -161,6 +161,87 @@ describe('normalizeOrder - customer.tags default', () => {
   });
 });
 
+describe('normalizeOrder - email fallback to shipping/billing address', () => {
+  // Real OS (GoKwik Open Store) orders can have `order.email === null` and
+  // `order.customer === null` (guest/OS checkout with no linked customer record) while
+  // the customer's email is still present at `order.shipping_address.email` (and usually
+  // `order.billing_address.email` too) — confirmed on a real order via direct OS API call.
+  // RP reads `order.email` / `order.customer.email` in several places assuming Shopify
+  // semantics, so backfill the top-level `order.email` (never the customer object).
+  it('keeps a top-level email untouched (fallback never triggers)', () => {
+    const order = {
+      id: 'ordr_e1',
+      currency: 'INR',
+      line_items: [],
+      shipping_lines: [],
+      email: 'top@b.com',
+      customer: { id: 'c1', email: 'cust@b.com' },
+      shipping_address: { email: 'ship@b.com' },
+      billing_address: { email: 'bill@b.com' },
+    };
+    const result = normalizeOrder(order) as Record<string, unknown>;
+    expect(result.email).toBe('top@b.com');
+  });
+
+  it('falls back to shipping_address.email when order.email and customer are both null (real-world OS guest checkout)', () => {
+    const order = {
+      id: 'ordr_e2',
+      currency: 'INR',
+      line_items: [],
+      shipping_lines: [],
+      email: null,
+      customer: null,
+      shipping_address: { email: 'a@b.com' },
+    };
+    const result = normalizeOrder(order) as Record<string, unknown>;
+    expect(result.email).toBe('a@b.com');
+  });
+
+  it('prefers customer.email over shipping_address.email when both could apply', () => {
+    const order = {
+      id: 'ordr_e3',
+      currency: 'INR',
+      line_items: [],
+      shipping_lines: [],
+      email: null,
+      customer: { id: 'c1', email: 'cust@b.com' },
+      shipping_address: { email: 'ship@b.com' },
+    };
+    const result = normalizeOrder(order) as Record<string, unknown>;
+    expect(result.email).toBe('cust@b.com');
+  });
+
+  it('falls back to billing_address.email as the last resort', () => {
+    const order = {
+      id: 'ordr_e4',
+      currency: 'INR',
+      line_items: [],
+      shipping_lines: [],
+      email: null,
+      customer: null,
+      shipping_address: { name: 'No Email Here' },
+      billing_address: { email: 'bill@b.com' },
+    };
+    const result = normalizeOrder(order) as Record<string, unknown>;
+    expect(result.email).toBe('bill@b.com');
+  });
+
+  it('returns null when no email exists anywhere (no crash, no throw)', () => {
+    const order = {
+      id: 'ordr_e5',
+      currency: 'INR',
+      line_items: [],
+      shipping_lines: [],
+      email: null,
+      customer: null,
+      shipping_address: null,
+      billing_address: null,
+    };
+    const result = normalizeOrder(order) as Record<string, unknown>;
+    expect(result.email).toBeNull();
+  });
+});
+
 describe('normalizeOrder - id normalization', () => {
   it('strips ordr_ prefix and returns a numeric id', () => {
     const order = {
