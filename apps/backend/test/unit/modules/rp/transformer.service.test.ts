@@ -97,4 +97,70 @@ describe('RpTransformerService.mapCreateOrder', () => {
     expect(lineItems[0].taxable).toBe(false);
     expect(lineItems[0].requires_shipping).toBe(false);
   });
+
+  // Confirmed empirically against the live sandbox API with RP's real exchange-order
+  // payload for order #572: {"message":["customer.email must be an email",
+  // "customer.first_name must be a string","customer.last_name must be a string",
+  // "customer.state must be a string","customer.phone must be a string",
+  // "customer.currency must be a string","billing_address.name must be a string",
+  // "billing_address.province_code must be a string",
+  // "billing_address.country_code must be a string", ...(same 3 for shipping_address)]}.
+  // RP's exchange-order customer is always just `{ id }`, and its addresses are
+  // Shopify's native shape (first_name/last_name, full province/country names) — mapCreateOrder
+  // previously passed both straight through with zero transformation.
+  it('builds a full customer object from data scattered elsewhere on the order, not just {id}', () => {
+    const result = service.mapCreateOrder(
+      shopifyOrder({
+        email: 'nilesh.vishwakarma@gokwik.co',
+        phone: '6265048092',
+        customer: { id: 7711084574787707 },
+        shipping_address: { first_name: 'nilesh', last_name: '.', province: 'Madhya Pradesh', country: 'India' },
+      }),
+    );
+    const customer = result.customer as Record<string, unknown>;
+
+    expect(customer.id).toBe(7711084574787707);
+    expect(customer.email).toBe('nilesh.vishwakarma@gokwik.co');
+    expect(customer.first_name).toBe('nilesh');
+    expect(customer.last_name).toBe('.');
+    expect(customer.state).toBe('Madhya Pradesh');
+    expect(customer.phone).toBe('6265048092');
+    expect(customer.currency).toBe('INR');
+  });
+
+  it('derives name/province_code/country_code on shipping and billing addresses', () => {
+    const address = {
+      first_name: 'nilesh',
+      last_name: '.',
+      address1: 'primathon indore',
+      city: 'WARANGAL',
+      province: 'Madhya Pradesh',
+      country: 'India',
+      zip: '506001',
+    };
+    const result = service.mapCreateOrder(shopifyOrder({ shipping_address: address, billing_address: address }));
+    const shipping = result.shipping_address as Record<string, unknown>;
+    const billing = result.billing_address as Record<string, unknown>;
+
+    expect(shipping.name).toBe('nilesh .');
+    expect(shipping.province_code).toBe('MP');
+    expect(shipping.country_code).toBe('IN');
+    // Untouched fields still pass through unchanged.
+    expect(shipping.city).toBe('WARANGAL');
+    expect(shipping.zip).toBe('506001');
+
+    expect(billing.name).toBe('nilesh .');
+    expect(billing.province_code).toBe('MP');
+    expect(billing.country_code).toBe('IN');
+  });
+
+  it('falls back to an uppercased value for an unrecognized state/country rather than failing', () => {
+    const result = service.mapCreateOrder(
+      shopifyOrder({ shipping_address: { province: 'Some New State', country: 'Narnia' } }),
+    );
+    const shipping = result.shipping_address as Record<string, unknown>;
+
+    expect(shipping.province_code).toBe('SOME NEW STATE');
+    expect(shipping.country_code).toBe('NA');
+  });
 });
