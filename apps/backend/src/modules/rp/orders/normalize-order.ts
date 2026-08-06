@@ -150,6 +150,20 @@ export function normalizeOrder(order: Record<string, unknown>): Record<string, u
       }
     : customer;
 
+  // Real OS orders can have order.email === null AND order.customer === null (guest/OS
+  // checkout with no linked customer record) while the email still lives on the shipping
+  // (and usually billing) address — RP reads order.email / order.customer.email in
+  // several places assuming Shopify semantics, where a real order essentially always has
+  // a top-level email. Backfill the top-level email only, never the customer object.
+  const shippingAddress = order.shipping_address as Record<string, unknown> | null | undefined;
+  const billingAddress = order.billing_address as Record<string, unknown> | null | undefined;
+  const email =
+    (order.email as string | null | undefined) ??
+    (customer?.email as string | undefined) ??
+    (shippingAddress?.email as string | undefined) ??
+    (billingAddress?.email as string | undefined) ??
+    null;
+
   // Shopify always returns order_number as integer; GoKwik returns it as string.
   const rawOrderNumber = order.order_number;
   const orderNumber =
@@ -195,6 +209,7 @@ export function normalizeOrder(order: Record<string, unknown>): Record<string, u
     ...order,
     id: numericOrderId,
     order_number: orderNumber,
+    email,
     customer: normalizedCustomer,
     line_items: lineItems,
     shipping_lines: shippingLines,
