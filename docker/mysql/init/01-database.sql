@@ -12,6 +12,8 @@ CREATE DATABASE IF NOT EXISTS moengage_app;
 CREATE DATABASE IF NOT EXISTS moengage_app_test;
 CREATE DATABASE IF NOT EXISTS wizzy_app;
 CREATE DATABASE IF NOT EXISTS wizzy_app_test;
+CREATE DATABASE IF NOT EXISTS unicommerce_app;
+CREATE DATABASE IF NOT EXISTS unicommerce_app_test;
 CREATE DATABASE IF NOT EXISTS forms_app;
 CREATE DATABASE IF NOT EXISTS forms_app_test;
 
@@ -27,6 +29,8 @@ GRANT ALL ON `moengage_app`.*       TO 'app'@'%';
 GRANT ALL ON `moengage_app_test`.*  TO 'app'@'%';
 GRANT ALL ON `wizzy_app`.*          TO 'app'@'%';
 GRANT ALL ON `wizzy_app_test`.*     TO 'app'@'%';
+GRANT ALL ON `unicommerce_app`.*        TO 'app'@'%';
+GRANT ALL ON `unicommerce_app_test`.*   TO 'app'@'%';
 GRANT ALL ON `forms_app`.*          TO 'app'@'%';
 GRANT ALL ON `forms_app_test`.*     TO 'app'@'%';
 FLUSH PRIVILEGES;

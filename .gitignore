@@ -55,6 +55,7 @@ drizzle/meta
 # test
 playwright-report
 test-results
+.playwright-mcp/
 
 # Generated pixel build outputs (built from apps/backend/pixel/*.ts)
 apps/backend/static/*.js
@@ -73,3 +74,9 @@ zip/
 claude --resume 4d70ff1e-c37e-4e4d-ba08-121ee0b8450f
 .ec2.env
 .ec2.env.pending
+
+# docker
+# Personal local docker compose override (e.g. per-machine kafka port remaps).
+# Gitignored so each developer can keep their own without it landing in
+# shared history.
+docker-compose.override.yml

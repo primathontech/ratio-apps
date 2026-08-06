@@ -134,10 +134,39 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       }
       return { status: exception.getStatus(), message: exception.message };
     }
+    // `@fastify/rate-limit` (registered in main.ts) does not send its 429
+    // response directly — despite that being the documented intent, it
+    // literally `throw`s the object its own `errorResponseBuilder` built
+    // (see @fastify/rate-limit/index.js), which lands right here like any
+    // other exception. Without this branch every rate-limited request was
+    // reported to the client as a bare 500, discarding the real 429/
+    // RATE_LIMITED/retryAfter info the plugin had already computed — found
+    // via live testing, not a hypothetical. Recognize this specific shape
+    // (produced only by our own errorResponseBuilder in main.ts) and use it
+    // as-is; anything else still falls through to the generic 500 below.
+    if (this.isRateLimitError(exception)) {
+      const e = exception as { status_code: number; message: string; error_code?: string; details?: unknown };
+      return {
+        status: e.status_code,
+        message: e.message,
+        ...(e.error_code !== undefined ? { errorCode: e.error_code } : {}),
+        ...(e.details !== undefined ? { details: e.details } : {}),
+      };
+    }
     return {
       status: HttpStatus.INTERNAL_SERVER_ERROR,
       message: 'internal server error',
       errorCode: 'INTERNAL',
     };
+  }
+
+  private isRateLimitError(exception: unknown): boolean {
+    return (
+      exception !== null &&
+      typeof exception === 'object' &&
+      (exception as { error_code?: unknown }).error_code === 'RATE_LIMITED' &&
+      typeof (exception as { status_code?: unknown }).status_code === 'number' &&
+      typeof (exception as { message?: unknown }).message === 'string'
+    );
   }
 }

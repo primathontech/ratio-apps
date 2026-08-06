@@ -119,6 +119,73 @@ const baseEnv = z.object({
   // stripped by the validate() step).
   FACEBOOK_CAPI_BASE_URL: z.string().url().default('https://graph.facebook.com/v21.0'),
 
+  // ─── unicommerce app: marketplace connector ───────────────────────────────
+  // RATIO_UNICOMMERCE_STOREFRONT_DOMAIN: deployment-wide merchant storefront
+  // base URL (e.g. `https://shop.example.com`, no trailing slash), used to
+  // build the `productUrl` Unicommerce's catalog pull (`GET /products`)
+  // expects on every variant. Mirrors GMC_STORE_URL's single-fallback pattern
+  // above — declared here so it survives unknown-key stripping in validate().
+  // Unset → productUrl is built with an empty domain (relative path), which
+  // Unicommerce will reject, so this MUST be set before enabling the
+  // unicommerce module in production.
+  RATIO_UNICOMMERCE_STOREFRONT_DOMAIN: emptyAsUndefined(z.string()),
+  // RATIO_UNICOMMERCE_UC_CLIENT_ID / RATIO_UNICOMMERCE_UC_SECURITY_KEY: the
+  // `clientid`/`securitykey` values Unicommerce's own team issues to US
+  // ONCE — shared across every merchant, NOT per-merchant credentials (those
+  // are `ucCredentials.ucUsername`, sent as the `merchantid` header instead;
+  // see `UcOrderPushWorkerService`). Optional here because these are
+  // typically pending/placeholder values until Unicommerce's team provisions
+  // them for a given deployment; the outbound order-push call will simply
+  // fail (thrown, retried, eventually DLQ'd) until they're set.
+  RATIO_UNICOMMERCE_UC_CLIENT_ID: emptyAsUndefined(z.string()),
+  RATIO_UNICOMMERCE_UC_SECURITY_KEY: emptyAsUndefined(z.string()),
+  // UC_GENERICPROXY_BASE_URL: Unicommerce's fixed outbound gateway (order push
+  // + cancel push land at `<base>/uc/v1/order[/cancel]`). Defaults to the real
+  // gateway; override with a local mock URL for testing — mirrors
+  // FACEBOOK_CAPI_BASE_URL / WIZZY_API_BASE_URL's same override pattern.
+  UC_GENERICPROXY_BASE_URL: z.string().url().default('https://genericproxy.unicommerce.com'),
+  // RATIO_UNICOMMERCE_PUBLIC_BASE_URL: THIS backend's own publicly-reachable
+  // URL — i.e. where Unicommerce should send its inbound calls (authToken,
+  // products, updateInventory, etc). No sensible schema-level default (it's a
+  // local tunnel in dev, a real domain in production), but — matching
+  // RATIO_UNICOMMERCE_STOREFRONT_DOMAIN's precedent just above — kept OPTIONAL
+  // here so deployments without unicommerce enabled aren't forced to set it.
+  // `UcConnectController` throws a clear runtime error if this is unset when
+  // a merchant actually calls credentials/generate, rather than a silent
+  // wrong value: previously hardcoded to a placeholder domain that pointed
+  // nowhere real (found live — a merchant pasted it into Unicommerce and had
+  // no way to actually connect).
+  RATIO_UNICOMMERCE_PUBLIC_BASE_URL: emptyAsUndefined(z.string().url()),
+  // UC_RETRY_LADDER_BASE_SECONDS / UC_RETRY_LADDER_ATTEMPTS: the immediate
+  // retry ladder for outbound order/cancel pushes is `base^1, base^2, ...,
+  // base^attempts` seconds apart (default base=2, attempts=3 reproduces the
+  // original hardcoded 2s/4s/8s ladder exactly). Attempts is clamped to
+  // [3,5] — deliberately NOT allowed to be configured indefinitely large,
+  // since this is a synchronous immediate-retry burst (not the longer
+  // backoff a stuck job falls into afterward), and hammering a struggling
+  // downstream service with more than a handful of rapid attempts is a
+  // symptom of undersizing the problem, not something to paper over with a
+  // bigger number here.
+  UC_RETRY_LADDER_BASE_SECONDS: z.coerce.number().positive().default(2),
+  UC_RETRY_LADDER_ATTEMPTS: z.coerce.number().int().min(3).max(5).default(3),
+  // Unicommerce's `sla` field on the outbound order push has no Ratio-side
+  // source field (TRD §2.9, open item) — computed as a fixed offset from the
+  // order's own created_at date, pending a real Product-defined SLA policy.
+  UC_ORDER_SLA_OFFSET_DAYS: z.coerce.number().positive().default(2),
+  // Kafka — new infrastructure (§6 TRD), shared producer + per-module consumers.
+  // KAFKA_BROKERS: comma-separated list of <host>:<port> (defaults to the local
+  // KRaft broker from docker-compose.yml). KAFKA_CLIENT_ID: logical client name
+  // for all producers/consumers in this process.
+  KAFKA_BROKERS: z.string().default('localhost:9092'),
+  KAFKA_CLIENT_ID: z.string().default('ratio-app'),
+  // Per-module consumer gating: each module that owns a Kafka consumer uses its
+  // own env flag so different deployments can decide which consumers to run
+  // (e.g. shared API pods run the unicommerce consumer, dedicated workers run
+  // something else).
+  UNICOMMERCE_OUTBOUND_WORKER_ENABLED: z
+    .union([z.literal('true'), z.literal('false'), z.literal('1'), z.literal('0')])
+    .default('false')
+    .transform((v) => v === 'true' || v === '1'),
   // ─── loyalty app: Core Loyalty admin tooling ──────────────────────────────
   // LOYALTY_WORKER_ENABLED gates the module's SQS consumers (bulk ops, exports)
   // and the maintenance tick (balance sweep + daily snapshot). Consumers are
