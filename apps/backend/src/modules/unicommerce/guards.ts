@@ -4,12 +4,14 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Observable } from 'rxjs';
 import type { FastifyRequest } from 'fastify';
 import type { Env } from '../../config/env.schema';
+import { redactSensitive } from '../../core/common/redact';
 import { createMerchantTokenGuard } from '../../core/common/guards/merchant-token.guard';
 import type { MerchantsService } from '../../core/merchants/merchants.service';
 import { createWebhookSignatureGuard } from '../../core/webhooks/webhook-signature.guard';
@@ -17,6 +19,29 @@ import { UcAuthService } from './services/uc-auth.service';
 import { UcCredentialsService } from './services/credentials.service';
 import type { UnicommerceDatabase } from './db/types';
 import { UC_MERCHANTS } from './tokens';
+
+// DEBUG only (opt-in via LOG_LEVEL=debug) — the full inbound request exactly
+// as Unicommerce sent it: method, url, every header, and body, with
+// credential-shaped fields (apikey, securitykey, authorization, cookie)
+// redacted via redactSensitive. Shared by every UC-facing guard/controller
+// entry point so a real inbound call can be replayed/inspected without
+// re-deriving it from partial log lines.
+const inboundLog = new Logger('UnicommerceInboundRequest');
+// `req.url` can itself carry a credential in the query string (e.g.
+// GET /authToken?username=...&password=...) — redactSensitive only walks
+// object structures (headers/body), so the URL needs its own pass.
+function redactUrl(url: string | undefined): string | undefined {
+  return url?.replace(/([?&](?:password|apikey|securitykey|token)=)[^&]*/gi, '$1***redacted***');
+}
+export function logInboundRequest(req: FastifyRequest): void {
+  inboundLog.debug({
+    msg: 'unicommerce inbound request',
+    method: req.method,
+    url: redactUrl(req.url),
+    headers: redactSensitive(req.headers),
+    body: redactSensitive(req.body),
+  });
+}
 
 /**
  * Validates Ratio's own webhook HMAC signature on inbound webhook deliveries
@@ -63,6 +88,7 @@ export class UcApiKeyGuard implements CanActivate {
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
     const req = ctx.switchToHttp().getRequest<FastifyRequest & { ucMerchantId?: string }>();
+    logInboundRequest(req);
     const apiKey = req.headers['apikey'] as string | undefined;
     if (!apiKey) throw new UnauthorizedException('missing apiKey header');
 

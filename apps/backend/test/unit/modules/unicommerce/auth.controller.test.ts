@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { UcAuthController } from '../../../../src/modules/unicommerce/controllers/auth.controller';
 
+// Handlers now also take @Req() (for inbound debug logging) — a minimal
+// stand-in is enough since logInboundRequest only reads method/url/headers/body.
+const fakeReq = { method: 'GET', url: '/unicommerce/api/v1/authToken', headers: {}, body: undefined } as never;
+
 describe('UcAuthController', () => {
   it('returns status and accessToken on a successful auth', async () => {
     const auth = {
@@ -8,7 +12,7 @@ describe('UcAuthController', () => {
     };
     const controller = new UcAuthController(auth as never, { record: vi.fn() } as never);
 
-    const result = await controller.getAuthToken({ username: 'u', password: 'p' });
+    const result = await controller.getAuthToken({ username: 'u', password: 'p' }, fakeReq);
 
     expect(result).toEqual({ status: 'SUCCESS', accessToken: 'tok-1' });
   });
@@ -18,7 +22,7 @@ describe('UcAuthController', () => {
     const eventLog = { record: vi.fn() };
     const controller = new UcAuthController(auth as never, eventLog as never);
 
-    const result = await controller.postAuthToken({ username: 'u', password: 'wrong' });
+    const result = await controller.postAuthToken({ username: 'u', password: 'wrong' }, fakeReq);
 
     expect(result).toEqual({ status: 'INVALID_CREDENTIALS' });
     expect(eventLog.record).not.toHaveBeenCalled();
@@ -34,7 +38,7 @@ describe('UcAuthController', () => {
     const eventLog = { record: vi.fn().mockRejectedValue(new Error('transient DB error')) };
     const controller = new UcAuthController(auth as never, eventLog as never);
 
-    const result = await controller.getAuthToken({ username: 'u', password: 'p' });
+    const result = await controller.getAuthToken({ username: 'u', password: 'p' }, fakeReq);
 
     expect(result).toEqual({ status: 'SUCCESS', accessToken: 'tok-1' });
   });

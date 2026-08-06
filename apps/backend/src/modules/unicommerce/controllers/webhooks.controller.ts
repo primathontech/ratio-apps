@@ -12,17 +12,19 @@ import { UC_WEBHOOKS } from '../tokens';
  * delivers to, missing from every one of the 16 original tasks (each task
  * built a `WebhookHandler` registered with `WebhooksService`, but nothing
  * ever exposed the endpoint Ratio actually POSTs to). Single endpoint,
- * dispatch is by `envelope.event_type` inside `WebhooksService`, matching
- * the `_template`/`google` convention exactly. Must return 200 within 5s.
+ * dispatch is by `envelope.event_type` inside `WebhooksService`. Route is
+ * deliberately `unicommerce/webhooks` rather than the `<slug>/api/v1/oauth/webhook`
+ * shape `google`/`meta` use for this same purpose — a house-style choice
+ * made for this module specifically, not a bug. Must return 200 within 5s.
  */
-@Controller('unicommerce/api/v1/oauth')
+@Controller('unicommerce/webhooks')
 @UseGuards(UcWebhookSignatureGuard)
 export class UcWebhooksController {
   constructor(
     @Inject(UC_WEBHOOKS) private readonly webhooks: WebhooksService<UnicommerceDatabase>,
   ) {}
 
-  @Post('webhook')
+  @Post()
   @HttpCode(200)
   async receive(
     @Body(new ZodValidationPipe(webhookEnvelopeSchema as unknown as ZodType<WebhookEnvelope>))

@@ -1,7 +1,9 @@
-import { Body, Controller, Get, HttpCode, Logger, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Logger, Post, Query, Req } from '@nestjs/common';
+import type { FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { RawResponse } from '../../../core/common/decorators/raw-response.decorator';
 import { ZodValidationPipe } from '../../../core/common/pipes/zod-validation.pipe';
+import { logInboundRequest } from '../guards';
 import { UcEventLogService } from '../services/event-log.service';
 import { UcAuthService } from '../services/uc-auth.service';
 
@@ -23,7 +25,9 @@ export class UcAuthController {
   @HttpCode(200)
   async getAuthToken(
     @Query(new ZodValidationPipe(authQuerySchema)) query: z.infer<typeof authQuerySchema>,
+    @Req() req: FastifyRequest,
   ) {
+    logInboundRequest(req);
     return this.recordAndRespond(query.username, query.password);
   }
 
@@ -31,7 +35,9 @@ export class UcAuthController {
   @HttpCode(200)
   async postAuthToken(
     @Body(new ZodValidationPipe(authBodySchema)) body: z.infer<typeof authBodySchema>,
+    @Req() req: FastifyRequest,
   ) {
+    logInboundRequest(req);
     return this.recordAndRespond(body.username, body.password);
   }
 
