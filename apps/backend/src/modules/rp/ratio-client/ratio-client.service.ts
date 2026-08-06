@@ -302,6 +302,10 @@ export class RpRatioClientService {
         method: 'POST',
         accessToken,
         body,
+        // Safe here: a non-2xx body from order-create is a validation-error list
+        // (e.g. "customer.email must be an email"), never a secret-bearing OAuth
+        // response — worth seeing in logs instead of a bare status code.
+        logErrorBody: true,
       });
     } catch (err) {
       // Never let an error slip through as if it were a result (that lets normalizeOrder

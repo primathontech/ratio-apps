@@ -7,6 +7,14 @@ export interface RatioRequestOptions {
   accessToken?: string;
   headers?: Record<string, string>;
   timeoutMs?: number;
+  /**
+   * Opt-in exception to Finding #12 (below) for call sites where the upstream body is
+   * known to be a validation-error list, not something that could echo a secret (OAuth
+   * token/code exchanges must never set this). When true, a non-2xx response body is
+   * included in the log and thrown exception so callers aren't stuck debugging a bare
+   * status code.
+   */
+  logErrorBody?: boolean;
 }
 
 /**
@@ -77,13 +85,20 @@ export class RatioClient {
       }
 
       if (!res.ok) {
-        // Finding #12: do NOT log the upstream body verbatim.
-        this.logger.error({ msg: 'ratio upstream error', url, status: res.status });
+        // Finding #12: do NOT log the upstream body verbatim, UNLESS the caller opted in
+        // via logErrorBody (only safe for endpoints whose error body is a validation-error
+        // list, never an OAuth/token exchange that could echo a secret).
+        this.logger.error({
+          msg: 'ratio upstream error',
+          url,
+          status: res.status,
+          ...(options.logErrorBody ? { body: json } : {}),
+        });
         throw new HttpException(
           {
             message: 'ratio upstream error',
             error_code: 'RATIO_UPSTREAM_ERROR',
-            details: { status: res.status },
+            details: { status: res.status, ...(options.logErrorBody ? { body: json } : {}) },
           },
           502,
         );
