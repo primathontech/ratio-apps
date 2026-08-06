@@ -53,6 +53,13 @@ export class UcRatioApiService {
     while (offset < end) {
       const take = Math.min(this.requestCap, end - offset);
       const env = await this.ratio.request(
+        // NOT a typo — Ratio's gateway genuinely routes the Products
+        // resource at double-`v1`; a single `/api/v1/products` 404s
+        // ("Cannot GET /api/v1/products"), confirmed live. Every other
+        // connector module that calls this same resource (google's
+        // ratio-products.service.ts, wizzy's ratio-products.service.ts,
+        // meta's catalog-source.service.ts) uses this identical path —
+        // do not "fix" this to match the Orders API's single-`v1` shape.
         `/api/v1/v1/products?offset=${offset}&limit=${take}&show_variants=true&status=active`,
         envelopeSchema,
         { accessToken },
@@ -67,6 +74,12 @@ export class UcRatioApiService {
 
   async updateVariantInventory(merchantId: string, variantId: string, quantity: number): Promise<void> {
     const accessToken = await this.tokens.getAccessToken(merchantId);
+    // Reverted to double-v1 to match the confirmed-correct Products path
+    // above (same resource family) — NOT independently verified against the
+    // live API the way /api/v1/v1/products was, since no other connector
+    // module calls a variants endpoint directly to compare against. Restored
+    // to its original, prior-working state rather than leave an unverified
+    // guess in place.
     await this.ratio.request(`/api/v1/v1/variants/${encodeURIComponent(variantId)}`, looseSchema, {
       accessToken,
       method: 'PUT',

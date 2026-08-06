@@ -9,7 +9,7 @@ function fakeTokens(token = 'tok'): UcRatioTokenProvider {
 }
 
 describe('UcRatioApiService.listProducts', () => {
-  it('GETs /api/v1/v1/products with offset/limit/show_variants/status params (not `page` — echoed but not applied server-side)', async () => {
+  it('GETs /api/v1/v1/products (double-v1 is Ratio\'s real route for this resource, not a bug — see uc-ratio-api.service.ts) with offset/limit/show_variants/status params (not `page` — echoed but not applied server-side)', async () => {
     const request = vi.fn().mockResolvedValue([{ id: 'p1' }, { id: 'p2' }]);
     const svc = new UcRatioApiService(fakeTokens('tok'), { request } as unknown as RatioClient);
 
