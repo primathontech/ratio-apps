@@ -4,8 +4,10 @@ import {
   Injectable,
   type NestInterceptor,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { map, type Observable } from 'rxjs';
+import { RAW_RESPONSE_KEY } from '../decorators/raw-response.decorator';
 
 export interface ResponseEnvelope<T> {
   status_code: number;
@@ -20,6 +22,11 @@ function isRedirectShape(data: unknown): data is { url: string; statusCode?: num
 
 /**
  * Wraps controller return values in the standard envelope.
+ * - Routes/controllers decorated with `@RawResponse()` (see
+ *   `../decorators/raw-response.decorator.ts`) bypass this entirely — their
+ *   return value is passed through completely unmodified. Used by
+ *   inbound integration endpoints (e.g. the Unicommerce-facing controllers)
+ *   that must return a third-party platform's own documented flat contract.
  * - Already-enveloped responses pass through unchanged.
  * - @Redirect() return shapes ({ url, statusCode? }) pass through so NestJS's
  *   redirect handler can consume them.
@@ -31,6 +38,8 @@ function isRedirectShape(data: unknown): data is { url: string; statusCode?: num
  */
 @Injectable()
 export class ResponseInterceptor implements NestInterceptor {
+  constructor(private readonly reflector: Reflector) {}
+
   intercept(ctx: ExecutionContext, next: CallHandler): Observable<unknown> {
     const http = ctx.switchToHttp();
     const req = http.getRequest<FastifyRequest>();
@@ -38,6 +47,14 @@ export class ResponseInterceptor implements NestInterceptor {
     const requestId = (req as { id?: string }).id;
     if (requestId) {
       res.header('x-request-id', requestId);
+    }
+
+    const isRaw = this.reflector.getAllAndOverride<boolean>(RAW_RESPONSE_KEY, [
+      ctx.getHandler(),
+      ctx.getClass(),
+    ]);
+    if (isRaw) {
+      return next.handle();
     }
 
     return next.handle().pipe(

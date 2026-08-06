@@ -1,6 +1,7 @@
 import { Body, Controller, HttpCode, Logger, Param, Post, Req, UseGuards } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { RawResponse } from '../../../core/common/decorators/raw-response.decorator';
 import { ZodValidationPipe } from '../../../core/common/pipes/zod-validation.pipe';
 import { UcApiKeyGuard } from '../guards';
 import { UcCredentialsService } from '../services/credentials.service';
@@ -29,6 +30,7 @@ type StatusRequest = z.infer<typeof statusSchema>;
 
 @Controller('unicommerce/api/v1')
 @UseGuards(UcApiKeyGuard)
+@RawResponse()
 export class UcStatusController {
   private readonly logger = new Logger(UcStatusController.name);
 

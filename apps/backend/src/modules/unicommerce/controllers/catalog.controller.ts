@@ -1,5 +1,6 @@
 import { Controller, Get, Logger, Query, Req, UseGuards } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
+import { RawResponse } from '../../../core/common/decorators/raw-response.decorator';
 import { UcApiKeyGuard } from '../guards';
 import { UcCatalogService } from '../services/catalog.service';
 import { UcEventLogService } from '../services/event-log.service';
@@ -7,6 +8,7 @@ import { UcFeatureFlagsService } from '../services/feature-flags.service';
 
 @Controller('unicommerce/api/v1')
 @UseGuards(UcApiKeyGuard)
+@RawResponse()
 export class UcCatalogController {
   private readonly logger = new Logger(UcCatalogController.name);
 

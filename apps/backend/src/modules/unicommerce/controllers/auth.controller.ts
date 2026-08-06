@@ -1,5 +1,6 @@
 import { Body, Controller, Get, HttpCode, Logger, Post, Query } from '@nestjs/common';
 import { z } from 'zod';
+import { RawResponse } from '../../../core/common/decorators/raw-response.decorator';
 import { ZodValidationPipe } from '../../../core/common/pipes/zod-validation.pipe';
 import { UcEventLogService } from '../services/event-log.service';
 import { UcAuthService } from '../services/uc-auth.service';
@@ -9,6 +10,7 @@ const authBodySchema = authQuerySchema;
 
 /** Both endpoints do the exact same thing — Unicommerce's spec offers both HTTP methods for the same operation. */
 @Controller('unicommerce/api/v1')
+@RawResponse()
 export class UcAuthController {
   private readonly logger = new Logger(UcAuthController.name);
 

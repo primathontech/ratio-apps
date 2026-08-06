@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
 import fastifyStatic from '@fastify/static';
+import { Reflector } from '@nestjs/core';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { GlobalExceptionFilter } from '../core/common/filters/global-exception.filter';
@@ -20,7 +21,7 @@ import { APPS } from './apps';
  */
 export async function configureApp(app: NestFastifyApplication): Promise<void> {
   app.useGlobalFilters(new GlobalExceptionFilter());
-  app.useGlobalInterceptors(new ResponseInterceptor());
+  app.useGlobalInterceptors(new ResponseInterceptor(app.get(Reflector)));
   app.useGlobalPipes(new ZodValidationPipe());
 
   // Cookie parser — the OAuth callback sets HttpOnly cookies, and other
