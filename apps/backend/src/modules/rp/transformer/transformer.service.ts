@@ -416,6 +416,12 @@ export class RpTransformerService {
           sku: li.sku as string | undefined,
           tax_lines: li.tax_lines,
           discount_allocations: li.discount_allocations,
+          // Required by Ratio's order-create schema; RP's exchange-order line items never
+          // carry either flag (not modeled in RP's Order schema), so default to Shopify's
+          // own defaults for a physical, taxable good rather than leaving them undefined
+          // and failing validation outright.
+          taxable: li.taxable ?? true,
+          requires_shipping: li.requires_shipping ?? true,
         }))
       : [];
 
@@ -450,6 +456,10 @@ export class RpTransformerService {
       total_price: o.price != null ? String(o.price) : o.total_price != null ? String(o.total_price) : undefined,
       note_attributes: o.note_attributes,
       name: o.name,
+      // Required by Ratio's order-create schema. This is Shopify's own "test order"
+      // flag (bogus-gateway/dev-store orders) — RP's exchange orders are always real
+      // business transactions, so this is always false, never derived from `o`.
+      test: false,
     };
     for (const k of Object.keys(dto)) if (dto[k] === undefined) delete dto[k];
     return dto;

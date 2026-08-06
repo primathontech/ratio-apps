@@ -48,6 +48,17 @@ export class RpMerchantsService {
         refreshTokenEnc: data.refreshTokenEnc,
         expiresAt: data.expiresAt,
         active: true,
+        // A reinstall re-runs this OAuth callback and can silently reset `domain` to
+        // the merchantId placeholder (see rp-auth.controller.ts) if Ratio's token
+        // response doesn't carry the real domain — but rpRegistered previously stayed
+        // whatever it was from the PRIOR install, so RpAdminController.me() kept
+        // reporting "already registered" and the SPA never re-showed the registration
+        // screen to let the merchant re-confirm/repair the real domain. Force it back
+        // to false on every reinstall so registration is always re-confirmed —
+        // checkExistsInRp look ups by gokwik_merchant_id (domain-independent), so this
+        // safely resolves to 'login' for an existing merchant, never risking a
+        // duplicate signup.
+        rpRegistered: false,
         updatedAt: sql`CURRENT_TIMESTAMP(3)`,
       })
       .execute();
