@@ -44,13 +44,12 @@ export class UcOrderCancelController {
   @ApiOperation({
     summary: 'Cancel order items',
     description:
-      '**Direction: Unicommerce → UC connector app.**\n\n' +
-      'Called BY Unicommerce when the seller cancels inside UC. Item-wise, not whole-order-only: each ' +
-      "`orderItemId` resolves to a Ratio order, the cancelled `quantity` is decremented from the item's remaining " +
-      'quantity, and the cancelled items are tagged `uc_originated` so the outbound cancel-push loop-prevention ' +
-      'check can skip them. When EVERY item of an order is cancelled the whole Ratio order is cancelled; when some ' +
-      'survive, the Ratio order is PATCHed down to only the surviving line items. UC sends no reason field — a fixed ' +
-      'fallback reason is used. Per-item failures never abort the batch — they surface in `orderItems[].errorMessage`.',
+      'Direction: Unicommerce to UC connector app. Called when the seller cancels inside UC, item-wise, not ' +
+      'whole-order-only. Each orderItemId resolves to a Ratio order, the cancelled quantity is decremented, ' +
+      'and the item is tagged uc_originated so the outbound cancel-push loop-prevention check can skip it. ' +
+      'When every item on an order is cancelled the whole order is cancelled, when some survive the order is ' +
+      'patched down to only the surviving line items. Unicommerce sends no reason field, a fixed fallback ' +
+      'reason is used. Per-item failures never abort the batch, they surface in orderItems errorMessage.',
   })
   @ApiHeader({
     name: 'apikey',

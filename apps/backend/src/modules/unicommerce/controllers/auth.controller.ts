@@ -28,10 +28,10 @@ export class UcAuthController {
   @ApiOperation({
     summary: 'Authenticate (GET variant)',
     description:
-      '**Direction: Unicommerce → UC connector app.**\n\n' +
-      'Called BY Unicommerce at connect time to exchange its Ratio-issued username/password for a 48h access token. ' +
-      'No `apikey` header — this is the only inbound endpoint that does not require one. ' +
-      'The returned `accessToken` is echoed back by Unicommerce as the `apikey` header on every other inbound call.',
+      'Direction: Unicommerce to UC connector app. Called at connect time to exchange its Ratio-issued ' +
+      'username and password for a 48h access token. No apikey header, this is the only inbound endpoint that ' +
+      'does not require one. The returned accessToken is sent back by Unicommerce as the apikey header on ' +
+      'every other inbound call.',
   })
   @ApiQuery({
     name: 'username',
@@ -86,10 +86,10 @@ export class UcAuthController {
   @ApiOperation({
     summary: 'Authenticate (POST variant)',
     description:
-      '**Direction: Unicommerce → UC connector app.**\n\n' +
-      'Called BY Unicommerce at connect time to exchange its Ratio-issued username/password for a 48h access token. ' +
-      "Identical to the GET variant — Unicommerce's spec offers both HTTP methods for the same operation. " +
-      'No `apikey` header — this is the only inbound endpoint that does not require one.',
+      'Direction: Unicommerce to UC connector app. Called at connect time to exchange its Ratio-issued ' +
+      'username and password for a 48h access token. Identical to the GET variant, Unicommerce offers both ' +
+      'HTTP methods for the same operation. No apikey header, this is the only inbound endpoint that does not ' +
+      'require one.',
   })
   @ApiBody({
     required: true,

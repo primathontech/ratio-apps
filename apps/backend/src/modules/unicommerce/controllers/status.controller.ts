@@ -50,16 +50,14 @@ export class UcStatusController {
   @ApiOperation({
     summary: 'Order status notification',
     description:
-      '**Direction: Unicommerce → UC connector app.**\n\n' +
-      "Called BY Unicommerce on every status change (no auto-retry on UC's side — a non-success response stops all " +
-      "further status notifications for that order until the merchant manually retries inside UC). Each item's UC " +
-      "`status` (+ `IsReverse`, capital I) is mapped onto Ratio's `fulfillment_status` (e.g. DISPATCHED/SHIPPED → " +
-      '`fulfilled`, DELIVERED → `delivered`, RETURN_EXPECTED/RETURN_ACKNOWLEDGED → `return_in_progress`, and the ' +
-      'reverse-map: CREATED/COURIER_ALLOCATED → `return_pickup_scheduled`, COMPLETE → `restocked`, NOT_RECEIVED → ' +
-      '`return_failed`). Pre-dispatch forward statuses (CREATED, PICKED, PACKED, ...) map to no write. Out-of-order ' +
-      'or duplicate updates are short-circuited. ' +
-      'TOP-LEVEL `status` IS ALWAYS PINNED TO "SUCCESS" (confirmed by UC\'s team) — real per-item failures go into ' +
-      '`orderItems[].errorMessage` (`unknown orderItemId`, `no_change`, `unrecognized status`, `failed to apply update`).',
+      'Direction: Unicommerce to UC connector app. Called on every status change. There is no auto-retry on ' +
+      'Unicommerce\'s side, a non-success response stops further notifications for that order until the ' +
+      'merchant manually retries in UC. Out-of-order or duplicate updates are skipped. Unicommerce\'s status ' +
+      'is mapped onto Ratio\'s fulfillment status: dispatched or shipped becomes fulfilled, delivered becomes ' +
+      'delivered, return expected or acknowledged becomes return in progress. On the reverse flow, created or ' +
+      'courier allocated becomes return pickup scheduled, complete becomes restocked, not received becomes ' +
+      'return failed. Pre-dispatch statuses such as created, picked and packed result in no write. The ' +
+      'top-level status is always SUCCESS, real failures appear per item in orderItems errorMessage.',
   })
   @ApiHeader({
     name: 'apikey',

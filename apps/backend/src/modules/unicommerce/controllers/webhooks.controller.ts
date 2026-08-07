@@ -31,19 +31,14 @@ export class UcWebhooksController {
   @ApiOperation({
     summary: 'Receive a Ratio webhook delivery (topic-routed internally)',
     description:
-      '**Direction: Ratio → UC connector app** (this is the ONLY endpoint of the 10 that Ratio calls, not Unicommerce). ' +
-      '**Side effect — a SECOND direction:** for `orders/create` and `orders/cancelled`, handling this delivery makes ' +
-      'THE UC CONNECTOR APP turn around and call OUT to Unicommerce (UC connector app → Unicommerce, POST genericproxy.unicommerce.com ' +
-      "/.../order or /.../order/cancel) to push the order/cancel — that outbound call is not itself one of this API's " +
-      "10 documented routes (it's an HTTP call UC connector app makes, not one it receives), which is why it's called out " +
-      'here instead of having its own Swagger entry.\n\n' +
-      "Called BY Ratio (the platform), not by Unicommerce — this is the inbound receiver for the module's webhook " +
-      'handlers. Dispatch is by `envelope.event_type` inside `WebhooksService`; deliveries are deduped (by ' +
-      '`x-webhook-id` + payload fingerprint, or a fallback key derived from the resource), retried, and self-healing ' +
-      'through the webhook-log transaction. Must return 200 within 5s. Known topics routed: ' +
-      '`orders/create` (outbound order push to UC), `orders/cancelled` (outbound cancel push to UC), and the product ' +
-      'webhooks `products/create` / `products/update` (incremental SKU-cache sync). A 200 `{ ok: true }` is returned ' +
-      'as soon as the delivery is accepted, before any handler side-effect completes.',
+      'Direction: Ratio to UC connector app. For orders create and orders cancelled events, handling this ' +
+      'delivery also triggers an outbound push from the UC connector app to Unicommerce, at ' +
+      'genericproxy.unicommerce.com. Called by Ratio, not by Unicommerce, this is the inbound receiver for ' +
+      'the module\'s webhook handlers. Dispatch is by the envelope event type. Deliveries are deduped by ' +
+      'webhook id and payload fingerprint, retried, and self-healing through the webhook log transaction. ' +
+      'Must return 200 within 5 seconds. Known topics routed: orders create for outbound order push, orders ' +
+      'cancelled for outbound cancel push, and products create or products update for incremental SKU cache ' +
+      'sync.',
   })
   @ApiHeader({
     name: 'x-ratio-hmac-sha256',

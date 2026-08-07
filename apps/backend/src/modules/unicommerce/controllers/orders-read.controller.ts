@@ -25,17 +25,13 @@ export class UcOrdersReadController {
   @ApiOperation({
     summary: 'Bulk order pull (orderStatus=CREATED) OR order status lookup (orderIds=...)',
     description:
-      '**Direction: Unicommerce → UC connector app.**\n\n' +
-      "Called BY Unicommerce on the SAME path for two distinct operations (confirmed against UC's real contract — " +
-      'there is no separate `/orders/status` path):\n' +
-      '  1. BULK PULL — `orderStatus=CREATED` (plus optional date range) returns the page of open/unfulfilled Ratio ' +
-      "orders as-is (full Shopify-shaped objects). Runs on UC's ~10-minute cycle.\n" +
-      "  2. STATUS LOOKUP — `orderIds=<comma-separated ids>` returns each requested order mapped into UC's 6-value " +
-      '`orderStatus` vocabulary (CREATED | DISPATCHED | DELIVERED | RETURN_REQUESTED | COURIER_RETURN | CANCELLED) ' +
-      'plus a `saleOrderCode` and the full order object underneath. A single id is a single-order lookup; multiple ' +
-      'ids are resolved concurrently.\n' +
-      'When `orderIds` is present it wins; otherwise the bulk-pull path runs. Both degrade to `{ orders: [] }` on any ' +
-      'downstream failure rather than a 500.',
+      'Direction: Unicommerce to UC connector app. Called on the same path for two operations, there is no ' +
+      'separate order status path. Bulk pull: orderStatus equal to CREATED, plus an optional date range, ' +
+      'returns the page of open, unfulfilled Ratio orders as-is, on UC\'s roughly 10-minute cycle. Status ' +
+      'lookup: orderIds as a comma-separated list returns each requested order mapped into Unicommerce\'s ' +
+      '6-value orderStatus vocabulary, plus a saleOrderCode. A single id is a single lookup, multiple ids ' +
+      'resolve concurrently. When orderIds is present it wins, otherwise the bulk pull runs. Both degrade to ' +
+      'an empty orders list on any downstream failure rather than a 500.',
   })
   @ApiHeader({
     name: 'apikey',
