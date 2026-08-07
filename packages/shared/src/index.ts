@@ -13,6 +13,7 @@ export * from './constants/google-events';
 export * from './constants/loyalty-events';
 // meta vendor (scaffolded) — vendor-specific config/events + CAPI ingest schema.
 export * from './constants/meta-events';
+export * from './constants/kafka-topics';
 export * from './constants/moengage-events';
 export * from './constants/openstore-events';
 // posthog + moengage vendors (scaffolded).
@@ -31,6 +32,7 @@ export * from './schemas/loyalty-export';
 export * from './schemas/loyalty-rules';
 export * from './schemas/merchant';
 export * from './schemas/meta-config';
+export * from './schemas/queue-envelope';
 export * from './schemas/moengage-config';
 export * from './schemas/posthog-config';
 // wizzy vendor (AI search & discovery) — search/autocomplete API + storefront config schemas.

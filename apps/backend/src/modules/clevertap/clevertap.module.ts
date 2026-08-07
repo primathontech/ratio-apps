@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Env } from '../../config/env.schema';
 import { createAppProviders } from '../../core/factories/app-module.factory';
+import { KafkaService } from '../../core/kafka/kafka.service';
 import { ClevertapBootstrap } from './clevertap.bootstrap';
 import { ClevertapConfigController } from './config/config.controller';
 import { ClevertapConfigService } from './config/config.service';
@@ -11,6 +12,7 @@ import {
   ClevertapEventsClient,
   type ClevertapEventsClientFactory,
 } from './events/clevertap-events.client';
+import { ClevertapForwardingWorker } from './events/clevertap-forwarding.worker';
 import { ClevertapForwardingService } from './events/forwarding.service';
 import { ClevertapMerchantTokenGuard, ClevertapWebhookSignatureGuard } from './guards';
 import { CLEVERTAP_DB_TOKEN, ClevertapKyselyModule } from './kysely.module';
@@ -26,6 +28,7 @@ import { RatioProductSourceClient } from './sync/product-source.client';
 import {
   CLEVERTAP_APP_ENABLED,
   CLEVERTAP_CRYPTO,
+  CLEVERTAP_FORWARD_WORKER_ENABLED,
   CLEVERTAP_MERCHANTS,
   CLEVERTAP_OAUTH,
   CLEVERTAP_PRODUCT_SOURCE,
@@ -78,6 +81,8 @@ export {
     ClevertapSdkService,
     ClevertapBootstrap,
     ClevertapForwardingService,
+    ClevertapForwardingWorker,
+    KafkaService,
     ClevertapCatalogSyncService,
     ClevertapCatalogDirtyScheduler,
     {
@@ -85,6 +90,12 @@ export {
       inject: [ConfigService],
       useFactory: (config: ConfigService<Env, true>): boolean =>
         config.get('CLEVERTAP_APP_ENABLED', { infer: true }),
+    },
+    {
+      provide: CLEVERTAP_FORWARD_WORKER_ENABLED,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<Env, true>): boolean =>
+        config.get('CLEVERTAP_FORWARD_WORKER_ENABLED', { infer: true }),
     },
     {
       provide: CLEVERTAP_EVENTS_CLIENT_FACTORY,

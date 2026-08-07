@@ -257,11 +257,11 @@ the per-module wrapper pattern).
 ## 7. Deployment placement
 
 - **API placement:** `shared` — append `clevertap` to the common API Deployment's `ENABLED_MODULES`.
-- **Worker placement:** `none` — no queue consumer; forwarding is inline.
+- **Worker placement:** `shared-api` — the opt-in CleverTap forwarding consumer (`CLEVERTAP_FORWARD_WORKER_ENABLED`, default off) runs in the shared API pods; forwarding is inline when the flag is off.
 - **Runtime command / flags:** `main.js`, no worker flag. Same immutable image.
 - **Routing / probes:** existing shared-API ALB rules already cover `/<slug>/*`; no new rules. Public paths `/clevertap/sdk/*` rely on the existing global CORS/`ACAO: *` handling.
 - **Secrets:** the six `RATIO_CLEVERTAP_*` values into the shared API's secret store. No new IAM, no queues, no S3.
-- **Scaling signals:** one cached pixel GET per storefront page + a handful of webhook POSTs per order. Same profile as MoEngage/PostHog, both `shared`/`none`. Revisit only if outbound forwarding volume warrants retry isolation (would become `shared-api`).
+- **Scaling signals:** one cached pixel GET per storefront page + a handful of webhook POSTs per order. When `CLEVERTAP_FORWARD_WORKER_ENABLED` is off the profile matches MoEngage/PostHog (inline forwarding); enabling it adds the Kafka forwarding consumer in the shared-API pods (`shared-api`) for retry/DLQ isolation of outbound delivery.
 - **External delivery change:** add `clevertap` to `ENABLED_MODULES` and add the secret block in the **external EKS GitOps/pipeline configuration**. **Do not create Kubernetes manifests in this repo.**
 
 ---

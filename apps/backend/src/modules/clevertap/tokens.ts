@@ -7,3 +7,6 @@ export const CLEVERTAP_RATIO_OAUTH_HTTP = Symbol.for('ratio-app:clevertap:ratio-
 export const CLEVERTAP_RATIO_OAUTH_CREDS = Symbol.for('ratio-app:clevertap:ratio-oauth-creds');
 export const CLEVERTAP_PRODUCT_SOURCE = Symbol.for('ratio-app:clevertap:product-source');
 export const CLEVERTAP_APP_ENABLED = Symbol.for('ratio-app:clevertap:app-enabled');
+export const CLEVERTAP_FORWARD_WORKER_ENABLED = Symbol.for(
+  'ratio-app:clevertap:forward-worker-enabled',
+);

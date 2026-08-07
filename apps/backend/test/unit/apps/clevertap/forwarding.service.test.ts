@@ -699,3 +699,45 @@ describe('ClevertapEventsClient — CleverTap diagnostics reach the operator', (
     expect((res.error ?? '').length).toBeLessThan(400);
   });
 });
+
+describe('ClevertapForwardingService — enqueue path (worker enabled)', () => {
+  it('writes a queued outbox row with the payload instead of uploading inline', async () => {
+    const fake = makeFakeTrx({ config: config() });
+    const uploader = makeFakeUploader();
+    const service = new ClevertapForwardingService(makeFakeCrypto(), () => uploader, true, true);
+
+    await service.forwardOrder(
+      CLEVERTAP_WEBHOOK_TOPICS.ordersPaid,
+      ordersPaidPayload,
+      MERCHANT,
+      fake.trx,
+    );
+
+    expect(uploader.calls).toHaveLength(0);
+    expect(fake.rows[0]).toMatchObject({
+      merchantId: MERCHANT,
+      topic: 'orders/paid',
+      clevertapEvent: 'Charged',
+      status: 'queued',
+    });
+    const records = JSON.parse(fake.rows[0]?.payload as string);
+    expect(Array.isArray(records)).toBe(true);
+    expect(records.length).toBeGreaterThan(0);
+  });
+
+  it('stays synchronous (uploads inline, no outbox row) when the worker flag is off', async () => {
+    const fake = makeFakeTrx({ config: config() });
+    const uploader = makeFakeUploader();
+    const service = new ClevertapForwardingService(makeFakeCrypto(), () => uploader, true, false);
+
+    await service.forwardOrder(
+      CLEVERTAP_WEBHOOK_TOPICS.ordersPaid,
+      ordersPaidPayload,
+      MERCHANT,
+      fake.trx,
+    );
+
+    expect(uploader.calls).toHaveLength(1);
+    expect(fake.rows[0]?.status).not.toBe('queued');
+  });
+});

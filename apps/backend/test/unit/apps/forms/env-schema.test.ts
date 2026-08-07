@@ -25,6 +25,8 @@ const validEnv = {
   ...app('RP', '5174'),
   ...app('LOYALTY', '5174'),
   ...app('FORMS', '5174'),
+  ...app('UNICOMMERCE', '5174'),
+  ...app('CLEVERTAP', '5174'),
 };
 
 describe('FORMS_* env boot validation', () => {

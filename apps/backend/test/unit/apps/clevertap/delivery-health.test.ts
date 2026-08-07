@@ -31,6 +31,7 @@ describe('ClevertapConfigService.getDeliveryHealth', () => {
       sent: 0,
       failed: 0,
       skipped: 0,
+      queued: 0,
       total: 0,
       successRate: null,
       perTopic: [],
@@ -52,6 +53,8 @@ describe('ClevertapConfigService.getDeliveryHealth', () => {
     seed({ topic: 'orders/paid', status: 'failed', error: 'boom', sentAt: recent(5) });
     seed({ topic: 'products/create', status: 'skipped', sentAt: recent(30) });
     seed({ topic: 'products/create', status: 'failed', error: 'nope', sentAt: recent(2) });
+    seed({ topic: 'orders/paid', status: 'queued', sentAt: recent(1) });
+    seed({ topic: 'orders/paid', status: 'enqueued', sentAt: recent(1) });
     seed({ topic: 'orders/paid', status: 'sent', sentAt: outOfWindow });
 
     const h = await service.getDeliveryHealth(MERCHANT_ID);
@@ -59,6 +62,7 @@ describe('ClevertapConfigService.getDeliveryHealth', () => {
     expect(h.sent).toBe(2);
     expect(h.failed).toBe(2);
     expect(h.skipped).toBe(1);
+    expect(h.queued).toBe(2);
     expect(h.total).toBe(5);
     expect(h.successRate).toBe(40);
 

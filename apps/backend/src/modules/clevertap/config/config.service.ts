@@ -48,6 +48,7 @@ export interface ClevertapDeliveryHealth {
   sent: number;
   failed: number;
   skipped: number;
+  queued: number;
   total: number;
   successRate: number | null;
   perTopic: ClevertapDeliveryTopicHealth[];
@@ -198,6 +199,7 @@ export class ClevertapConfigService {
     let sent = 0;
     let failed = 0;
     let skipped = 0;
+    let queued = 0;
     const topics = new Map<
       string,
       { topic: string; sent: number; failed: number; skipped: number; lastAt: Date | null }
@@ -207,6 +209,7 @@ export class ClevertapConfigService {
       if (r.status === 'sent') sent += 1;
       else if (r.status === 'failed') failed += 1;
       else if (r.status === 'skipped') skipped += 1;
+      else if (r.status === 'queued' || r.status === 'enqueued') queued += 1;
 
       const t = topics.get(r.topic) ?? {
         topic: r.topic,
@@ -249,6 +252,7 @@ export class ClevertapConfigService {
       sent,
       failed,
       skipped,
+      queued,
       total,
       successRate: total === 0 ? null : Math.round((sent / total) * 100),
       perTopic,

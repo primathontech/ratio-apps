@@ -178,6 +178,20 @@ const baseEnv = z.object({
   // for all producers/consumers in this process.
   KAFKA_BROKERS: z.string().default('localhost:9092'),
   KAFKA_CLIENT_ID: z.string().default('ratio-app'),
+  // Prod transport: managed Kafka (MSK / Confluent) terminates TLS and requires
+  // SASL. Unset locally (PLAINTEXT to the KRaft broker in docker-compose).
+  KAFKA_SSL: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((s) => s === 'true'),
+  KAFKA_SASL_MECHANISM: emptyAsUndefined(z.enum(['plain', 'scram-sha-256', 'scram-sha-512'])),
+  KAFKA_SASL_USERNAME: emptyAsUndefined(z.string().min(1)),
+  KAFKA_SASL_PASSWORD: emptyAsUndefined(z.string().min(1)),
+  KAFKA_CONNECTION_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
+  // Defaults for worker-created topics. Prod should set replication >= 3; local
+  // single-broker KRaft must stay at 1.
+  KAFKA_TOPIC_PARTITIONS: z.coerce.number().int().min(1).default(3),
+  KAFKA_TOPIC_REPLICATION_FACTOR: z.coerce.number().int().min(1).default(1),
   // Per-module consumer gating: each module that owns a Kafka consumer uses its
   // own env flag so different deployments can decide which consumers to run
   // (e.g. shared API pods run the unicommerce consumer, dedicated workers run
@@ -206,6 +220,14 @@ const baseEnv = z.object({
     .enum(['true', 'false'])
     .default('true')
     .transform((s) => s === 'true'),
+  // Gates the CleverTap server-side forwarding consumer. Off => forwarding stays
+  // synchronous inside the webhook transaction; on => webhooks enqueue to Kafka
+  // and ClevertapForwardingWorker delivers them.
+  CLEVERTAP_FORWARD_WORKER_ENABLED: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((s) => s === 'true'),
+  CLEVERTAP_FORWARD_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(5),
 
   // ─── core email (SES) ─────────────────────────────────────────────────────
   // Verified SES sender identity. Unset → EmailService no-ops (dev default).

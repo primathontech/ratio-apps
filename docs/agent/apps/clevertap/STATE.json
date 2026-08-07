@@ -62,7 +62,7 @@
   ],
   "deployment": {
     "apiPlacement": "shared",
-    "workerPlacement": "none"
+    "workerPlacement": "shared-api"
   },
   "deployTarget": null,
   "prUrl": null,
