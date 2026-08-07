@@ -30,9 +30,6 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
     this.client = new Kafka(kafkaConfigFromEnv(config));
   }
 
-  // Connect eagerly but tolerate a down broker: boot must not hinge on Kafka
-  // (a shared-API pod may run with the forwarding worker off and never produce).
-  // send() lazily retries the connection.
   async onModuleInit(): Promise<void> {
     try {
       await this.ensureProducer();

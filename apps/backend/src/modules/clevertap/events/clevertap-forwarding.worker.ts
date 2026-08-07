@@ -84,9 +84,6 @@ export class ClevertapForwardingWorker implements OnModuleInit, OnModuleDestroy 
     if (this.worker) await this.worker.stop();
   }
 
-  // Delivery is idempotent against Kafka's at-least-once: a 'sent' row short-
-  // circuits a redelivery, and an upload failure marks the row 'failed' then
-  // throws so the worker re-enqueues (until maxAttempts, then DLQ).
   async deliver(msg: ForwardMessage): Promise<void> {
     const config = await this.handle.db
       .selectFrom('clevertap_configs')
