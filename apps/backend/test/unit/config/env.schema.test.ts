@@ -67,6 +67,22 @@ const validEnv = {
   RATIO_FORMS_CLIENT_SECRET: 'forms_secret',
   RATIO_FORMS_CALLBACK_URL: 'http://localhost:3000/forms/api/v1/oauth/callback',
   RATIO_FORMS_ADMIN_BASE_URL: 'http://localhost:5174',
+  // `loyalty` app keys (derived from the APPS tuple — required by the schema).
+  // These were missing: `loyalty` joined APPS without this fixture being
+  // updated, which failed every `safeParse(validEnv)` assertion below.
+  RATIO_LOYALTY_DATABASE_URL: 'mysql://app:app@localhost:3306/loyalty_app',
+  RATIO_LOYALTY_DATA_ENCRYPTION_KEY: Buffer.alloc(32).toString('base64'),
+  RATIO_LOYALTY_CLIENT_ID: 'loyalty_id',
+  RATIO_LOYALTY_CLIENT_SECRET: 'loyalty_secret',
+  RATIO_LOYALTY_CALLBACK_URL: 'http://localhost:3000/loyalty/api/v1/oauth/callback',
+  RATIO_LOYALTY_ADMIN_BASE_URL: 'http://localhost:5174',
+  // `clevertap` app keys (derived from the APPS tuple — required by the schema).
+  RATIO_CLEVERTAP_DATABASE_URL: 'mysql://app:app@localhost:3306/clevertap_app',
+  RATIO_CLEVERTAP_DATA_ENCRYPTION_KEY: Buffer.alloc(32).toString('base64'),
+  RATIO_CLEVERTAP_CLIENT_ID: 'clevertap_id',
+  RATIO_CLEVERTAP_CLIENT_SECRET: 'clevertap_secret',
+  RATIO_CLEVERTAP_CALLBACK_URL: 'http://localhost:3000/clevertap/api/v1/oauth/callback',
+  RATIO_CLEVERTAP_ADMIN_BASE_URL: 'http://localhost:5174',
 };
 
 describe('envSchema', () => {

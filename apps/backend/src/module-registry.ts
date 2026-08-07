@@ -8,6 +8,7 @@ import { RpModule } from './modules/rp/rp.module';
 import { LoyaltyModule } from './modules/loyalty/loyalty.module';
 import { FormsModule } from './modules/forms/forms.module';
 import { UnicommerceModule } from './modules/unicommerce/unicommerce.module';
+import { ClevertapModule } from './modules/clevertap/clevertap.module';
 
 /** slug → module class. Source of truth for what CAN be mounted. */
 export const MODULE_REGISTRY = new Map<AppSlug, unknown>([
@@ -20,6 +21,7 @@ export const MODULE_REGISTRY = new Map<AppSlug, unknown>([
   ['loyalty', LoyaltyModule],
   ['forms', FormsModule],
   ['unicommerce', UnicommerceModule],
+  ['clevertap', ClevertapModule],
 ]);
 
 for (const slug of APPS) {
