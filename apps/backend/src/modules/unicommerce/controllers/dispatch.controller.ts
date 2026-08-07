@@ -61,6 +61,7 @@ export class UcDispatchController {
   @ApiOperation({
     summary: 'Mark order items as dispatched (self-shipped)',
     description:
+      '**Direction: Unicommerce → UC connector app.**\n\n' +
       'Called BY Unicommerce when the seller ships an order (self-shipping). Each `orderItemId` resolves via the ' +
       "order-item map to a Ratio order; the shipped quantity is checked against the item's remaining quantity and " +
       "decremented, the Ratio order's `fulfillment_status` is set to `fulfilled` (or `partially_fulfilled` when other " +

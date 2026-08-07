@@ -50,6 +50,7 @@ export class UcStatusController {
   @ApiOperation({
     summary: 'Order status notification',
     description:
+      '**Direction: Unicommerce → UC connector app.**\n\n' +
       "Called BY Unicommerce on every status change (no auto-retry on UC's side — a non-success response stops all " +
       "further status notifications for that order until the merchant manually retries inside UC). Each item's UC " +
       "`status` (+ `IsReverse`, capital I) is mapped onto Ratio's `fulfillment_status` (e.g. DISPATCHED/SHIPPED → " +

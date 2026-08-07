@@ -24,6 +24,7 @@ export class UcCatalogController {
   @ApiOperation({
     summary: 'Total live product count (pre-pagination)',
     description:
+      '**Direction: Unicommerce → UC connector app.**\n\n' +
       'Called BY Unicommerce before paginating the catalog pull, to size its own paging loop. ' +
       "Counts live variants (each product counts at least 1 variant) via a walk of Ratio's products API. " +
       'Degrades to `{ count: 0 }` on any downstream failure rather than a 500 (UC retries on its next poll cycle).',
@@ -100,6 +101,7 @@ export class UcCatalogController {
   @ApiOperation({
     summary: 'Paginated catalog pull',
     description:
+      '**Direction: Unicommerce → UC connector app.**\n\n' +
       'Called BY Unicommerce to pull the live catalog, one 50-product page at a time. ' +
       "`pageNumber` is 1-indexed; the page size is fixed at 50 server-side (UC's own page-size contract — any " +
       "`pageSize` Unicommerce sends is ignored). Returns UC's own product shape (UcProduct/UcVariant below), " +

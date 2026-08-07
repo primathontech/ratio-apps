@@ -100,7 +100,7 @@ async function bootstrap(): Promise<void> {
     // Keep exactly the 10 UC-facing routes; drop the module's internal
     // /unicommerce/admin, /unicommerce/api/merchants and
     // /unicommerce/api/v1/oauth controllers from the doc.
-    swaggerDocument.paths = Object.fromEntries(
+    const ucFacingPaths = Object.fromEntries(
       Object.entries(swaggerDocument.paths).filter(
         ([path]) =>
           path === '/unicommerce/webhooks' ||
@@ -108,12 +108,40 @@ async function bootstrap(): Promise<void> {
             !path.startsWith('/unicommerce/api/v1/oauth')),
       ),
     );
+    // Display order follows the natural call flow rather than alphabetical:
+    // connect → pull catalog → pull/check orders → push inventory/dispatch/
+    // cancel/status updates → the one Ratio-facing webhook, listed last.
+    // `operationsSorter` is deliberately left unset below so Swagger UI keeps
+    // this exact key order instead of re-sorting it — reorder this list to
+    // change what's displayed first.
+    const PATH_DISPLAY_ORDER = [
+      '/unicommerce/api/v1/authToken',
+      '/unicommerce/api/v1/productsCount',
+      '/unicommerce/api/v1/products',
+      '/unicommerce/api/v1/orders',
+      '/unicommerce/api/v1/updateInventory',
+      '/unicommerce/api/v1/orders/dispatch',
+      '/unicommerce/api/v1/orders/cancel',
+      '/unicommerce/api/v1/order/{orderId}',
+      '/unicommerce/webhooks',
+    ];
+    const orderedPaths: typeof ucFacingPaths = {};
+    for (const path of PATH_DISPLAY_ORDER) {
+      if (ucFacingPaths[path]) orderedPaths[path] = ucFacingPaths[path];
+    }
+    // Defensive: any UC-facing path not named above (e.g. a new route added
+    // later) still shows up, just appended after the curated order instead
+    // of silently dropped.
+    for (const [path, item] of Object.entries(ucFacingPaths)) {
+      if (!(path in orderedPaths)) orderedPaths[path] = item;
+    }
+    swaggerDocument.paths = orderedPaths;
     // The scanned-but-dropped internal controllers contributed their own
     // auto-generated tags — keep only the shared `unicommerce` tag so the UI
     // groups exactly these 10 routes.
     swaggerDocument.tags = (swaggerDocument.tags ?? []).filter((t) => t.name === 'unicommerce');
     SwaggerModule.setup('docs', app, swaggerDocument, {
-      swaggerOptions: { tagsSorter: 'alpha', operationsSorter: 'alpha' },
+      swaggerOptions: { tagsSorter: 'alpha' },
     });
     new NestLogger('Bootstrap').log({ msg: 'swagger docs enabled', path: '/docs' });
   }
