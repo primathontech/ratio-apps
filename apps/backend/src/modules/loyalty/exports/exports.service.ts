@@ -47,6 +47,8 @@ export interface ExportSummary {
   emailedAt: Date | null;
   completedAt: Date | null;
   createdAt: Date;
+  /** Liveness signal for the admin's poll — see BulkOperationSummary. */
+  updatedAt: Date;
 }
 
 /**
@@ -189,6 +191,7 @@ export class ExportsService {
       emailedAt: row.emailedAt,
       completedAt: row.completedAt,
       createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
     };
   }
 }

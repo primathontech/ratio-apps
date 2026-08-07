@@ -87,6 +87,13 @@ export class FeedSyncService {
   /** Merchants whose full sync is currently running (in-flight dedup). */
   private readonly running = new Set<string>();
 
+  /**
+   * In-flight background syncs, keyed by merchant, so the work started by
+   * {@link startForceSyncInBackground} stays awaitable. `running` above is the
+   * dedup gate and stays a plain Set — this is purely the handle.
+   */
+  private readonly backgroundRuns = new Map<string, Promise<void>>();
+
   constructor(
     @Inject(GOOGLE_DB_TOKEN) private readonly handle: KyselyClient<GoogleDatabase>,
     private readonly auth: GoogleAuthService,
@@ -426,8 +433,30 @@ export class FeedSyncService {
       return false;
     }
     this.running.add(merchantId);
-    void this.fullSync(merchantId, 'manual').catch(() => undefined);
+    // Keep the handle instead of dropping it on the floor. The sync is still
+    // fire-and-forget for the caller (the controller answers immediately), but
+    // a discarded promise is unobservable: nothing can wait for the run to
+    // finish, so shutdown can't drain it and a test can only poll the clock.
+    const run = this.fullSync(merchantId, 'manual').then(
+      () => undefined,
+      () => undefined,
+    );
+    this.backgroundRuns.set(merchantId, run);
+    void run.finally(() => {
+      // Only clear our own entry — a later run for the same merchant will have
+      // replaced it, and that one must stay awaitable.
+      if (this.backgroundRuns.get(merchantId) === run) this.backgroundRuns.delete(merchantId);
+    });
     return true;
+  }
+
+  /**
+   * Resolves once the background sync started for this merchant has finished
+   * (immediately if none is in flight). Never rejects — a failed sync is
+   * already logged and recorded in the sync log.
+   */
+  async whenBackgroundSyncSettles(merchantId: string): Promise<void> {
+    await this.backgroundRuns.get(merchantId);
   }
 
   /** Resolve the per-merchant GMC client + mapper config, or null if GMC is off. */

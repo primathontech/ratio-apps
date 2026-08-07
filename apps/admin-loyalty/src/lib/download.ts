@@ -16,6 +16,20 @@ const RAW_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? ''
 const BASE = RAW_BASE.endsWith('/') ? `${RAW_BASE.slice(0, -1)}/loyalty` : `${RAW_BASE}/loyalty`;
 
 export async function downloadAuthenticated(path: string, filename: string): Promise<void> {
+  triggerBlobDownload(await fetchAuthenticatedBlob(path), filename);
+}
+
+/**
+ * The same authenticated GET, but handing back the text instead of saving it —
+ * so a CSV can be shown in a preview first and downloaded only if the merchant
+ * asks. Clicking "errors.csv" used to dump a file straight into Downloads with
+ * no way to just look at it.
+ */
+export async function fetchAuthenticatedText(path: string): Promise<string> {
+  return (await fetchAuthenticatedBlob(path)).text();
+}
+
+async function fetchAuthenticatedBlob(path: string): Promise<Blob> {
   const token = useMerchantStore.getState().token;
   const headers: Record<string, string> = {};
   if (token) headers.authorization = `Bearer ${token}`;
@@ -25,7 +39,7 @@ export async function downloadAuthenticated(path: string, filename: string): Pro
     redirect: 'follow',
   });
   if (!res.ok) throw new Error(`Download failed (${res.status})`);
-  triggerBlobDownload(await res.blob(), filename);
+  return res.blob();
 }
 
 /** Save a client-generated text file (e.g. the invalid-rows CSV preview). */

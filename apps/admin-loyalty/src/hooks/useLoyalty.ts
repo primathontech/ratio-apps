@@ -11,6 +11,64 @@ import { useMerchantStore } from '../stores/useMerchantStore';
  * as ISO strings after JSON serialization.
  */
 
+// ─── Background-job polling policy ──────────────────────────────────────────
+
+/**
+ * How long a job may go without the server touching it before we treat it as
+ * stalled and stop polling. A lost SQS message, a stopped worker or a DLQ'd
+ * batch leaves a job on `processing` forever; a naive fixed interval would
+ * then refetch every 2s for as long as the tab stays open — indefinitely, on
+ * every open tab.
+ */
+const STALL_AFTER_MS = 5 * 60 * 1000;
+
+/**
+ * Back off as a job goes quiet: snappy while rows are visibly landing, slower
+ * once nothing has moved for a while, and off entirely past {@link
+ * STALL_AFTER_MS}. `StalledHint` in the UI explains the stop and offers a
+ * manual refresh, so a genuinely slow job is never a dead end.
+ */
+const POLL_STEPS: { quietForMs: number; everyMs: number }[] = [
+  { quietForMs: 30_000, everyMs: 2_000 },
+  { quietForMs: 120_000, everyMs: 5_000 },
+  { quietForMs: STALL_AFTER_MS, everyMs: 15_000 },
+];
+
+/**
+ * The interval for a job last touched at `lastProgressAt`, or `false` to stop.
+ *
+ * @param running   is the job in a non-terminal state?
+ * @param lastProgressAt  server-side `updatedAt` (ISO). Undefined = no signal
+ *                        yet, so poll at the base rate.
+ */
+export function jobPollInterval(
+  running: boolean,
+  lastProgressAt: string | undefined,
+): number | false {
+  if (!running) return false;
+  const touchedAt = lastProgressAt ? Date.parse(lastProgressAt) : Number.NaN;
+  if (Number.isNaN(touchedAt)) return POLL_STEPS[0]?.everyMs ?? 2_000;
+  const quietFor = Date.now() - touchedAt;
+  // A clock skewed into the future must not read as "stalled long ago".
+  if (quietFor < 0) return POLL_STEPS[0]?.everyMs ?? 2_000;
+  for (const step of POLL_STEPS) {
+    if (quietFor < step.quietForMs) return step.everyMs;
+  }
+  return false; // stalled — stop and let the merchant retry by hand
+}
+
+/** True once we have given up polling a job that never finished. */
+export function isStalled(status: string, lastProgressAt: string | undefined): boolean {
+  if (!isRunningStatus(status)) return false;
+  const touchedAt = lastProgressAt ? Date.parse(lastProgressAt) : Number.NaN;
+  if (Number.isNaN(touchedAt)) return false;
+  return Date.now() - touchedAt >= STALL_AFTER_MS;
+}
+
+export function isRunningStatus(status: string): boolean {
+  return status === 'pending' || status === 'validating' || status === 'processing';
+}
+
 // ─── Dashboard ──────────────────────────────────────────────────────────────
 
 export interface DashboardSummary {
@@ -144,6 +202,8 @@ export interface BulkOperation {
   /** Coins the operation moves, after duplicate-phone last-wins. 0 pre-confirm. */
   totalPoints: number;
   createdAt: string;
+  /** Server-side liveness signal — drives the poll backoff / stall stop. */
+  updatedAt: string;
 }
 
 export type BulkRowStatus = 'pending' | 'success' | 'failed' | 'skipped';
@@ -187,6 +247,22 @@ export function useBulkOps(page = 1, limit = 20) {
     queryFn: () => api<BulkOpsPage>('GET', `/api/bulk-operations?page=${page}&limit=${limit}`),
     enabled: !!token,
     refetchOnWindowFocus: false,
+    // The worker drains rows in the background, so a freshly-confirmed upload
+    // lands here as `processing` with 0/N rows and then never moves — the
+    // merchant had to reload the page to learn what their CSV actually did.
+    // Poll while anything is in flight; back off and stop for a job the server
+    // has gone quiet on, so a stuck operation can't poll forever.
+    refetchInterval: (query) => {
+      if (query.state.status === 'error') return false;
+      const running = (query.state.data?.items ?? []).filter((op) => isRunningStatus(op.status));
+      if (running.length === 0) return false;
+      // Freshest signal across the running jobs wins — one live job keeps the
+      // list responsive even next to an older stalled one.
+      const intervals = running
+        .map((op) => jobPollInterval(true, op.updatedAt))
+        .filter((ms): ms is number => ms !== false);
+      return intervals.length > 0 ? Math.min(...intervals) : false;
+    },
   });
 }
 
@@ -198,10 +274,15 @@ export function useBulkOp(id: string | null) {
     queryFn: () => api<BulkOperation>('GET', `/api/bulk-operations/${id}`),
     enabled: !!token && !!id,
     refetchOnWindowFocus: false,
-    refetchInterval: (query) => {
-      const status = query.state.data?.status;
-      return status === 'processing' || status === 'validating' ? 2000 : false;
-    },
+    // Stop on error too: a 401/500 leaves the last-known `processing` data in
+    // place, so a status-only check would keep retrying a broken call forever.
+    refetchInterval: (query) =>
+      query.state.status === 'error'
+        ? false
+        : jobPollInterval(
+            isRunningStatus(query.state.data?.status ?? ''),
+            query.state.data?.updatedAt,
+          ),
   });
 }
 
@@ -217,6 +298,21 @@ export function useBulkOpRows(id: string | null, page = 1, limit = 50) {
       api<BulkOpRowsPage>('GET', `/api/bulk-operations/${id}/rows?page=${page}&limit=${limit}`),
     enabled: !!token && !!id,
     refetchOnWindowFocus: false,
+    // Rows flip from `pending` as the worker gets to them; keep the open
+    // detail view live rather than making the merchant close and reopen it.
+    // `processedAt` of the most recently settled row is the liveness signal,
+    // so a stalled operation stops this poll exactly like the others.
+    refetchInterval: (query) => {
+      if (query.state.status === 'error') return false;
+      const items = query.state.data?.items ?? [];
+      if (!items.some((row) => row.status === 'pending')) return false;
+      const lastProcessed = items
+        .map((row) => row.processedAt)
+        .filter((at): at is string => Boolean(at))
+        .sort()
+        .at(-1);
+      return jobPollInterval(true, lastProcessed);
+    },
   });
 }
 
@@ -528,6 +624,8 @@ export interface ExportJob {
   emailedAt: string | null;
   completedAt: string | null;
   createdAt: string;
+  /** Server-side liveness signal — drives the poll backoff / stall stop. */
+  updatedAt: string;
 }
 
 export interface ExportsPage {
@@ -544,11 +642,18 @@ export function useExports(page = 1, limit = 20) {
     queryFn: () => api<ExportsPage>('GET', `/api/exports?page=${page}&limit=${limit}`),
     enabled: !!token,
     refetchOnWindowFocus: false,
-    // Keep the history table fresh while a job is running.
-    refetchInterval: (query) =>
-      query.state.data?.items.some((j) => j.status === 'pending' || j.status === 'processing')
-        ? 5000
-        : false,
+    // Keep the history table fresh while a job is running — with the same
+    // backoff-and-give-up policy, so an export the worker never picks up
+    // can't poll indefinitely.
+    refetchInterval: (query) => {
+      if (query.state.status === 'error') return false;
+      const running = (query.state.data?.items ?? []).filter((j) => isRunningStatus(j.status));
+      if (running.length === 0) return false;
+      const intervals = running
+        .map((j) => jobPollInterval(true, j.updatedAt))
+        .filter((ms): ms is number => ms !== false);
+      return intervals.length > 0 ? Math.min(...intervals) : false;
+    },
   });
 }
 

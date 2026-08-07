@@ -26,6 +26,7 @@ import { LoyaltyConfigService } from '../config/config.service';
 import type { CoreLoyaltyClient, CorePointsResponse } from '../core-client/core-loyalty.client';
 import type { LoyaltyDatabase, LoyaltyQrCodeRow } from '../db/types';
 import { LOYALTY_DB_TOKEN } from '../kysely.module';
+import { CustomerMirrorService } from '../mirror/customer-mirror.service';
 import { LOYALTY_CORE_CLIENT } from '../tokens';
 import { ClaimSignatureService } from './claim-signature.service';
 import { qrStateFor } from './qr.service';
@@ -56,6 +57,7 @@ export class QrClaimController {
     private readonly config: LoyaltyConfigService,
     private readonly sig: ClaimSignatureService,
     @Inject(LOYALTY_CORE_CLIENT) private readonly core: CoreLoyaltyClient,
+    private readonly mirror: CustomerMirrorService,
   ) {}
 
   @Get(':code/status')
@@ -184,12 +186,11 @@ export class QrClaimController {
       .where('qrCodeId', '=', qr.id)
       .where('phone', '=', phone)
       .execute();
-    await db
-      .updateTable('loyalty_customers')
-      .set({ pointsBalance: credit.new_balance })
-      .where('merchantId', '=', qr.merchantId)
-      .where('phone', '=', phone)
-      .execute();
+    // Via the mirror service, not a bare UPDATE: it also clears
+    // `balanceSyncedAt` so the maintenance sweep refreshes the lifetime
+    // counters the dashboard trend is derived from. Writing pointsBalance
+    // alone left QR-claimed coins out of "coins issued" entirely.
+    await this.mirror.applyAdjustedBalance(db, qr.merchantId, phone, credit.new_balance);
 
     return {
       status: 'credited',

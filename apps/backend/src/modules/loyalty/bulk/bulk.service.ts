@@ -51,6 +51,13 @@ export interface BulkOperationSummary {
    */
   totalPoints: number;
   createdAt: Date;
+  /**
+   * Bumped on every row the worker settles. The admin uses it as a liveness
+   * signal: an operation stuck on `processing` with a frozen `updatedAt` means
+   * the worker is not working on it, so the UI stops polling instead of
+   * hammering the API every 2s for as long as the tab stays open.
+   */
+  updatedAt: Date;
 }
 
 /** One row of a bulk operation, for the per-operation detail view. */
@@ -232,7 +239,11 @@ export class BulkService {
     // Coins actually in play = the winners' points (superseded duplicates are
     // already excluded), so the history row can report the operation's size.
     const totalPoints = winners.reduce((acc, r) => acc + Number(r.points), 0);
-    const nextStatus = winners.length ? 'processing' : 'done';
+    // Nothing to process: `done` only if there was nothing wrong either.
+    // A file whose every row was rejected at ingest must not land on the green
+    // "done" tag — there is no success anywhere in it.
+    const nothingToRun = op.invalidRows > 0 ? 'failed' : 'done';
+    const nextStatus = winners.length ? 'processing' : nothingToRun;
     await this.handle.db
       .updateTable('loyalty_bulk_operations')
       .set({
@@ -396,6 +407,7 @@ export class BulkService {
       failureCount: op.failureCount,
       totalPoints: Number(op.totalPoints ?? 0),
       createdAt: op.createdAt,
+      updatedAt: op.updatedAt,
     };
   }
 }

@@ -15,10 +15,12 @@ import {
   Typography,
 } from '@primathonos/orion';
 import { createFileRoute } from '@tanstack/react-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FieldRow } from '@/components/FieldRow';
 import {
   type BulkOperation,
+  isRunningStatus,
+  isStalled,
   useAdjustCustomer,
   useBulkOp,
   useBulkOpRows,
@@ -28,13 +30,14 @@ import {
   useIngestRows,
 } from '@/hooks/useLoyalty';
 import { ApiException } from '@/lib/api';
-import { downloadAuthenticated, downloadTextFile } from '@/lib/download';
+import { downloadTextFile, fetchAuthenticatedText } from '@/lib/download';
 import {
   BULK_CSV_TEMPLATE,
   BULK_CSV_TEMPLATE_FILENAME,
   type BulkCsvParseResult,
   normalizeBulkPhone,
   parseBulkCsv,
+  splitCsvLine,
   toCsv,
 } from '@/lib/parse-csv';
 
@@ -55,6 +58,9 @@ const INGEST_CHUNK_SIZE = 500;
 /** How many bad rows to show inline before deferring to the CSV download. */
 const INVALID_PREVIEW_LIMIT = 10;
 
+/** Page sizes offered by the History "/ page" selector. */
+const HISTORY_PAGE_SIZES = ['10', '20', '50', '100'];
+
 const MIN_POINTS = 1;
 const MAX_POINTS = 100_000;
 
@@ -65,6 +71,17 @@ const STATUS_COLOR: Record<string, string> = {
   done: 'green',
   failed: 'red',
 };
+
+/**
+ * The operation status alone hides a partial failure: an upload where 3 of 10
+ * rows were rejected still settles on `done` and renders as a green tag the
+ * merchant reads as "all good". Surface the mixed outcome explicitly.
+ */
+function StatusTag({ op }: { op: BulkOperation }) {
+  const partial = op.status === 'done' && op.failureCount > 0;
+  if (partial) return <Tag color="orange">done with errors</Tag>;
+  return <Tag color={STATUS_COLOR[op.status] ?? 'default'}>{op.status}</Tag>;
+}
 
 const DELIMITER_LABELS: Record<string, string> = {
   ';': 'semicolon (;)',
@@ -80,10 +97,12 @@ export function BulkPage() {
   const [opType, setOpType] = useState<OpType>('credit');
   const [activeOpId, setActiveOpId] = useState<string | null>(null);
   const [historyPage, setHistoryPage] = useState(1);
+  const [historyPageSize, setHistoryPageSize] = useState(10);
   const [detailOp, setDetailOp] = useState<BulkOperation | null>(null);
+  const [errorsCsvOp, setErrorsCsvOp] = useState<BulkOperation | null>(null);
 
   const activeOp = useBulkOp(activeOpId);
-  const history = useBulkOps(historyPage, 10);
+  const history = useBulkOps(historyPage, historyPageSize);
 
   return (
     <Space direction="vertical" size="large" style={{ display: 'flex' }}>
@@ -129,7 +148,16 @@ export function BulkPage() {
         </Space>
       </Card>
 
-      {activeOpId && activeOp.data && <ProgressPanel op={activeOp.data} />}
+      {activeOpId && activeOp.data && (
+        <ProgressPanel
+          op={activeOp.data}
+          onPreviewErrors={setErrorsCsvOp}
+          onRefresh={() => {
+            void activeOp.refetch();
+            void history.refetch();
+          }}
+        />
+      )}
 
       <Card title="History">
         <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
@@ -138,7 +166,7 @@ export function BulkPage() {
           </Typography.Text>
           <Table
             rowKey="id"
-            columns={historyColumns}
+            columns={historyColumns(setErrorsCsvOp)}
             dataSource={history.data?.items ?? []}
             loading={history.isLoading}
             pagination={false}
@@ -152,15 +180,32 @@ export function BulkPage() {
           <div style={{ textAlign: 'right' }}>
             <Pagination
               current={historyPage}
-              pageSize={10}
+              pageSize={historyPageSize}
               total={history.data?.total ?? 0}
-              onChange={(p) => setHistoryPage(p)}
+              // `pageSize` is controlled, so without wiring the size change
+              // back into state the "/ page" selector rendered but did
+              // nothing — it always snapped back to 10.
+              showSizeChanger
+              pageSizeOptions={HISTORY_PAGE_SIZES}
+              onChange={(p, size) => {
+                setHistoryPage(p);
+                if (size !== historyPageSize) setHistoryPageSize(size);
+              }}
+              onShowSizeChange={(_current, size) => {
+                setHistoryPageSize(size);
+                setHistoryPage(1);
+              }}
             />
           </div>
         </Space>
       </Card>
 
-      <OperationDetailModal op={detailOp} onClose={() => setDetailOp(null)} />
+      <OperationDetailModal
+        op={detailOp}
+        onClose={() => setDetailOp(null)}
+        onPreviewErrors={setErrorsCsvOp}
+      />
+      <ErrorsCsvModal op={errorsCsvOp} onClose={() => setErrorsCsvOp(null)} />
     </Space>
   );
 }
@@ -510,7 +555,15 @@ const DETAIL_PAGE_SIZE = 50;
  * did that upload actually touch, and what happened to each?" — including the
  * per-row reason a debit failed.
  */
-function OperationDetailModal({ op, onClose }: { op: BulkOperation | null; onClose: () => void }) {
+function OperationDetailModal({
+  op,
+  onClose,
+  onPreviewErrors,
+}: {
+  op: BulkOperation | null;
+  onClose: () => void;
+  onPreviewErrors: (op: BulkOperation) => void;
+}) {
   const [page, setPage] = useState(1);
   // `op` is null while closed, which keeps the query disabled.
   const rows = useBulkOpRows(op?.id ?? null, page, DETAIL_PAGE_SIZE);
@@ -599,19 +652,104 @@ function OperationDetailModal({ op, onClose }: { op: BulkOperation | null; onClo
           {op.failureCount > 0 && (
             <div>
               <Button
-                onClick={() =>
-                  void downloadAuthenticated(
-                    `/api/bulk-operations/${op.id}/errors.csv`,
-                    `bulk-${op.id}-errors.csv`,
-                  )
-                }
+                onClick={() => {
+                  onClose();
+                  onPreviewErrors(op);
+                }}
               >
-                Download failed rows CSV
+                View failed rows CSV
               </Button>
             </div>
           )}
         </Space>
       )}
+    </Modal>
+  );
+}
+
+/**
+ * Show the failed-rows CSV instead of dumping it into the browser's Downloads
+ * folder. Clicking "errors.csv" used to be a one-way auto-download: to see why
+ * five rows failed you had to leave the admin, find the file and open it in a
+ * spreadsheet. The download is still here — as a button inside the preview,
+ * where it is a choice rather than a side effect.
+ */
+function ErrorsCsvModal({ op, onClose }: { op: BulkOperation | null; onClose: () => void }) {
+  const [csv, setCsv] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const opId = op?.id ?? null;
+
+  useEffect(() => {
+    if (!opId) {
+      setCsv(null);
+      setError(null);
+      return;
+    }
+    let cancelled = false;
+    setCsv(null);
+    setError(null);
+    fetchAuthenticatedText(`/api/bulk-operations/${opId}/errors.csv`)
+      .then((text) => {
+        if (!cancelled) setCsv(text);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load the CSV');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [opId]);
+
+  const lines = (csv ?? '').split('\n').filter((l) => l.trim().length > 0);
+  const header = lines.length > 0 ? splitCsvLine(lines[0] as string) : [];
+  const body = lines.slice(1).map((line, index) => {
+    const cells = splitCsvLine(line);
+    const row: Record<string, string> = { __key: String(index) };
+    header.forEach((name, i) => {
+      row[name] = cells[i] ?? '';
+    });
+    return row;
+  });
+
+  return (
+    <Modal
+      open={op !== null}
+      onCancel={onClose}
+      onOk={onClose}
+      okText="Close"
+      width={860}
+      title={op ? `Failed rows — ${op.fileName ?? op.id}` : ''}
+      cancelButtonProps={{ style: { display: 'none' } }}
+    >
+      <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
+        {error && <Alert type="error" showIcon message={error} />}
+        <Table
+          size="small"
+          rowKey="__key"
+          data-testid="errors-csv-preview"
+          loading={op !== null && csv === null && !error}
+          dataSource={body}
+          pagination={false}
+          scroll={{ x: 'max-content', y: 400 }}
+          locale={{ emptyText: <Empty description="No failed rows" /> }}
+          columns={header.map((name) => ({
+            title: name.replace(/_/g, ' '),
+            dataIndex: name,
+            key: name,
+            render: (value: unknown) => (value ? String(value) : '—'),
+          }))}
+        />
+        {op && (
+          <div>
+            <Button
+              disabled={csv === null}
+              onClick={() => downloadTextFile(csv ?? '', `bulk-${op.id}-errors.csv`)}
+            >
+              Download CSV
+            </Button>
+          </div>
+        )}
+      </Space>
     </Modal>
   );
 }
@@ -631,16 +769,45 @@ function DetailStat({ title, value }: { title: string; value: string }) {
 
 // ─── Progress + history ─────────────────────────────────────────────────────
 
-function ProgressPanel({ op }: { op: BulkOperation }) {
+function ProgressPanel({
+  op,
+  onPreviewErrors,
+  onRefresh,
+}: {
+  op: BulkOperation;
+  onPreviewErrors: (op: BulkOperation) => void;
+  onRefresh: () => void;
+}) {
   const total = op.validRows || op.totalRows;
   const percent = total > 0 ? Math.round((op.processedRows / total) * 100) : 0;
-  const running = op.status === 'processing' || op.status === 'validating';
+  const running = isRunningStatus(op.status);
+  const stalled = isStalled(op.status, op.updatedAt);
   return (
     <Card title="Operation progress">
       <Space direction="vertical" size="small" style={{ display: 'flex' }}>
         <Typography.Text>
-          Status: <Tag color={STATUS_COLOR[op.status] ?? 'default'}>{op.status}</Tag>
+          Status: <StatusTag op={op} />
         </Typography.Text>
+        {stalled && (
+          // We stopped polling — say so, rather than leaving a progress bar
+          // spinning against a job nothing is working on.
+          <Alert
+            type="warning"
+            showIcon
+            message="This operation has not progressed for a few minutes"
+            description={
+              <Space direction="vertical" size="small">
+                <span>
+                  Live updates are paused. The rows already applied are safe — the queue worker may
+                  be busy or stopped.
+                </span>
+                <Button size="small" onClick={onRefresh}>
+                  Check again
+                </Button>
+              </Space>
+            }
+          />
+        )}
         <Typography.Text data-testid="bulk-progress">
           {op.processedRows} / {total} rows processed · {op.successCount} succeeded ·{' '}
           {op.failureCount} failed
@@ -650,23 +817,14 @@ function ProgressPanel({ op }: { op: BulkOperation }) {
           {...(running ? { status: 'active' as const } : {})}
         />
         {op.failureCount > 0 && (
-          <Button
-            onClick={() =>
-              void downloadAuthenticated(
-                `/api/bulk-operations/${op.id}/errors.csv`,
-                `bulk-${op.id}-errors.csv`,
-              )
-            }
-          >
-            Download failed rows CSV
-          </Button>
+          <Button onClick={() => onPreviewErrors(op)}>View failed rows CSV</Button>
         )}
       </Space>
     </Card>
   );
 }
 
-const historyColumns = [
+const historyColumns = (onPreviewErrors: (op: BulkOperation) => void) => [
   {
     title: 'Created',
     dataIndex: 'createdAt',
@@ -684,9 +842,7 @@ const historyColumns = [
     title: 'Status',
     dataIndex: 'status',
     key: 'status',
-    render: (value: unknown) => (
-      <Tag color={STATUS_COLOR[value as string] ?? 'default'}>{value as string}</Tag>
-    ),
+    render: (_value: unknown, record: unknown) => <StatusTag op={record as BulkOperation} />,
   },
   {
     title: 'Coins',
@@ -731,12 +887,10 @@ const historyColumns = [
       return (
         <Button
           size="small"
-          onClick={() =>
-            void downloadAuthenticated(
-              `/api/bulk-operations/${op.id}/errors.csv`,
-              `bulk-${op.id}-errors.csv`,
-            )
-          }
+          onClick={(e) => {
+            e.stopPropagation(); // the row click opens the detail modal
+            onPreviewErrors(op);
+          }}
         >
           errors.csv
         </Button>

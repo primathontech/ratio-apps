@@ -7,6 +7,7 @@ import type { RedisService } from '../../../../src/core/cache/redis.service';
 import type { LoyaltyConfigService } from '../../../../src/modules/loyalty/config/config.service';
 import type { CoreLoyaltyClient } from '../../../../src/modules/loyalty/core-client/core-loyalty.client';
 import { CoreLoyaltyError } from '../../../../src/modules/loyalty/core-client/core-loyalty.client';
+import { CustomerMirrorService } from '../../../../src/modules/loyalty/mirror/customer-mirror.service';
 import { ClaimSignatureService } from '../../../../src/modules/loyalty/qr/claim-signature.service';
 import { QrClaimController } from '../../../../src/modules/loyalty/qr/qr-claim.controller';
 import { FakeQrDb, makeFakeQrHandle } from './helpers/fake-qr-db';
@@ -83,6 +84,7 @@ describe('QrClaimController', () => {
       config,
       sig,
       core as unknown as CoreLoyaltyClient,
+      new CustomerMirrorService(),
     );
   });
 

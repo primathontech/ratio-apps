@@ -1,4 +1,11 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import {
   type LoyaltyConditionNode,
   type LoyaltyRuleInput,
@@ -86,6 +93,8 @@ export class RulesService {
 
   async create(merchantId: string, input: unknown): Promise<LoyaltyRuleDto> {
     const parsed = loyaltyRuleInputSchema.parse(input);
+    await this.requireFreePriority(merchantId, parsed.priority, null);
+    this.requireFutureWindow(parsed);
     const id = ulid();
     await this.handle.db
       .insertInto('loyalty_rules')
@@ -110,6 +119,8 @@ export class RulesService {
   async update(merchantId: string, ruleId: string, input: unknown): Promise<LoyaltyRuleDto> {
     await this.requireRule(merchantId, ruleId);
     const parsed = loyaltyRuleInputSchema.parse(input);
+    await this.requireFreePriority(merchantId, parsed.priority, ruleId);
+    await this.requireCustomerList(ruleId, parsed);
     await this.handle.db
       .updateTable('loyalty_rules')
       .set({
@@ -132,6 +143,9 @@ export class RulesService {
 
   async setActive(merchantId: string, ruleId: string, active: boolean): Promise<LoyaltyRuleDto> {
     const row = await this.requireRule(merchantId, ruleId);
+    // Same gate as update(): flipping the toggle must not be a back door to an
+    // active customer-list rule that targets nobody.
+    await this.requireCustomerList(ruleId, { targetType: row.targetType, active });
     await this.handle.db
       .updateTable('loyalty_rules')
       .set({ active })
@@ -273,6 +287,81 @@ export class RulesService {
       throw new NotFoundException({ message: 'rule not found', error_code: 'RULE_NOT_FOUND' });
     }
     return row;
+  }
+
+  /**
+   * Priority is the tie-break the evaluator uses to pick ONE winning rule
+   * (`ORDER BY priority DESC`), so two rules sharing a priority make the winner
+   * depend on row order — the same order could earn different coins on a
+   * retry. One rule per priority per merchant. `exceptRuleId` lets an update
+   * keep its own priority.
+   */
+  private async requireFreePriority(
+    merchantId: string,
+    priority: number,
+    exceptRuleId: string | null,
+  ): Promise<void> {
+    let query = this.handle.db
+      .selectFrom('loyalty_rules')
+      .select('id')
+      .where('merchantId', '=', merchantId)
+      .where('priority', '=', priority);
+    if (exceptRuleId) query = query.where('id', '!=', exceptRuleId);
+    const clash = await query.limit(1).executeTakeFirst();
+    if (clash) {
+      throw new ConflictException({
+        message: `priority ${priority} is already used by another rule — pick a different one`,
+        error_code: 'DUPLICATE_PRIORITY',
+      });
+    }
+  }
+
+  /**
+   * A brand-new rule may not start in the past: it would apply to nothing (the
+   * evaluator only sees orders placed from now on) while looking active, and
+   * an already-elapsed end date makes it dead on arrival. Updates are exempt —
+   * an existing rule legitimately keeps the start date it was created with.
+   */
+  private requireFutureWindow(parsed: LoyaltyRuleInput): void {
+    // A minute of slack absorbs clock skew and the time spent filling the form.
+    const floor = new Date(Date.now() - 60_000);
+    if (parsed.startsAt < floor) {
+      throw new BadRequestException({
+        message: 'startsAt cannot be in the past',
+        error_code: 'START_IN_PAST',
+      });
+    }
+    if (parsed.endsAt && parsed.endsAt < floor) {
+      throw new BadRequestException({
+        message: 'endsAt cannot be in the past',
+        error_code: 'END_IN_PAST',
+      });
+    }
+  }
+
+  /**
+   * A CUSTOMER_LIST rule with an empty list matches nobody, so saving one as
+   * active is silently a no-op the merchant reads as "the rule is live".
+   * Checked on update (the create flow has no list yet by construction — the
+   * admin uploads phones on the edit view) and on activation.
+   */
+  private async requireCustomerList(
+    ruleId: string,
+    parsed: Pick<LoyaltyRuleInput, 'targetType' | 'active'>,
+  ): Promise<void> {
+    if (parsed.targetType !== 'CUSTOMER_LIST' || !parsed.active) return;
+    const member = await this.handle.db
+      .selectFrom('loyalty_rule_customers')
+      .select('phone')
+      .where('ruleId', '=', ruleId)
+      .limit(1)
+      .executeTakeFirst();
+    if (!member) {
+      throw new UnprocessableEntityException({
+        message: 'add at least one customer before activating a customer-list rule',
+        error_code: 'EMPTY_CUSTOMER_LIST',
+      });
+    }
   }
 }
 

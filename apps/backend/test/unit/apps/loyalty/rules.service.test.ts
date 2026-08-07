@@ -1,4 +1,9 @@
-import { NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import type { KyselyClient } from '../../../../src/core/db/kysely-factory';
 import type { LoyaltyDatabase } from '../../../../src/modules/loyalty/db/types';
@@ -6,13 +11,21 @@ import type { RuleCacheService } from '../../../../src/modules/loyalty/rules/rul
 import { RulesService } from '../../../../src/modules/loyalty/rules/rules.service';
 import { MERCHANT_ID } from './helpers/fakes';
 
+/**
+ * Relative to now, not a fixed date: `create` refuses a rule that starts in
+ * the past, so a hardcoded literal silently rots into a failing suite the day
+ * it goes by.
+ */
+const FUTURE = new Date(Date.now() + 3_600_000).toISOString();
+const PAST = new Date(Date.now() - 3_600_000).toISOString();
+
 const VALID_INPUT = {
   name: 'Triple points',
   ruleType: 'MULTIPLIER',
   value: 3,
   targetType: 'SEGMENT',
   conditions: { field: 'order_total', operator: 'gt', value: 500 },
-  startsAt: '2026-01-01T00:00:00.000Z',
+  startsAt: FUTURE,
   priority: 5,
 };
 
@@ -46,14 +59,24 @@ function makeDb(
     ruleRow?: Record<string, unknown>;
     perfRow?: Record<string, unknown>;
     customers?: { phone: string }[];
+    /** Another rule already holds the priority under test. */
+    priorityTaken?: boolean;
   } = {},
 ) {
   const captured: Captured = { inserts: [], updates: [], deletes: [] };
   const db = {
     selectFrom(table: string) {
+      // Which columns were asked for tells the probes apart from the reads:
+      // `select('id')` on loyalty_rules is the priority check, `select('phone')`
+      // on loyalty_rule_customers is the membership check, and an aggregate
+      // (a callback) is a count.
+      let projection: unknown;
       const chain = {
         selectAll: () => chain,
-        select: () => chain,
+        select: (arg?: unknown) => {
+          projection = arg;
+          return chain;
+        },
         where: () => chain,
         orderBy: () => chain,
         limit: () => chain,
@@ -66,16 +89,20 @@ function makeDb(
                 ? [opts.ruleRow]
                 : [],
           ),
-        executeTakeFirst: () =>
-          Promise.resolve(
-            table === 'loyalty_rules'
-              ? opts.ruleRow
-              : table === 'loyalty_rule_applications'
-                ? opts.perfRow
-                : table === 'loyalty_rule_customers'
-                  ? { total: (opts.customers ?? []).length }
-                  : undefined,
-          ),
+        executeTakeFirst: () => {
+          if (table === 'loyalty_rules') {
+            if (projection === 'id') {
+              return Promise.resolve(opts.priorityTaken ? { id: 'other-rule' } : undefined);
+            }
+            return Promise.resolve(opts.ruleRow);
+          }
+          if (table === 'loyalty_rule_applications') return Promise.resolve(opts.perfRow);
+          if (table === 'loyalty_rule_customers') {
+            if (projection === 'phone') return Promise.resolve((opts.customers ?? [])[0]);
+            return Promise.resolve({ total: (opts.customers ?? []).length });
+          }
+          return Promise.resolve(undefined);
+        },
       };
       return chain;
     },
@@ -229,5 +256,79 @@ describe('RulesService', () => {
     expect(page.total).toBe(2);
     expect(page.page).toBe(1);
     expect(page.limit).toBe(20);
+  });
+});
+
+describe('RulesService — save guards', () => {
+  it('#duplicate-priority: refuses a second rule at a priority already in use', async () => {
+    // Priority is the evaluator's tie-break (ORDER BY priority DESC), so two
+    // rules sharing one make the winner depend on row order.
+    const { service, captured } = setup({ priorityTaken: true });
+    await expect(service.create(MERCHANT_ID, VALID_INPUT)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(captured.inserts).toHaveLength(0);
+  });
+
+  it('an update may keep its OWN priority (the clash query excludes itself)', async () => {
+    const { service, captured } = setup({ ruleRow: mkRuleRow(), priorityTaken: false });
+    await service.update(MERCHANT_ID, 'rule-1', VALID_INPUT);
+    expect(captured.updates.some((u) => u.table === 'loyalty_rules')).toBe(true);
+  });
+
+  it('#no-past-start: a new rule cannot start (or end) in the past', async () => {
+    const { service, captured } = setup();
+    await expect(
+      service.create(MERCHANT_ID, { ...VALID_INPUT, startsAt: PAST }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(captured.inserts).toHaveLength(0);
+  });
+
+  it('an existing rule keeps its past start date on update', async () => {
+    // Otherwise a live rule created last week could never be edited again.
+    const { service, captured } = setup({ ruleRow: mkRuleRow() });
+    await service.update(MERCHANT_ID, 'rule-1', { ...VALID_INPUT, startsAt: PAST });
+    expect(captured.updates.some((u) => u.table === 'loyalty_rules')).toBe(true);
+  });
+
+  it('#empty-customer-list: cannot activate a CUSTOMER_LIST rule with nobody in it', async () => {
+    const { service } = setup({
+      ruleRow: mkRuleRow({ targetType: 'CUSTOMER_LIST' }),
+      customers: [],
+    });
+    await expect(
+      service.update(MERCHANT_ID, 'rule-1', {
+        ...VALID_INPUT,
+        targetType: 'CUSTOMER_LIST',
+        conditions: null,
+        active: true,
+      }),
+    ).rejects.toBeInstanceOf(UnprocessableEntityException);
+  });
+
+  it('the same guard blocks the activate toggle, not just the form', async () => {
+    const { service } = setup({
+      ruleRow: mkRuleRow({ targetType: 'CUSTOMER_LIST' }),
+      customers: [],
+    });
+    await expect(service.setActive(MERCHANT_ID, 'rule-1', true)).rejects.toBeInstanceOf(
+      UnprocessableEntityException,
+    );
+    // Deactivating is always allowed — an empty list is only a problem live.
+    await expect(service.setActive(MERCHANT_ID, 'rule-1', false)).resolves.toBeDefined();
+  });
+
+  it('a CUSTOMER_LIST rule with members saves fine', async () => {
+    const { service, captured } = setup({
+      ruleRow: mkRuleRow({ targetType: 'CUSTOMER_LIST' }),
+      customers: [{ phone: '+919876543210' }],
+    });
+    await service.update(MERCHANT_ID, 'rule-1', {
+      ...VALID_INPUT,
+      targetType: 'CUSTOMER_LIST',
+      conditions: null,
+      active: true,
+    });
+    expect(captured.updates.some((u) => u.table === 'loyalty_rules')).toBe(true);
   });
 });

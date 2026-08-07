@@ -87,7 +87,13 @@ describe('FeedSyncService force-sync dedup', () => {
     const svc = makeService();
 
     expect(svc.startForceSyncInBackground('m1')).toBe(true);
-    await vi.waitFor(() => expect(svc.isSyncRunning('m1')).toBe(false));
+    // Await the actual run rather than polling the clock for it. The old
+    // `vi.waitFor(() => isSyncRunning === false)` gave a real background sync
+    // a 1s wall-clock budget — fine in isolation, not when the whole suite
+    // runs in parallel on a loaded machine, which is what made this the one
+    // intermittently red test. Nothing here can time out now.
+    await svc.whenBackgroundSyncSettles('m1');
+    expect(svc.isSyncRunning('m1')).toBe(false);
     expect(svc.startForceSyncInBackground('m1')).toBe(true);
   });
 });
@@ -116,5 +122,22 @@ describe('GoogleFeedController POST /sync dedup', () => {
       const body = ex.getResponse() as { error_code?: string };
       expect(body.error_code).toBe('SYNC_IN_PROGRESS');
     }
+  });
+});
+
+describe('FeedSyncService background-run handle', () => {
+  it('resolves immediately when no background sync is in flight', async () => {
+    const svc = makeService();
+    await expect(svc.whenBackgroundSyncSettles('nobody')).resolves.toBeUndefined();
+  });
+
+  it('never rejects, even when the sync itself fails', async () => {
+    // A failed sync is already logged and written to the sync log; an
+    // unhandled rejection out of a fire-and-forget handle would crash the pod.
+    const svc = makeService();
+    vi.spyOn(svc, 'fullSync').mockRejectedValue(new Error('catalog fetch exploded'));
+
+    expect(svc.startForceSyncInBackground('m1')).toBe(true);
+    await expect(svc.whenBackgroundSyncSettles('m1')).resolves.toBeUndefined();
   });
 });

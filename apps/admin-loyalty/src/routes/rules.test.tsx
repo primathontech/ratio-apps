@@ -187,4 +187,53 @@ describe('RulesPage — validation', () => {
       [],
     );
   });
+
+  it('rejects a duplicate priority against the priority field', async () => {
+    // Priority is the evaluator's tie-break, so two rules sharing one make the
+    // winner depend on row order.
+    routeApi([makeRule({ id: 'r1', name: 'Existing', priority: 0 })]);
+    renderWithProviders(<RulesPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'New rule' }));
+    fireEvent.change(screen.getByPlaceholderText('VIP 3x multiplier'), {
+      target: { value: 'Clashing rule' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create rule' }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/Priority 0 is already used by "Existing"/)).toBeInTheDocument(),
+    );
+    expect(mockedApi.mock.calls.filter((c) => c[0] === 'POST' && c[1] === '/api/rules')).toEqual(
+      [],
+    );
+  });
+
+  it('refuses a start date in the past on a new rule', async () => {
+    routeApi([]);
+    renderWithProviders(<RulesPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'New rule' }));
+    fireEvent.change(screen.getByPlaceholderText('VIP 3x multiplier'), {
+      target: { value: 'Backdated' },
+    });
+    fireEvent.change(screen.getByLabelText('Starts at'), {
+      target: { value: '2020-01-01T00:00' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create rule' }));
+
+    await waitFor(() =>
+      expect(screen.getByText('Start date cannot be in the past.')).toBeInTheDocument(),
+    );
+    expect(mockedApi.mock.calls.filter((c) => c[0] === 'POST' && c[1] === '/api/rules')).toEqual(
+      [],
+    );
+  });
+
+  it('defaults a new rule to start now, not to (now − UTC offset)', async () => {
+    // `toISOString().slice(0,16)` is UTC but a datetime-local input reads back
+    // as local, so the old default silently backdated every rule by the offset.
+    routeApi([]);
+    renderWithProviders(<RulesPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'New rule' }));
+    const startsAt = screen.getByLabelText('Starts at') as HTMLInputElement;
+    expect(new Date(startsAt.value).getTime()).toBeGreaterThan(Date.now() - 120_000);
+  });
 });

@@ -126,9 +126,22 @@ export class BulkWorker implements OnModuleInit, OnModuleDestroy {
       .where('status', '=', 'pending')
       .executeTakeFirst();
     if (Number(pendingLeft?.count ?? 0) === 0) {
+      // An operation whose every row failed is NOT `done`. Flipping it to the
+      // green "done" tag regardless of outcome is what made a debit against
+      // customers who hold no coins read back to the merchant as a success.
+      const final = await this.handle.db
+        .selectFrom('loyalty_bulk_operations')
+        .select(['successCount', 'failureCount'])
+        .where('id', '=', msg.opId)
+        .executeTakeFirst();
+      const succeeded = Number(final?.successCount ?? 0);
+      const failed = Number(final?.failureCount ?? 0);
       await this.handle.db
         .updateTable('loyalty_bulk_operations')
-        .set({ status: 'done', updatedAt: new Date() })
+        .set({
+          status: succeeded === 0 && failed > 0 ? 'failed' : 'done',
+          updatedAt: new Date(),
+        })
         .where('id', '=', msg.opId)
         .execute();
     }

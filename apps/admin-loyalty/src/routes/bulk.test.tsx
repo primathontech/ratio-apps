@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiException, api } from '@/lib/api';
-import { downloadTextFile } from '@/lib/download';
+import { downloadTextFile, fetchAuthenticatedText } from '@/lib/download';
 import { BULK_CSV_TEMPLATE, BULK_CSV_TEMPLATE_FILENAME } from '@/lib/parse-csv';
 import { useMerchantStore } from '@/stores/useMerchantStore';
 import { renderWithProviders } from '../test-utils';
@@ -14,10 +14,13 @@ vi.mock('@/lib/api', async (importOriginal) => {
 vi.mock('@/lib/download', () => ({
   downloadAuthenticated: vi.fn(),
   downloadTextFile: vi.fn(),
+  fetchAuthenticatedText: vi.fn(),
 }));
 
 const mockedApi = vi.mocked(api);
 const mockedDownloadTextFile = vi.mocked(downloadTextFile);
+const mockedDownloadText = mockedDownloadTextFile;
+const mockedFetchText = vi.mocked(fetchAuthenticatedText);
 
 /** Switch the page into manual-entry mode. */
 function selectManualMode() {
@@ -386,5 +389,54 @@ describe('BulkPage — history', () => {
     expect(screen.getByText('+919876500000')).toBeInTheDocument();
     expect(screen.getByText('Diwali bonus')).toBeInTheDocument();
     expect(screen.getByText('Insufficient balance')).toBeInTheDocument();
+  });
+
+  it('previews the failed rows instead of auto-downloading them', async () => {
+    // Clicking "errors.csv" used to dump a file into Downloads: to see why a
+    // row failed you had to leave the admin and open a spreadsheet.
+    const failedOp = { ...doneOp, failureCount: 1, successCount: 1 };
+    mockedApi.mockImplementation((method: string, path: string) => {
+      if (method === 'GET' && path.startsWith('/api/bulk-operations?')) {
+        return Promise.resolve({ items: [failedOp], total: 1, page: 1, limit: 10 });
+      }
+      return Promise.resolve({});
+    });
+    mockedFetchText.mockResolvedValue(
+      'row_number,phone,points,reason,error_reason\n2,+919876500000,250,Diwali bonus,Insufficient balance\n',
+    );
+
+    renderWithProviders(<BulkPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'errors.csv' }));
+
+    // The CSV is rendered as a table, in place...
+    expect(await screen.findByText('Insufficient balance')).toBeInTheDocument();
+    expect(screen.getByText('+919876500000')).toBeInTheDocument();
+    // ...and downloading is a button in the preview, not a side effect.
+    expect(screen.getByRole('button', { name: 'Download CSV' })).toBeInTheDocument();
+    expect(mockedDownloadText).not.toHaveBeenCalled();
+  });
+
+  it('re-queries with the chosen page size — the selector used to be inert', async () => {
+    mockedApi.mockImplementation((method: string, path: string) => {
+      if (method === 'GET' && path.startsWith('/api/bulk-operations?')) {
+        return Promise.resolve({ items: [doneOp], total: 120, page: 1, limit: 10 });
+      }
+      return Promise.resolve({});
+    });
+    renderWithProviders(<BulkPage />);
+    await screen.findByText('test.csv');
+    expect(mockedApi.mock.calls.some((c) => String(c[1]).includes('limit=10'))).toBe(true);
+
+    // antd renders the size changer as its own select inside the pagination.
+    const sizeChanger = document.querySelector(
+      '.ant-pagination-options-size-changer .ant-select-selector',
+    );
+    expect(sizeChanger).not.toBeNull();
+    fireEvent.mouseDown(sizeChanger as Element);
+    fireEvent.click(await screen.findByTitle('50 / page'));
+
+    await waitFor(() =>
+      expect(mockedApi.mock.calls.some((c) => String(c[1]).includes('limit=50'))).toBe(true),
+    );
   });
 });

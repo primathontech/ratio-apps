@@ -31,6 +31,8 @@ import {
   useSetRuleActive,
   useUpdateRule,
 } from '@/hooks/useLoyalty';
+import { ApiException } from '@/lib/api';
+import { normalizeBulkPhone } from '@/lib/parse-csv';
 
 export const Route = createFileRoute('/rules')({ component: RulesPage });
 
@@ -79,6 +81,14 @@ function toFieldErrors(issues: readonly { path: PropertyKey[]; message: string }
   return { fields, formLevel };
 }
 
+/** Server guards that belong on a specific field rather than the form banner. */
+const SERVER_ERROR_FIELDS: Record<string, keyof RuleFieldErrors | undefined> = {
+  DUPLICATE_PRIORITY: 'priority',
+  START_IN_PAST: 'startsAt',
+  END_IN_PAST: 'endsAt',
+  EMPTY_CUSTOMER_LIST: 'targetType',
+};
+
 function emptyForm(): RuleFormState {
   return {
     name: '',
@@ -86,11 +96,20 @@ function emptyForm(): RuleFormState {
     value: '50',
     targetType: 'SEGMENT',
     conditions: makeGroup('AND'),
-    startsAt: new Date().toISOString().slice(0, 16),
+    // LOCAL time, not `toISOString().slice(0,16)`. A `datetime-local` value is
+    // read back as local, so the UTC form made every new rule default to
+    // (now − UTC offset) — 5½ hours in the past for an IST merchant, silently
+    // backdating the rule before anyone touched the field.
+    startsAt: nowLocalInput(),
     endsAt: '',
     priority: '0',
     active: true,
   };
+}
+
+/** `datetime-local` floor for "no earlier than now", in the browser's zone. */
+function nowLocalInput(): string {
+  return toLocalInput(new Date().toISOString());
 }
 
 function toLocalInput(iso: string | null): string {
@@ -136,6 +155,15 @@ export function RulesPage() {
   const [errors, setErrors] = useState<RuleFieldErrors>({});
   const [formErrors, setFormErrors] = useState<string[]>([]);
 
+  // Membership of the rule under edit, so the form can refuse to activate a
+  // customer-list rule that targets nobody. `null` id keeps the query idle.
+  const editingCustomers = useRuleCustomers(
+    editing && editing.targetType === 'CUSTOMER_LIST' ? editing.id : null,
+    1,
+  );
+  // Only decide once the count has actually loaded — never block on `undefined`.
+  const hasNoCustomers = editingCustomers.data?.total === 0;
+
   const resetErrors = () => {
     setErrors({});
     setFormErrors([]);
@@ -173,6 +201,46 @@ export function RulesPage() {
       setFormErrors(formLevel);
       return;
     }
+
+    // Rules the shared schema can't express: they need the other rules, or
+    // "now". Reported against their own field, before the round-trip.
+    const local: RuleFieldErrors = {};
+
+    // Priority is the evaluator's tie-break (ORDER BY priority DESC), so two
+    // rules at the same priority make the winner depend on row order.
+    const clash = (rules.data ?? []).find(
+      (r) => r.priority === parsed.data.priority && r.id !== editing?.id,
+    );
+    if (clash)
+      local.priority = `Priority ${parsed.data.priority} is already used by "${clash.name}".`;
+
+    // Only for a NEW rule: an existing one legitimately keeps the start date
+    // it was created with, so editing must not be blocked by its own past.
+    if (!editing) {
+      const floor = Date.now() - 60_000;
+      if (parsed.data.startsAt.getTime() < floor)
+        local.startsAt = 'Start date cannot be in the past.';
+      if (parsed.data.endsAt && parsed.data.endsAt.getTime() < floor) {
+        local.endsAt = 'End date cannot be in the past.';
+      }
+    }
+
+    // An active customer-list rule with an empty list matches nobody, so it
+    // looks live while doing nothing.
+    if (
+      parsed.data.targetType === 'CUSTOMER_LIST' &&
+      parsed.data.active &&
+      editing &&
+      hasNoCustomers
+    ) {
+      local.targetType = 'Add at least one customer below before activating this rule.';
+    }
+
+    if (Object.keys(local).length > 0) {
+      setErrors(local);
+      setFormErrors([]);
+      return;
+    }
     resetErrors();
     const payload: LoyaltyRulePayload = {
       name: parsed.data.name,
@@ -194,6 +262,16 @@ export function RulesPage() {
       setFormOpen(false);
       setEditing(null);
     } catch (err) {
+      // The same three guards exist server-side (another admin tab, or a
+      // direct API call, can still race us) — land them on their field.
+      if (err instanceof ApiException) {
+        const field = SERVER_ERROR_FIELDS[err.errorCode ?? ''];
+        if (field) {
+          setErrors({ [field]: err.message });
+          setFormErrors([]);
+          return;
+        }
+      }
       setFormErrors([err instanceof Error ? err.message : 'Save failed']);
     }
   };
@@ -376,6 +454,9 @@ export function RulesPage() {
                   type="datetime-local"
                   aria-label="Starts at"
                   value={form.startsAt}
+                  // New rules can't start in the past; an existing rule keeps
+                  // whatever start date it already has, so no floor on edit.
+                  {...(editing ? {} : { min: nowLocalInput() })}
                   onChange={(e) => setForm({ ...form, startsAt: e.target.value })}
                   style={{ padding: '4px 8px' }}
                 />
@@ -385,6 +466,8 @@ export function RulesPage() {
                   type="datetime-local"
                   aria-label="Ends at"
                   value={form.endsAt}
+                  // Never before the start, and never in the past for a new rule.
+                  min={form.startsAt || (editing ? undefined : nowLocalInput())}
                   onChange={(e) => setForm({ ...form, endsAt: e.target.value })}
                   style={{ padding: '4px 8px' }}
                 />
@@ -475,6 +558,7 @@ function RuleCustomerList({ ruleId }: { ruleId: string }) {
   const [page, setPage] = useState(1);
   const [phonesText, setPhonesText] = useState('');
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
   const customers = useRuleCustomers(ruleId, page);
   const append = useAppendRuleCustomers();
   const remove = useRemoveRuleCustomers();
@@ -486,24 +570,55 @@ function RuleCustomerList({ ruleId }: { ruleId: string }) {
       .filter(Boolean);
 
   const handleAppend = async () => {
+    setFeedback(null);
+    setPhoneError(null);
     const phones = parsePhones(phonesText);
-    if (phones.length === 0) return;
+    if (phones.length === 0) {
+      setPhoneError('Enter at least one phone number.');
+      return;
+    }
+
+    // Validate BEFORE posting and keep the text where it is. The old flow
+    // posted everything, reported "N invalid" as a bland success banner and
+    // then cleared the box — so the numbers you needed to fix were gone and
+    // you had no idea which ones they were.
+    const bad = phones.filter((phone) => !normalizeBulkPhone(phone));
+    if (bad.length > 0) {
+      const shown = bad.slice(0, 3).join(', ');
+      setPhoneError(
+        `${bad.length} invalid number${bad.length === 1 ? '' : 's'} (${shown}${
+          bad.length > 3 ? ', …' : ''
+        }) — Indian mobile, 10 digits starting 6-9. Fix them and append again.`,
+      );
+      return;
+    }
+
     const result = await append.mutateAsync({ id: ruleId, phones });
-    setFeedback(`Added ${result.added} phone(s); ${result.invalid} invalid.`);
-    setPhonesText('');
+    setFeedback(`Added ${result.added} phone(s).`);
+    setPhonesText(''); // cleared only now that every number landed
   };
 
   return (
     <Card title="Customer list">
       <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
-        <textarea
-          aria-label="Phones to append"
-          placeholder={'One phone per line (or comma-separated)\n9876543210\n9876500000'}
-          value={phonesText}
-          onChange={(e) => setPhonesText(e.target.value)}
-          rows={4}
-          style={{ width: '100%', padding: 8, fontFamily: 'monospace' }}
-        />
+        <FieldRow label="Phone numbers" error={phoneError ?? undefined}>
+          <textarea
+            aria-label="Phones to append"
+            placeholder={'One phone per line (or comma-separated)\n9876543210\n9876500000'}
+            value={phonesText}
+            onChange={(e) => {
+              setPhonesText(e.target.value);
+              if (phoneError) setPhoneError(null); // clear as soon as they edit
+            }}
+            rows={4}
+            style={{
+              width: '100%',
+              padding: 8,
+              fontFamily: 'monospace',
+              ...(phoneError ? { borderColor: '#ff4d4f' } : {}),
+            }}
+          />
+        </FieldRow>
         <Space>
           <PrimaryButton onClick={() => void handleAppend()} loading={append.isPending}>
             Append phones

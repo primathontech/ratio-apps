@@ -321,4 +321,48 @@ describe('BulkWorker', () => {
     expect(core.calls).toHaveLength(0);
     expect(queue.acked.get(LOYALTY_QUEUE_NAMES.bulkOps)).toHaveLength(2);
   });
+
+  it('#all-rows-failed: the operation ends `failed`, never green `done`', async () => {
+    // A debit against phones that hold no coins fails every row. Flipping the
+    // op to `done` regardless is what made that read back as a success.
+    seed(fake, {
+      type: 'debit',
+      rows: [
+        { id: 1, rowNumber: 1, phone: '+919876543210', points: 100 },
+        { id: 2, rowNumber: 2, phone: '+919876543211', points: 100 },
+      ],
+    });
+    core.setBalance('+919876543210', 0);
+    core.setBalance('+919876543211', 0);
+    enqueue(queue, [1, 2]);
+
+    await worker.drainOnce();
+
+    expect(fake.table('loyalty_bulk_operations')[0]).toMatchObject({
+      status: 'failed',
+      successCount: 0,
+      failureCount: 2,
+    });
+  });
+
+  it('a partial failure still settles on `done` — some coins really did move', async () => {
+    seed(fake, {
+      type: 'debit',
+      rows: [
+        { id: 1, rowNumber: 1, phone: '+919876543210', points: 100 },
+        { id: 2, rowNumber: 2, phone: '+919876543211', points: 100 },
+      ],
+    });
+    core.setBalance('+919876543210', 5_000);
+    core.setBalance('+919876543211', 0);
+    enqueue(queue, [1, 2]);
+
+    await worker.drainOnce();
+
+    expect(fake.table('loyalty_bulk_operations')[0]).toMatchObject({
+      status: 'done',
+      successCount: 1,
+      failureCount: 1,
+    });
+  });
 });
