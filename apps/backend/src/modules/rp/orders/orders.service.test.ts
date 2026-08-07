@@ -82,9 +82,11 @@ describe('RpOrdersService.getOrders — id-mapping persistence', () => {
 
     await service.getOrders('m1', {});
 
-    expect(hashAndPersist).toHaveBeenCalledWith('product', 'a');
-    expect(hashAndPersist).toHaveBeenCalledWith('product', 'c');
-    expect(hashAndPersist).toHaveBeenCalledWith('variant', 'b');
-    expect(hashAndPersist).toHaveBeenCalledWith('variant', 'd');
+    await vi.waitFor(() => {
+      expect(hashAndPersist).toHaveBeenCalledWith('product', 'a');
+      expect(hashAndPersist).toHaveBeenCalledWith('product', 'c');
+      expect(hashAndPersist).toHaveBeenCalledWith('variant', 'b');
+      expect(hashAndPersist).toHaveBeenCalledWith('variant', 'd');
+    });
   });
 });
