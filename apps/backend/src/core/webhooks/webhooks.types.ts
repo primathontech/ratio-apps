@@ -34,18 +34,42 @@ export const webhookEnvelopeSchema = z
     // Order events (`orders/*`) carry the order as their resource instead of a
     // product. Same shape rules apply: opaque record, handler-validated.
     order: z.record(z.string(), z.unknown()).optional(),
+    // Customer events (`customers/*`) carry the customer profile. NOTE the live
+    // platform delivers this FLAT (fields on the envelope), not nested — the
+    // nested form here is what docs/fixtures use; `envelopeResource` handles both.
+    customer: z.record(z.string(), z.unknown()).optional(),
   })
   .passthrough();
 
 export type WebhookEnvelope = z.infer<typeof webhookEnvelopeSchema>;
 
 /**
- * The event's resource object — `product` for product events, `order` for
- * order events, `{}` for resource-less events (e.g. `app/uninstalled`).
- * Dispatch logs and forwards THIS to the matched handler.
+ * The event's resource object, forwarded to the matched handler.
+ *
+ * Two wire shapes are handled:
+ *  - NESTED (docs/fixtures): the resource sits under `product`/`order`/`customer`.
+ *  - FLAT (live platform, verified): the resource fields ride directly ON the
+ *    envelope alongside `event_type`/`merchant_id` (e.g. a live `orders/*`
+ *    delivery has `id`, `line_items`, … at top level, plus a nested `customer`
+ *    that is the order's customer — NOT the event resource).
+ *
+ * A top-level `customer` is only treated as the resource for `customers/*`
+ * topics, so an order's embedded customer is never mistaken for the resource.
+ * Resource-less events (e.g. `app/uninstalled`, `ping`) resolve to `{}`.
  */
 export function envelopeResource(e: WebhookEnvelope): Record<string, unknown> {
-  return (e.product ?? e.order ?? {}) as Record<string, unknown>;
+  if (e.product) return e.product as Record<string, unknown>;
+  if (e.order) return e.order as Record<string, unknown>;
+  if (e.customer && e.event_type.startsWith('customers/')) {
+    return e.customer as Record<string, unknown>;
+  }
+  const rest: Record<string, unknown> = { ...(e as Record<string, unknown>) };
+  delete rest.event_type;
+  delete rest.merchant_id;
+  delete rest.product;
+  delete rest.order;
+  delete rest.customer;
+  return rest;
 }
 
 function resourceVersion(resource: Record<string, unknown>): string | null {

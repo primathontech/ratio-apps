@@ -3,10 +3,14 @@
 // _template vendor example (genericized starting point — a scaffolded vendor
 // gets its own `<slug>-events` / `<slug>-config` modules alongside these).
 export * from './constants/_template-events';
+// clevertap vendor (scaffolded).
+export * from './constants/clevertap-events';
 // forms vendor (Form Builder — first-party app).
 export * from './constants/forms-events';
 // google vendor (scaffolded) — vendor-specific config/events alongside the template example.
 export * from './constants/google-events';
+// loyalty vendor (scaffolded).
+export * from './constants/loyalty-events';
 // meta vendor (scaffolded) — vendor-specific config/events + CAPI ingest schema.
 export * from './constants/meta-events';
 export * from './constants/moengage-events';
@@ -15,20 +19,19 @@ export * from './constants/openstore-events';
 export * from './constants/posthog-events';
 export * from './schemas/_template-config';
 export * from './schemas/capi-ingest';
+export * from './schemas/clevertap-config';
 // Schemas
 export * from './schemas/event-map';
 export * from './schemas/form-schema';
 export * from './schemas/forms-config';
 export * from './schemas/google-config';
+export * from './schemas/loyalty-claim';
+export * from './schemas/loyalty-config';
+export * from './schemas/loyalty-export';
+export * from './schemas/loyalty-rules';
 export * from './schemas/merchant';
 export * from './schemas/meta-config';
 export * from './schemas/moengage-config';
 export * from './schemas/posthog-config';
 // wizzy vendor (AI search & discovery) — search/autocomplete API + storefront config schemas.
 export * from './schemas/wizzy-search';
-// loyalty vendor (scaffolded).
-export * from './constants/loyalty-events';
-export * from './schemas/loyalty-config';
-export * from './schemas/loyalty-rules';
-export * from './schemas/loyalty-claim';
-export * from './schemas/loyalty-export';

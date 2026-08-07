@@ -16,6 +16,8 @@ CREATE DATABASE IF NOT EXISTS unicommerce_app;
 CREATE DATABASE IF NOT EXISTS unicommerce_app_test;
 CREATE DATABASE IF NOT EXISTS forms_app;
 CREATE DATABASE IF NOT EXISTS forms_app_test;
+CREATE DATABASE IF NOT EXISTS clevertap_app;
+CREATE DATABASE IF NOT EXISTS clevertap_app_test;
 
 GRANT ALL ON `_template_app`.*      TO 'app'@'%';
 GRANT ALL ON `_template_app_test`.* TO 'app'@'%';
@@ -33,4 +35,6 @@ GRANT ALL ON `unicommerce_app`.*        TO 'app'@'%';
 GRANT ALL ON `unicommerce_app_test`.*   TO 'app'@'%';
 GRANT ALL ON `forms_app`.*          TO 'app'@'%';
 GRANT ALL ON `forms_app_test`.*     TO 'app'@'%';
+GRANT ALL ON `clevertap_app`.*      TO 'app'@'%';
+GRANT ALL ON `clevertap_app_test`.* TO 'app'@'%';
 FLUSH PRIVILEGES;

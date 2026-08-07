@@ -200,6 +200,13 @@ const baseEnv = z.object({
   // worst-case batch processing time so in-flight batches don't redeliver.
   LOYALTY_BULK_VISIBILITY: z.coerce.number().int().min(30).default(300),
 
+  // Platform-wide CleverTap kill switch: 'false' disables the integration for
+  // all merchants at once (data path only), regardless of per-merchant toggle.
+  CLEVERTAP_APP_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((s) => s === 'true'),
+
   // ─── core email (SES) ─────────────────────────────────────────────────────
   // Verified SES sender identity. Unset → EmailService no-ops (dev default).
   EMAIL_FROM: emptyAsUndefined(z.string().email()),

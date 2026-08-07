@@ -1,0 +1,122 @@
+{
+  "slug": "clevertap",
+  "displayName": "CleverTap",
+  "hasStorefrontSdk": false,
+  "phase": "code-reviewer",
+  "gates": {
+    "prd": "approved",
+    "trd": "approved",
+    "tdd": "approved",
+    "pr": "pending",
+    "deploy": "pending"
+  },
+  "docs": {
+    "prd": "docs/agent/apps/clevertap/PRD.md",
+    "trd": "docs/agent/apps/clevertap/TRD.md",
+    "tdd": "docs/agent/apps/clevertap/TDD.md"
+  },
+  "scopes": ["read_orders", "read_customers"],
+  "webhooks": [
+    "app/uninstalled",
+    "orders/paid",
+    "orders/create",
+    "orders/cancelled",
+    "orders/fulfilled",
+    "orders/partially_fulfilled",
+    "orders/updated",
+    "customers/create",
+    "customers/update",
+    "loyalty/points_credited",
+    "loyalty/points_debited",
+    "reviews/create",
+    "products/create",
+    "products/update",
+    "products/delete"
+  ],
+  "paths": {
+    "module": "apps/backend/src/modules/clevertap",
+    "admin": "apps/admin-clevertap"
+  },
+  "filesCreated": [
+    "docs/agent/apps/clevertap/PRD.md",
+    "docs/agent/apps/clevertap/TODO.md",
+    "docs/agent/apps/clevertap/TRD.md",
+    "docs/agent/apps/clevertap/TDD.md",
+    "docs/agent/apps/clevertap/STATE.json",
+    "docs/agent/apps/clevertap/CONTEXT.md",
+    "docs/agent/FEATURES.md (clevertap row)",
+    "docs/agent/context/learnings.md",
+    "apps/backend/src/modules/clevertap/** (27 files: module, tokens, kysely, guards, bootstrap, config x3, sdk x2, db x2, events x3, webhooks x11)",
+    "apps/backend/pixel/clevertap-pixel.ts",
+    "apps/admin-clevertap/** (admin SPA: config/events/install/disabled routes, StatusPanel, useStatus, merchant-gate, 7 test files)",
+    "packages/shared/src/constants/clevertap-events.ts",
+    "packages/shared/src/schemas/clevertap-config.ts",
+    "packages/shared/src/schemas/event-map.ts (added 'clevertap' vendor branch)",
+    "packages/shared/src/index.ts (barrel exports)",
+    "apps/backend/test/unit/apps/clevertap/** (16 test files + helpers/fixtures)",
+    "apps/backend/src/config/apps.ts (appended clevertap)",
+    "apps/backend/src/module-registry.ts (import + registry entry)",
+    "docker/mysql/init/01-database.sql (clevertap_app + _test CREATE/GRANT)",
+    ".env.example (RATIO_CLEVERTAP_* block, 6 keys)",
+    "apps/backend/test/unit/config/env.schema.test.ts (fixed PRE-EXISTING failure: fixture was missing RATIO_LOYALTY_* keys)"
+  ],
+  "deployment": {
+    "apiPlacement": "shared",
+    "workerPlacement": "none"
+  },
+  "deployTarget": null,
+  "prUrl": null,
+  "notes": "Built in a dedicated worktree at ../ratio-apps-clevertap on branch feat/clevertap, based on origin/main (5ff1832) — NOT on feat/delhivery. Source product PRD is update/Clevertap - PRD.md (a Ratio PLATFORM PRD, not a vendor-app PRD). PRD §Deviations records D1-D7; TODO.md tracks every gap. R1 RESOLVED 2026-07-25 against the LIVE registry (GET /api/v1/admin/webhook-setup/event-types → 18 event types: orders x8, products x3, collections x3, reviews x2, loyalty x2) — this CORRECTED an earlier repo-only inference of mine that had wrongly concluded only 3 topics existed. Truth: 6 of the source PRD's 15 topics DO exist (orders/paid, orders/create, orders/cancelled, orders/updated, orders/fulfilled, orders/partially_fulfilled) — orders/paid is live, so Charged maps from it as the source PRD intended, and the fulfilment topics it believed were blocked on the Fulfillment Module are available. 9 do NOT exist (customers/create+update, checkouts/create+update+delete, fulfillments/create+update, draft_orders/create+update) — tracked as platform asks in TODO.md §1. Material consequence: NO server-side checkout abandonment in v1 (no checkouts/* topic); it degrades to the pixel's client-side InitiateCheckout. A self-serve POST /api/v1/app-webhooks subscription API DOES exist ({eventName, webhookUrl, secretKey?, customHeaders?}), so the source PRD's subscription model is real — it lives on the platform, not in this repo. Other decisions: pasted <script> instead of ScriptTag injection (D1) — but the live spec shows web_pixel/app_embed extension machinery worth investigating (TODO.md §3); app calls CleverTap's public Events API rather than Ratio emitting Shopify-format payloads, which DELETES the source PRD's highest-likelihood (H) risk of CleverTap not prioritising Ratio (D3); identity bridge reads metadata.user_data off OpenStore pixel events instead of requiring a KwikPass JS change, deleting an external GoKwik dependency (D4); prices are integer PAISE and must be /100 before sending, contradicting the source PRD's 'decimal rupees' claim (D5, per learnings.md 2026-06-22). Closest in-repo reference is the moengage app (pixel + config + event map); loyalty is the reference for order webhooks and for the precedent of re-grounding a source PRD against the live spec. Unlike moengage, this module DOES need CryptoService: the CleverTap Passcode is a write secret, encrypted at rest, never sent to the browser.",
+  "history": [
+    {
+      "phase": "code-reviewer",
+      "ts": "2026-08-04T00:00:00.000Z",
+      "note": "SHIPPED (docs updated): (1) Delivery-health dashboard DONE — GET /clevertap/api/status/deliveries + admin /health DeliveryHealthPanel showing 24h sent/failed/skipped/successRate, per-topic breakdown, and recent failures (reads the clevertap_forwarded_events rows). (2) Catalog sync BUILT, go-live pending. Product-list source VERIFIED at GET /api/v1/v1/products?limit&page on RATIO_API_BASE_URL, auth = merchant OAuth bearer (READ_PRODUCTS scope), Shopify-shaped { products[], pagination{ hasNext } }. CleverTap Catalog API is a 3-step CSV full-replace (get_catalog_url -> PUT CSV -> upload_catalog_completed), auth X-CleverTap-Account-Id + Passcode, mandatory CSV cols Name/ImageURL/Category, NO per-item endpoint. Built: RatioProductSourceClient, uploadCatalog 3-step client, buildCatalogCsv, catalog config fields (catalogName/catalogEmail/catalogSyncEnabled) + admin form, ClevertapCatalogSyncService, and a debounced dirty-scheduler triggered from products/* webhooks. REMAINING for catalog go-live: flip CLEVERTAP_CATALOG_CONTRACT_VERIFIED after a live catalog upload verification (real catalogName + admin email)."
+    },
+    {
+      "phase": "prd-architect",
+      "ts": "2026-07-25T00:00:00.000Z",
+      "note": "Worktree created from origin/main (5ff1832); PRD.md written from update/Clevertap - PRD.md with deviations D1-D7."
+    },
+    {
+      "phase": "prd-architect",
+      "ts": "2026-07-25T00:00:00.000Z",
+      "note": "R1 executed against the live UAT registry — corrected a wrong repo-only inference; found orders/paid + both fulfilment topics DO exist. Human selected deployment: apiPlacement=shared, workerPlacement=none."
+    },
+    {
+      "phase": "prd-architect",
+      "ts": "2026-07-25T00:00:00.000Z",
+      "note": "GATE 1 APPROVED by human 2026-07-25 — instruction was to keep the blockers pending and proceed, since the blockers reduce SCOPE rather than block SEQUENCING (nothing on the critical path waits on them: scaffold, config, pixel, and all 6 order handlers are unblocked; checkouts/* has no handler to write, so there is nothing to wait for). pnpm install run in the worktree (exit 0). Proceeded to trd-architect."
+    },
+    {
+      "phase": "trd-architect",
+      "ts": "2026-07-25T00:00:00.000Z",
+      "note": "GATE 2 APPROVED by human 2026-07-25. Proceeded to tdd-author."
+    },
+    {
+      "phase": "tdd-author",
+      "ts": "2026-07-25T00:00:00.000Z",
+      "note": "GATE 3 APPROVED by human 2026-07-25 ('can make them in the pending and go ahead') — blockers stay tracked-pending, build proceeds. Ran vendor-scaffolder + backend-builder + frontend-builder + code-reviewer."
+    },
+    {
+      "phase": "code-reviewer",
+      "ts": "2026-07-25T00:00:00.000Z",
+      "note": "IMPLEMENTATION COMPLETE — LIGHT GATE RESULT (awaiting GATE 4). Scaffolded from _template (copy + Template->Clevertap / TEMPLATE_->CLEVERTAP_ / _template->clevertap sweep; note zsh does NOT word-split unquoted vars, so the rename must use find -exec, not `for f in $FILES`). hasStorefrontSdk false so step 8b skipped. Implementation ran as a 4-agent parallel workflow over DISJOINT file trees (config+db+sdk / webhooks+forwarding / pixel / admin), 0 agent errors, ~775k subagent tokens. Orchestrator did the shared contract (clevertap-events.ts, clevertap-config.ts, event-map branch, barrel) up front since everything depends on it, and the module wiring at the end. VERIFICATION: biome on all 85 clevertap files = 0 errors / 20 warnings (noExplicitAny in test fakes, same kind+density as the existing fake-loyalty-db.ts); backend tsc --noEmit = exit 0; admin tsc --noEmit = exit 0; backend suite = 1249 passed / 3 failed where ALL 3 ARE PRE-EXISTING AND IN FILES THIS BUILD NEVER TOUCHED (2x meta/catalog-source-paging, 1x flaky google/feed-sync-dedup — both documented as pre-existing by the loyalty build; proven here via git status + the untouched base commit); admin-clevertap 41/41; shared 218/218; builds green for shared, admin (vite), and pixel (emits static/clevertap-pixel.js, 10.7KB). NET SUITE IMPROVEMENT: fixed a pre-existing 6-test failure in test/unit/config/env.schema.test.ts whose validEnv fixture was missing RATIO_LOYALTY_* — loyalty joined APPS (PR #37) without the fixture being updated, so every safeParse assertion failed on origin/main before this build; added both the loyalty and clevertap blocks. ORCHESTRATOR-OWNED DECISIONS: (a) used createAppProviders handlerClasses:[...] (plural) with all 9 handlers in BOTH providers and handlerClasses — the singular handlerClass form registers only one and the rest fail DI at boot; added 12 source-level guard tests in wiring.test.ts pinning that symmetry, because NOTHING in this repo compiles a Nest module in tests so the mistake would surface only on deploy. (b) DELETED ClevertapConfigService.getForwardingCredentials + its 5 tests + the ClevertapForwardingCredentials type as dead code: ClevertapForwardingService owns the only decrypt path and reads config through the dispatch trx (which the config service cannot), and the duplicate collapsed an undecryptable ciphertext into passcode:null which forwarding would log as 'skipped' — indistinguishable from 'never configured', where the honest status is 'failed'. Also removed the then-orphaned logger. Keeping one decrypt path keeps the secret's blast radius small."
+    },
+    {
+      "phase": "tdd-author",
+      "ts": "2026-07-25T00:00:00.000Z",
+      "note": "TDD.md written. 14 acceptance criteria (A1-A14) each mapped to named test cases, no orphans. Strategy: everything faked (in-memory Kysely fake per loyalty's fake-loyalty-db pattern; injected fetchImpl on the events client per core-loyalty.client; real CryptoService with a fixed key so ciphertext-not-plaintext is provable; window.clevertap stub + fake OpenStore runtime per meta-pixel.test). KEY DESIGN FOR THE UNRESOLVED R-ITEMS: every payload assumption is isolated in helpers/fixtures/order-payloads.ts behind one pure mapper, with '// R2: unverified' comments on each unconfirmed field — so capturing a real orders/paid delivery changes ONLY the fixture (and maybe the mapper), never a test name or the structure. Highest-value tests: order-event.mapper.test.ts (table-driven paise->rupees, since wrong units inflate revenue 100x), forwarding.service.test.ts (insert-before-call so a mid-forward crash leaves status=failed not a silent gap; duplicate key = no second fetch; CleverTap 5xx still resolves so the platform gets 2xx and stops redelivering), topics.test.ts (asserts the handler topic set equals STATE.json.webhooks exactly - the guard against R1's silent topic-mismatch skip), and the admin test that an untouched passcode field OMITS passcode from the PUT rather than sending '' which would clear it. Also recorded: pre-existing repo-wide test failures (admin-rp empty suite, 2 meta paging tests) are NOT this build's to fix - verify clevertap suites green in isolation and report pre-existing red separately at GATE 4."
+    },
+    {
+      "phase": "trd-architect",
+      "ts": "2026-07-25T00:00:00.000Z",
+      "note": "TRD.md written. Design = the moengage app plus (a) an encrypted secret and (b) an outbound API client. Key decisions: 6 separate order handlers delegating to one shared ClevertapForwardingService; NEW clevertap_forwarded_events table with UNIQUE(merchant_id, idempotency_key) giving OUTBOUND idempotency independent of core's retry-windowed inbound dedupe (a delivery can be logged then fail mid-forward, and re-sending Charged would double-count revenue) — the same rows power GET /clevertap/api/status; passcode uses wizzy's write-only secret semantics (absent=untouched, ''=clear, value=encrypt) and is never returned, never in the pixel prelude, never logged; Charged fires ONLY from orders/paid so orders/create cannot double-count; money converted paise->rupees via one unit-tested helper; forwarding failures mark the row failed and still return 2xx so the platform does not redeliver forever during a CleverTap outage. 8 R-items in TRD §8: R1 (confirm all 9 event_type strings against REAL deliveries — mismatch = silent handler skip, the worst failure mode) and R2 (real orders/paid payload + confirm paise for orders, currently only verified for products) must be resolved before writing order-event.mapper.ts; R4/R5 (CleverTap Events API contract + Web SDK URL/region init) before the client and pixel; R7/R8 accepted unresolved as tracked non-blockers."
+    },
+    {
+      "phase": "trd-architect",
+      "ts": "2026-07-25T00:00:00.000Z",
+      "note": "R1 REVISED after the human produced a platform dashboard screenshot showing a Customers (3) category. Root cause of the discrepancy: THERE ARE TWO REGISTRIES. webhook-setup/event-definitions = master catalog = 21 events / 6 categories INCLUDING customers/create+update+delete (own pipeline: topic sandbox.os.ecosystem.customer.events, groupId webhook.customers); webhook-setup/event-types = synced registry = 18, missing all 3 customers/*; webhook-setup/status confirms eventTypeCount 18 vs expectedEventCount 21. So customers/* needs a POST webhook-setup/sync (an OPS action), NOT platform development. customers/create + customers/update added to v1 scope (handlers built, inert until sync lands) and read_customers added to scopes. Verified by grep that checkouts/*, fulfillments/*, draft_orders/* have ZERO occurrences in the catalog — those 7 remain genuine platform asks (TODO.md 1b). Net: 8 of the source PRD's 15 topics are obtainable; only checkouts/* materially hurts (no server-side abandonment in v1). LESSON: check BOTH registries plus /status before scoping webhook work — a single-endpoint read gave the wrong answer twice."
+    }
+  ]
+}
