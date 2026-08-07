@@ -102,6 +102,9 @@ export function DeliveryHealthPanel({ data, isLoading, error }: Props) {
             <Statistic title="Skipped" value={data.skipped} />
           </Col>
           <Col span={6}>
+            <Statistic title="Queued" value={data.queued} />
+          </Col>
+          <Col span={6}>
             <Statistic
               title="Success rate"
               value={data.successRate === null ? '-' : `${data.successRate}%`}

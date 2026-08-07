@@ -9,6 +9,7 @@ const fixture: ClevertapDeliveryHealth = {
   sent: 8,
   failed: 2,
   skipped: 1,
+  queued: 3,
   total: 11,
   successRate: 73,
   perTopic: [

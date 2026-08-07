@@ -23,6 +23,7 @@ export interface ClevertapDeliveryHealth {
   sent: number;
   failed: number;
   skipped: number;
+  queued: number;
   total: number;
   successRate: number | null;
   perTopic: ClevertapDeliveryTopicHealth[];

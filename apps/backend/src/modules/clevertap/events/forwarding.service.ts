@@ -5,10 +5,8 @@ import {
   type ClevertapWebhookEventTopic,
   DEFAULT_CLEVERTAP_REGION,
 } from '@ratio-app/shared/constants/clevertap-events';
-import { CLEVERTAP_FORWARDING_TOPIC } from '@ratio-app/shared/constants/kafka-topics';
 import type { Transaction } from 'kysely';
 import type { CryptoService } from '../../../core/crypto/crypto.service';
-import { KafkaService } from '../../../core/kafka/kafka.service';
 import type { DatabaseWithMerchants } from '../../../core/merchants/merchant.types';
 import type { DatabaseWithWebhookLog } from '../../../core/webhooks/webhook-log.types';
 import type { ClevertapConfigRow, ClevertapDatabase, ClevertapForwardStatus } from '../db/types';
@@ -52,7 +50,6 @@ export class ClevertapForwardingService {
     @Inject(CLEVERTAP_EVENTS_CLIENT_FACTORY)
     private readonly clientFactory: ClevertapEventsClientFactory,
     @Optional() @Inject(CLEVERTAP_APP_ENABLED) private readonly platformEnabled = true,
-    @Optional() private readonly kafka?: KafkaService,
     @Optional()
     @Inject(CLEVERTAP_FORWARD_WORKER_ENABLED)
     private readonly workerEnabled = false,
@@ -217,7 +214,7 @@ export class ClevertapForwardingService {
     }
     const row = config as ClevertapConfigRow & { passcodeEnc: string };
 
-    if (this.workerEnabled && this.kafka) {
+    if (this.workerEnabled) {
       const queued = await this.record(ctrx, {
         merchantId,
         idempotencyKey,
@@ -225,31 +222,12 @@ export class ClevertapForwardingService {
         clevertapEvent: mapped.clevertapEvent,
         status: 'queued',
         error: null,
+        payload: JSON.stringify(mapped.records),
       });
-      if (!queued) {
-        this.logger.log({
-          msg: 'duplicate forward suppressed — already recorded',
-          merchantId,
-          topic,
-          idempotencyKey,
-        });
-        return;
-      }
-      await this.kafka.produce(
-        CLEVERTAP_FORWARDING_TOPIC,
-        [
-          {
-            merchantId,
-            topic,
-            idempotencyKey,
-            clevertapEvent: mapped.clevertapEvent,
-            records: mapped.records,
-          },
-        ],
-        (p) => (p as { merchantId: string }).merchantId,
-      );
       this.logger.log({
-        msg: 'server-side forwarding enqueued',
+        msg: queued
+          ? 'server-side forwarding enqueued (outbox)'
+          : 'duplicate forward suppressed — already recorded',
         merchantId,
         topic,
         idempotencyKey,
@@ -321,6 +299,7 @@ export class ClevertapForwardingService {
       clevertapEvent: string;
       status: ClevertapForwardStatus;
       error: string | null;
+      payload?: string;
     },
   ): Promise<boolean> {
     const res = await ctrx

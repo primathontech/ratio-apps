@@ -1,7 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { CLEVERTAP_REGIONS } from '@ratio-app/shared/constants/clevertap-events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { KafkaService } from '../../../../src/core/kafka/kafka.service';
 import {
   ClevertapEventsClient,
   type ClevertapUploadResult,
@@ -702,17 +701,10 @@ describe('ClevertapEventsClient — CleverTap diagnostics reach the operator', (
 });
 
 describe('ClevertapForwardingService — enqueue path (worker enabled)', () => {
-  it('enqueues to clevertap.forwarding and records a queued row instead of uploading inline', async () => {
+  it('writes a queued outbox row with the payload instead of uploading inline', async () => {
     const fake = makeFakeTrx({ config: config() });
     const uploader = makeFakeUploader();
-    const produce = vi.fn(async () => {});
-    const service = new ClevertapForwardingService(
-      makeFakeCrypto(),
-      () => uploader,
-      true,
-      { produce } as unknown as KafkaService,
-      true,
-    );
+    const service = new ClevertapForwardingService(makeFakeCrypto(), () => uploader, true, true);
 
     await service.forwardOrder(
       CLEVERTAP_WEBHOOK_TOPICS.ordersPaid,
@@ -722,28 +714,21 @@ describe('ClevertapForwardingService — enqueue path (worker enabled)', () => {
     );
 
     expect(uploader.calls).toHaveLength(0);
-    expect(produce).toHaveBeenCalledTimes(1);
-    const [topic, payloads] = produce.mock.calls[0] as [string, Record<string, unknown>[]];
-    expect(topic).toBe('clevertap.forwarding');
-    expect(payloads[0]).toMatchObject({
+    expect(fake.rows[0]).toMatchObject({
       merchantId: MERCHANT,
       topic: 'orders/paid',
       clevertapEvent: 'Charged',
+      status: 'queued',
     });
-    expect(fake.rows[0]).toMatchObject({ status: 'queued' });
+    const records = JSON.parse(fake.rows[0]?.payload as string);
+    expect(Array.isArray(records)).toBe(true);
+    expect(records.length).toBeGreaterThan(0);
   });
 
-  it('stays synchronous (uploads inline, no enqueue) when the worker flag is off', async () => {
+  it('stays synchronous (uploads inline, no outbox row) when the worker flag is off', async () => {
     const fake = makeFakeTrx({ config: config() });
     const uploader = makeFakeUploader();
-    const produce = vi.fn(async () => {});
-    const service = new ClevertapForwardingService(
-      makeFakeCrypto(),
-      () => uploader,
-      true,
-      { produce } as unknown as KafkaService,
-      false,
-    );
+    const service = new ClevertapForwardingService(makeFakeCrypto(), () => uploader, true, false);
 
     await service.forwardOrder(
       CLEVERTAP_WEBHOOK_TOPICS.ordersPaid,
@@ -752,7 +737,7 @@ describe('ClevertapForwardingService — enqueue path (worker enabled)', () => {
       fake.trx,
     );
 
-    expect(produce).not.toHaveBeenCalled();
     expect(uploader.calls).toHaveLength(1);
+    expect(fake.rows[0]?.status).not.toBe('queued');
   });
 });

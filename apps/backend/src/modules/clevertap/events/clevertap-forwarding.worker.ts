@@ -30,6 +30,8 @@ import type { ClevertapUploadRecord } from './order-event.mapper';
 
 const GROUP_ID = 'clevertap-forwarding';
 const MAX_ERROR_LEN = 500;
+const OUTBOX_POLL_MS = 2000;
+const OUTBOX_BATCH = 100;
 
 interface ForwardMessage {
   merchantId: string;
@@ -39,10 +41,24 @@ interface ForwardMessage {
   records: ClevertapUploadRecord[];
 }
 
+function parseRecords(payload: unknown): ClevertapUploadRecord[] {
+  let value = payload;
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return [];
+    }
+  }
+  return Array.isArray(value) ? (value as ClevertapUploadRecord[]) : [];
+}
+
 @Injectable()
 export class ClevertapForwardingWorker implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ClevertapForwardingWorker.name);
   private worker: KafkaWorker | null = null;
+  private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private polling = false;
 
   constructor(
     @Inject(CLEVERTAP_DB_TOKEN) private readonly handle: KyselyClient<ClevertapDatabase>,
@@ -78,10 +94,83 @@ export class ClevertapForwardingWorker implements OnModuleInit, OnModuleDestroy 
       },
     );
     await this.worker.start();
+    this.pollTimer = setInterval(() => {
+      void this.drainOutbox();
+    }, OUTBOX_POLL_MS);
   }
 
   async onModuleDestroy(): Promise<void> {
+    if (this.pollTimer) clearInterval(this.pollTimer);
     if (this.worker) await this.worker.stop();
+  }
+
+  async drainOutbox(): Promise<void> {
+    if (this.polling) return;
+    this.polling = true;
+    try {
+      const rows = await this.handle.db
+        .selectFrom('clevertap_forwarded_events')
+        .selectAll()
+        .where('status', '=', 'queued')
+        .limit(OUTBOX_BATCH)
+        .execute();
+      for (const row of rows) {
+        await this.produceOutboxRow(row);
+      }
+    } catch (err) {
+      this.logger.error({
+        msg: 'outbox poll failed',
+        err: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      this.polling = false;
+    }
+  }
+
+  private async produceOutboxRow(row: {
+    merchantId: string;
+    idempotencyKey: string;
+    topic: string;
+    clevertapEvent: string;
+    payload: unknown;
+  }): Promise<void> {
+    const claimed = await this.handle.db
+      .updateTable('clevertap_forwarded_events')
+      .set({ status: 'enqueued' })
+      .where('merchantId', '=', row.merchantId)
+      .where('idempotencyKey', '=', row.idempotencyKey)
+      .where('status', '=', 'queued')
+      .executeTakeFirst();
+    if (Number(claimed?.numUpdatedRows ?? 0) === 0) return;
+
+    try {
+      await this.kafka.produce(
+        CLEVERTAP_FORWARDING_TOPIC,
+        [
+          {
+            merchantId: row.merchantId,
+            topic: row.topic,
+            idempotencyKey: row.idempotencyKey,
+            clevertapEvent: row.clevertapEvent,
+            records: parseRecords(row.payload),
+          },
+        ],
+        (p) => (p as { merchantId: string }).merchantId,
+      );
+    } catch (err) {
+      await this.handle.db
+        .updateTable('clevertap_forwarded_events')
+        .set({ status: 'queued' })
+        .where('merchantId', '=', row.merchantId)
+        .where('idempotencyKey', '=', row.idempotencyKey)
+        .where('status', '=', 'enqueued')
+        .execute();
+      this.logger.error({
+        msg: 'outbox produce failed — reverted to queued',
+        merchantId: row.merchantId,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   async deliver(msg: ForwardMessage): Promise<void> {

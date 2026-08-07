@@ -101,3 +101,72 @@ describe('ClevertapForwardingWorker.deliver', () => {
     expect(fake.forwarded(MERCHANT_ID)[0]?.status).toBe('failed');
   });
 });
+
+describe('ClevertapForwardingWorker.drainOutbox (outbox poller)', () => {
+  let fake: FakeClevertapDb;
+  let handle: ReturnType<typeof makeFakeClevertapHandle>['handle'];
+  let produce: ReturnType<typeof vi.fn>;
+  const crypto = makeCrypto();
+
+  function build() {
+    const factory = (() => ({ upload: vi.fn() })) as unknown as ClevertapEventsClientFactory;
+    return new ClevertapForwardingWorker(
+      handle,
+      crypto,
+      factory,
+      { produce } as unknown as KafkaService,
+      {} as unknown as ConfigService<Env, true>,
+      true,
+      true,
+    );
+  }
+
+  beforeEach(() => {
+    const built = makeFakeClevertapHandle();
+    fake = built.fake;
+    handle = built.handle;
+    produce = vi.fn(async () => {});
+  });
+
+  it('produces queued rows, parsing the stored payload, and marks them enqueued', async () => {
+    fake.seed(
+      'clevertap_forwarded_events',
+      makeForwardedEvent({
+        idempotencyKey: IDEMP,
+        status: 'queued',
+        payload: JSON.stringify([{ evtName: 'Charged', evtData: { x: 1 } }]) as never,
+      }),
+    );
+
+    await build().drainOutbox();
+
+    expect(produce).toHaveBeenCalledTimes(1);
+    const [topic, payloads] = produce.mock.calls[0] as [string, Record<string, unknown>[]];
+    expect(topic).toBe('clevertap.forwarding');
+    expect(payloads[0]).toMatchObject({
+      merchantId: MERCHANT_ID,
+      topic: 'orders/paid',
+      clevertapEvent: 'Charged',
+    });
+    expect(payloads[0]?.records).toEqual([{ evtName: 'Charged', evtData: { x: 1 } }]);
+    expect(fake.forwarded(MERCHANT_ID)[0]?.status).toBe('enqueued');
+  });
+
+  it('reverts the row to queued when produce throws (retried on the next poll)', async () => {
+    produce = vi.fn(async () => {
+      throw new Error('broker down');
+    });
+    fake.seed(
+      'clevertap_forwarded_events',
+      makeForwardedEvent({
+        idempotencyKey: IDEMP,
+        status: 'queued',
+        payload: JSON.stringify([{ evtName: 'Charged', evtData: {} }]) as never,
+      }),
+    );
+
+    await build().drainOutbox();
+
+    expect(fake.forwarded(MERCHANT_ID)[0]?.status).toBe('queued');
+  });
+});

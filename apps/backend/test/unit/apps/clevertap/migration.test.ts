@@ -185,6 +185,7 @@ describe('clevertap 0001_initial migration', () => {
       '0003_disabled_topics.ts',
       '0004_charged_source.ts',
       '0005_catalog_sync_status.ts',
+      '0006_forwarding_outbox.ts',
     ]);
   });
 

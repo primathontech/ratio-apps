@@ -26,7 +26,7 @@ interface ClevertapConfigsTable {
   updatedAt: Generated<Date>;
 }
 
-export type ClevertapForwardStatus = 'queued' | 'sent' | 'failed' | 'skipped';
+export type ClevertapForwardStatus = 'queued' | 'enqueued' | 'sent' | 'failed' | 'skipped';
 
 interface ClevertapForwardedEventsTable {
   id: Generated<string>;
@@ -36,6 +36,7 @@ interface ClevertapForwardedEventsTable {
   clevertapEvent: string;
   status: ColumnType<ClevertapForwardStatus, ClevertapForwardStatus, ClevertapForwardStatus>;
   error: ColumnType<string | null, string | null | undefined, string | null>;
+  payload: ColumnType<unknown, string | null | undefined, string | null>;
   sentAt: Generated<Date>;
 }
 
