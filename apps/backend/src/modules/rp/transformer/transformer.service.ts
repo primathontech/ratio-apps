@@ -202,21 +202,21 @@ export class RpTransformerService {
           compare_at_price: v.compare_at_price
             ? this.paiseToRupees(v.compare_at_price as number)
             : null,
-          // SANDBOX TESTING ACCOMMODATION: the OS item catalog does not expose per-variant
-          // inventory, so it arrives as 0/undefined and RP's exchange picker filters every
-          // variant out ("no products for exchange"). Force a minimum of 1 so exchange
-          // candidates are selectable during testing; a real positive value is preserved.
-          // Remove/gate this once OS surfaces real inventory.
-          inventory_quantity: Number(v.inventory_quantity ?? v.inventoryQuantity ?? 0) || 1,
+          inventory_quantity: Number(v.inventory_quantity ?? v.inventoryQuantity ?? 0),
           // RP's checkBlocked (return_prime_public/.../common.service.js) treats
           // `inventory_management === null` as Shopify's own shape for an
           // untracked-inventory variant and returns "not blocked" immediately, before
-          // even looking at inventory_policy/inventory_quantity. Any other value —
-          // including `undefined` from the key being absent, which is what happened
-          // here before — falls through to "blocked", regardless of stock. OS doesn't
-          // expose per-variant inventory tracking to this adapter (same reason as the
-          // inventory_quantity accommodation above), so null is the accurate mapping.
+          // even looking at inventory_policy/inventory_quantity. OS doesn't expose a
+          // Shopify-style inventory_management string to this adapter, so null is the
+          // accurate mapping — RP's OS-platform path reads `available_for_sale` below
+          // instead of relying on this field for stock checks.
           inventory_management: null,
+          // Ratio's own already-computed availability boolean (same field the OS
+          // storefront's product-service uses to show "Sold Out") — RP's checkBlocked
+          // reads this directly for platform='os' stores instead of re-deriving stock
+          // from inventory_management/inventory_policy/inventory_quantity, which OS
+          // doesn't populate the same way Shopify does.
+          available_for_sale: (v.availableForSale ?? null) as boolean | null,
           // option1 must match the product `options` values (below) so RP's variant matcher
           // resolves a selection; OS variants have no named options, so fall back to the title.
           option1: v.option1 ?? v.title ?? 'Default Title',
