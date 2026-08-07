@@ -1,7 +1,7 @@
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { dlqTopic } from '@ratio-app/shared/constants/kafka-topics';
-import { wrapEnvelope } from '@ratio-app/shared/schemas/queue-envelope';
+import { type QueueEnvelope, wrapEnvelope } from '@ratio-app/shared/schemas/queue-envelope';
 import { type Admin, Kafka, type Message as KafkaMessage, type Producer } from 'kafkajs';
 import type { Env } from '../../config/env.schema';
 import { buildKafkaConfig, type KafkaEnv } from './kafka.config';
@@ -106,6 +106,15 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
         key: keyFn ? keyFn(p) : (null as unknown as string),
         value: JSON.stringify(wrapEnvelope(p, enqueuedAt)),
       })),
+    });
+  }
+
+  // Re-enqueue an already-wrapped envelope verbatim (preserving its attempt
+  // count) — the worker's retry path calls this with withNextAttempt().
+  async sendEnvelope(topic: string, envelope: QueueEnvelope, key?: string): Promise<void> {
+    await this.send({
+      topic,
+      messages: [{ key: key ?? (null as unknown as string), value: JSON.stringify(envelope) }],
     });
   }
 
