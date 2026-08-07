@@ -200,6 +200,15 @@ const baseEnv = z.object({
     .union([z.literal('true'), z.literal('false'), z.literal('1'), z.literal('0')])
     .default('false')
     .transform((v) => v === 'true' || v === '1'),
+  // Same per-module consumer gating for the ADDITIVE inbound path: gates
+  // `UcInboundConsumerService` (subscribes to `unicommerce-inbound-events`,
+  // published by the standalone apps/uc-inbound-ingest service). Default off —
+  // the existing synchronous UC-facing controllers remain the only inbound
+  // path until a deployment opts into the new one.
+  UNICOMMERCE_INBOUND_WORKER_ENABLED: z
+    .union([z.literal('true'), z.literal('false'), z.literal('1'), z.literal('0')])
+    .default('false')
+    .transform((v) => v === 'true' || v === '1'),
   // ─── loyalty app: Core Loyalty admin tooling ──────────────────────────────
   // LOYALTY_WORKER_ENABLED gates the module's SQS consumers (bulk ops, exports)
   // and the maintenance tick (balance sweep + daily snapshot). Consumers are

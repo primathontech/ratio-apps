@@ -11,6 +11,7 @@ import rateLimit from '@fastify/rate-limit';
 import { Logger as NestLogger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import type { FastifyRequest } from 'fastify';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
@@ -19,6 +20,7 @@ import { resolveEnabledModules } from './config/enabled-modules';
 import { loadEnv } from './config/env.schema';
 import { buildCorsOriginChecker } from './core/common/cors';
 import { HealthRegistry } from './core/health/health-registry.service';
+import { UnicommerceModule } from './modules/unicommerce/unicommerce.module';
 
 // CORS origin allowlist logic lives in core/common/cors.ts so the forms CSV
 // export (which hijacks the raw response and must reapply CORS itself) shares
@@ -65,6 +67,82 @@ async function bootstrap(): Promise<void> {
   // Wire global filter / interceptor / pipe + register helmet / cookie.
   // Shared with e2e setup so the two boot paths can't drift again.
   await configureApp(app);
+
+  // Swagger/OpenAPI docs — DEV/TEST/STAGING only, never production. Exposing
+  // interactive API docs on a production deployment would leak the full route
+  // surface of every connector module; the webhook signature guard already
+  // uses the same `NODE_ENV !== 'production'` gate for its skip behavior.
+  //
+  // Scoped to exactly the 10 Unicommerce-facing routes: @nestjs/swagger's
+  // `include` option can only filter by MODULE metatype (not by controller),
+  // so we scan just UnicommerceModule and then keep only the UC-facing path
+  // prefixes — dropping the module's internal admin/oauth/merchants
+  // controllers, which are never called by Unicommerce itself.
+  if (env.NODE_ENV !== 'production' && resolveEnabledModules().includes('unicommerce')) {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('Unicommerce Connector API')
+      .setDescription(
+        'HTTP contract for the Unicommerce marketplace connector. Unicommerce calls the api/v1 endpoints ' +
+          'below using an apikey header, except authToken. Ratio calls the webhooks endpoint using an ' +
+          'hmac signature header instead.',
+      )
+      .setVersion('1.0.0')
+      .addTag(
+        'unicommerce',
+        'Unicommerce connector endpoints (UC → Ratio MP contract + Ratio → UC webhook receiver)',
+      )
+      .build();
+    const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig, {
+      include: [UnicommerceModule],
+    });
+    // Keep exactly the 10 UC-facing routes; drop the module's internal
+    // /unicommerce/admin, /unicommerce/api/merchants and
+    // /unicommerce/api/v1/oauth controllers from the doc.
+    const ucFacingPaths = Object.fromEntries(
+      Object.entries(swaggerDocument.paths).filter(
+        ([path]) =>
+          path === '/unicommerce/webhooks' ||
+          (path.startsWith('/unicommerce/api/v1/') &&
+            !path.startsWith('/unicommerce/api/v1/oauth')),
+      ),
+    );
+    // Display order follows the natural call flow rather than alphabetical:
+    // connect → pull catalog → pull/check orders → push inventory/dispatch/
+    // cancel/status updates → the one Ratio-facing webhook, listed last.
+    // `operationsSorter` is deliberately left unset below so Swagger UI keeps
+    // this exact key order instead of re-sorting it — reorder this list to
+    // change what's displayed first.
+    const PATH_DISPLAY_ORDER = [
+      '/unicommerce/api/v1/authToken',
+      '/unicommerce/api/v1/productsCount',
+      '/unicommerce/api/v1/products',
+      '/unicommerce/api/v1/orders',
+      '/unicommerce/api/v1/updateInventory',
+      '/unicommerce/api/v1/orders/dispatch',
+      '/unicommerce/api/v1/orders/cancel',
+      '/unicommerce/api/v1/order/{orderId}',
+      '/unicommerce/webhooks',
+    ];
+    const orderedPaths: typeof ucFacingPaths = {};
+    for (const path of PATH_DISPLAY_ORDER) {
+      if (ucFacingPaths[path]) orderedPaths[path] = ucFacingPaths[path];
+    }
+    // Defensive: any UC-facing path not named above (e.g. a new route added
+    // later) still shows up, just appended after the curated order instead
+    // of silently dropped.
+    for (const [path, item] of Object.entries(ucFacingPaths)) {
+      if (!(path in orderedPaths)) orderedPaths[path] = item;
+    }
+    swaggerDocument.paths = orderedPaths;
+    // The scanned-but-dropped internal controllers contributed their own
+    // auto-generated tags — keep only the shared `unicommerce` tag so the UI
+    // groups exactly these 10 routes.
+    swaggerDocument.tags = (swaggerDocument.tags ?? []).filter((t) => t.name === 'unicommerce');
+    SwaggerModule.setup('docs', app, swaggerDocument, {
+      swaggerOptions: { tagsSorter: 'alpha' },
+    });
+    new NestLogger('Bootstrap').log({ msg: 'swagger docs enabled', path: '/docs' });
+  }
 
   // Per-route rate limits (spec §3.6). `@fastify/rate-limit` accepts function
   // forms for `max` / `keyGenerator` so we can vary by URL without needing

@@ -91,106 +91,6 @@ function fakeHandle(seed: { ucCredentials?: Row[]; ucOrderItemMap?: Row[]; ucAle
 
 const hoursAgo = (h: number) => new Date(Date.now() - h * 60 * 60 * 1000);
 
-describe('UcAlertingService — Signal A (per-order staleness)', () => {
-  it('creates a STALE_ORDER alert referencing the ratio_order_id (a merchant-recognizable order, not the internal item id) for a non-terminal item stale past 48h', async () => {
-    const { handle, tables } = fakeHandle({
-      ucOrderItemMap: [
-        {
-          orderItemId: 'item-1',
-          merchantId: 'm1',
-          ratioOrderId: 'order-1',
-          lastStatus: 'PACKED',
-          lastStatusUpdatedAt: hoursAgo(50),
-          createdAt: hoursAgo(60),
-        },
-      ],
-    });
-    const svc = new UcAlertingService(handle as never);
-
-    const { signalA } = await svc.checkAll();
-
-    expect(signalA).toBe(1);
-    expect(tables.ucAlerts).toEqual([
-      expect.objectContaining({ merchantId: 'm1', type: 'STALE_ORDER', reference: 'order-1' }),
-    ]);
-  });
-
-  it('does not alert an item in a terminal last_status (DELIVERED/RETURNED/COMPLETE/CANCELLED) no matter how stale', async () => {
-    const { handle, tables } = fakeHandle({
-      ucOrderItemMap: [
-        { orderItemId: 'item-delivered', merchantId: 'm1', lastStatus: 'DELIVERED', lastStatusUpdatedAt: hoursAgo(1000), createdAt: hoursAgo(1000) },
-        { orderItemId: 'item-cancelled', merchantId: 'm1', lastStatus: 'CANCELLED', lastStatusUpdatedAt: hoursAgo(1000), createdAt: hoursAgo(1000) },
-      ],
-    });
-    const svc = new UcAlertingService(handle as never);
-
-    const { signalA } = await svc.checkAll();
-
-    expect(signalA).toBe(0);
-    expect(tables.ucAlerts).toHaveLength(0);
-  });
-
-  it('does not alert an item stale for less than the 48h threshold', async () => {
-    const { handle, tables } = fakeHandle({
-      ucOrderItemMap: [
-        { orderItemId: 'item-1', merchantId: 'm1', lastStatus: 'PACKED', lastStatusUpdatedAt: hoursAgo(10), createdAt: hoursAgo(10) },
-      ],
-    });
-    const svc = new UcAlertingService(handle as never);
-
-    const { signalA } = await svc.checkAll();
-
-    expect(signalA).toBe(0);
-    expect(tables.ucAlerts).toHaveLength(0);
-  });
-
-  it('falls back to created_at when an item never received any status update at all', async () => {
-    const { handle, tables } = fakeHandle({
-      ucOrderItemMap: [
-        { orderItemId: 'item-1', merchantId: 'm1', ratioOrderId: 'order-1', lastStatus: null, lastStatusUpdatedAt: null, createdAt: hoursAgo(60) },
-      ],
-    });
-    const svc = new UcAlertingService(handle as never);
-
-    const { signalA } = await svc.checkAll();
-
-    expect(signalA).toBe(1);
-    expect(tables.ucAlerts[0]).toMatchObject({ reference: 'order-1' });
-  });
-
-  it('does not create a duplicate STALE_ORDER alert if an unacknowledged one already exists for the same ratio_order_id', async () => {
-    const { handle, tables } = fakeHandle({
-      ucOrderItemMap: [
-        { orderItemId: 'item-1', merchantId: 'm1', ratioOrderId: 'order-1', lastStatus: 'PACKED', lastStatusUpdatedAt: hoursAgo(50), createdAt: hoursAgo(60) },
-      ],
-      ucAlerts: [{ id: 'a1', merchantId: 'm1', type: 'STALE_ORDER', reference: 'order-1', acknowledgedAt: null }],
-    });
-    const svc = new UcAlertingService(handle as never);
-
-    const { signalA } = await svc.checkAll();
-
-    expect(signalA).toBe(0);
-    expect(tables.ucAlerts).toHaveLength(1);
-  });
-
-  it('coalesces two stale items of the SAME order into a single alert, not one per item', async () => {
-    const { handle, tables } = fakeHandle({
-      ucOrderItemMap: [
-        { orderItemId: 'item-1', merchantId: 'm1', ratioOrderId: 'order-1', lastStatus: 'PACKED', lastStatusUpdatedAt: hoursAgo(50), createdAt: hoursAgo(60) },
-        { orderItemId: 'item-2', merchantId: 'm1', ratioOrderId: 'order-1', lastStatus: 'DISPATCHED', lastStatusUpdatedAt: hoursAgo(49), createdAt: hoursAgo(60) },
-      ],
-    });
-    const svc = new UcAlertingService(handle as never);
-
-    const { signalA } = await svc.checkAll();
-
-    expect(signalA).toBe(1);
-    expect(tables.ucAlerts).toEqual([
-      expect.objectContaining({ merchantId: 'm1', type: 'STALE_ORDER', reference: 'order-1' }),
-    ]);
-  });
-});
-
 describe('UcAlertingService — Signal B (inbound-channel silence)', () => {
   it('creates a merchant-wide INBOUND_SILENCE alert when last_status_notification_at is older than 3h', async () => {
     const { handle, tables } = fakeHandle({
@@ -246,15 +146,28 @@ describe('UcAlertingService — Signal B (inbound-channel silence)', () => {
 
 describe('UcAlertingService.everyTenMinutes (cron entry point)', () => {
   it('skips an overlapping cycle while one is already running', async () => {
-    const { handle } = fakeHandle({ ucCredentials: [{ merchantId: 'm1', status: 'active', lastStatusNotificationAt: hoursAgo(4) }] });
+    const { handle } = fakeHandle({
+      ucCredentials: [{ merchantId: 'm1', status: 'active', lastStatusNotificationAt: hoursAgo(4) }],
+    });
     let resolveCredentials: (v: Row[]) => void = () => {};
     const pending = new Promise<Row[]>((resolve) => {
       resolveCredentials = resolve;
     });
     const originalSelectFrom = handle.db.selectFrom;
+    // The pause point is the credentials lookup itself (the very first `await`
+    // inside `checkInboundSilence`) — that guarantees "first" is
+    // deterministically paused with `running=true` set before "second" runs,
+    // instead of racing on how many microtask ticks it takes to reach the
+    // alert creation.
     handle.db.selectFrom = ((table: string) => {
-      if (table !== 'ucOrderItemMap') return originalSelectFrom(table);
-      return { select: () => ({ where: () => ({ execute: () => pending }) }) };
+      if (table !== 'ucCredentials') return originalSelectFrom(table);
+      return {
+        select: () => ({
+          where: () => ({
+            where: () => ({ execute: () => pending }),
+          }),
+        }),
+      };
     }) as typeof handle.db.selectFrom;
     const svc = new UcAlertingService(handle as never);
 

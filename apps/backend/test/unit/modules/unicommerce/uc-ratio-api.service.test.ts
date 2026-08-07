@@ -1,11 +1,55 @@
 import { describe, expect, it, vi } from 'vitest';
+import { HttpException } from '@nestjs/common';
 import type { RatioClient } from '../../../../src/core/ratio-client/ratio.client';
 import { UcRatioApiService } from '../../../../src/modules/unicommerce/services/uc-ratio-api.service';
 import type { UcRatioTokenProvider } from '../../../../src/modules/unicommerce/oauth/ratio-token.provider';
 
-/** Fake token provider — yields a fixed access token for every merchant. */
+/**
+ * Fake token provider — yields a fixed access token for every merchant. Its
+ * withAuthRetry is the minimal stand-in that preserves the OLD service behavior
+ * (token resolved up front, then the request): it just delegates to
+ * getAccessToken and runs `fn` once with that token.
+ */
 function fakeTokens(token = 'tok'): UcRatioTokenProvider {
-  return { getAccessToken: vi.fn(async () => token) } as unknown as UcRatioTokenProvider;
+  const getAccessToken = vi.fn(async () => token);
+  const withAuthRetry = vi.fn(
+    async (_merchantId: string, fn: (accessToken: string) => Promise<unknown>) =>
+      fn(await getAccessToken(_merchantId)),
+  );
+  return { getAccessToken, withAuthRetry } as unknown as UcRatioTokenProvider;
+}
+
+/**
+ * Fake token provider whose withAuthRetry simulates ONE real provider's retry:
+ * runs `fn` with the initial token, and if it rejects with an upstream 401
+ * (nested in details.status, the way RatioClient throws), re-runs it once with
+ * a fresh token.
+ */
+function retryingTokens(initial = 'tok', fresh = 'tok-fresh'): UcRatioTokenProvider {
+  const withAuthRetry = vi.fn(
+    async (_merchantId: string, fn: (accessToken: string) => Promise<unknown>) => {
+      try {
+        return await fn(initial);
+      } catch (err) {
+        if (err instanceof HttpException) {
+          const details = (err.getResponse() as Record<string, unknown>)?.details as
+            | Record<string, unknown>
+            | undefined;
+          if (details?.status === 401) return fn(fresh);
+        }
+        throw err;
+      }
+    },
+  );
+  return { getAccessToken: vi.fn(async () => initial), withAuthRetry } as unknown as UcRatioTokenProvider;
+}
+
+/** A 401 the way RatioClient (core/ratio-client/ratio.client.ts) throws it. */
+function upstream401(): HttpException {
+  return new HttpException(
+    { message: 'ratio upstream error', error_code: 'RATIO_UPSTREAM_ERROR', details: { status: 401 } },
+    502,
+  );
 }
 
 describe('UcRatioApiService.listProducts', () => {
@@ -277,5 +321,24 @@ describe('UcRatioApiService.updateOrderLineItems', () => {
     expect(path).toBe('/api/v1/orders/o1');
     expect(options.method).toBe('PATCH');
     expect(options.body).toEqual({ line_items: [{ id: 'line-2' }, { id: 'line-3' }] });
+  });
+});
+
+describe('UcRatioApiService — withAuthRetry self-healing end to end', () => {
+  it('survives an upstream 401: the request runs with the stale token, then is retried once with the fresh token and succeeds', async () => {
+    const request = vi
+      .fn()
+      .mockRejectedValueOnce(upstream401()) // first attempt with the stale token → 401
+      .mockResolvedValueOnce({ orders: [{ id: 'o1' }] }); // retry with the fresh token → success
+    const svc = new UcRatioApiService(retryingTokens('tok', 'tok-fresh'), { request } as unknown as RatioClient);
+
+    const orders = await svc.listOrders('m1', { page: 1, pageSize: 50 });
+
+    expect(orders).toEqual([{ id: 'o1' }]);
+    expect(request).toHaveBeenCalledTimes(2);
+    const first = request.mock.calls[0] as [string, unknown, { accessToken: string }];
+    const second = request.mock.calls[1] as [string, unknown, { accessToken: string }];
+    expect(first[2].accessToken).toBe('tok');
+    expect(second[2].accessToken).toBe('tok-fresh');
   });
 });

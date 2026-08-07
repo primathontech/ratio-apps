@@ -49,12 +49,15 @@ export class UcProductSyncHandler implements WebhookHandler {
       return;
     }
     const ucTrx = trx as unknown as Transaction<UnicommerceDatabase>;
-    const sku = data.sku as string | undefined;
-    const variantId = data.id as string | undefined;
-    const productId = data.product_id as string | undefined;
-    if (!sku || !variantId || !productId) {
+    // Real envelope shape (confirmed live 2026-08-06 against the platform
+    // API): the product id sits at the top level, and each variant's own id
+    // + sku sit nested under `variants[]` — there is no top-level
+    // `sku`/`product_id` on the envelope itself.
+    const productId = data.id as string | undefined;
+    const variants = (data.variants as Array<{ id?: string; sku?: string }> | undefined) ?? [];
+    if (!productId || variants.length === 0) {
       this.logger.warn({
-        msg: 'product sync event missing sku/id/product_id — skipped',
+        msg: 'product sync event missing id/variants — skipped',
         merchantId,
       });
       // Still logged (dashboard visibility, Task 14+ follow-up): a merchant
@@ -70,21 +73,33 @@ export class UcProductSyncHandler implements WebhookHandler {
             reference: this.topic,
             result: 'failed',
             payload: data,
-            response: 'missing sku/id/product_id — skipped',
+            response: 'missing id/variants — skipped',
           }),
         )
         .execute();
       return;
     }
-    await ucTrx
-      .insertInto('ucSkuCache')
-      .values({ merchantId, sku, ratioVariantId: variantId, ratioProductId: productId })
-      .onDuplicateKeyUpdate({ ratioVariantId: variantId, ratioProductId: productId })
-      .execute();
+
+    const upserted: Array<{ sku: string; ratioVariantId: string }> = [];
+    for (const variant of variants) {
+      if (!variant.sku || !variant.id) continue;
+      await ucTrx
+        .insertInto('ucSkuCache')
+        .values({
+          merchantId,
+          sku: variant.sku,
+          ratioVariantId: variant.id,
+          ratioProductId: productId,
+        })
+        .onDuplicateKeyUpdate({ ratioVariantId: variant.id, ratioProductId: productId })
+        .execute();
+      upserted.push({ sku: variant.sku, ratioVariantId: variant.id });
+    }
 
     // Was completely invisible on the Sync Activity dashboard before this —
     // a product webhook delivery updated our SKU cache with no visible trace
-    // anywhere a merchant/support engineer could look.
+    // anywhere a merchant/support engineer could look. One row per product
+    // event (not per variant) — a product can carry many variants.
     await ucTrx
       .insertInto('ucEventLogs')
       .values(
@@ -92,10 +107,10 @@ export class UcProductSyncHandler implements WebhookHandler {
           merchantId,
           direction: 'inbound',
           flow: 'webhook',
-          reference: `${this.topic}: ${sku}`,
+          reference: `${this.topic}: ${productId}`,
           result: 'success',
           payload: data,
-          response: { ratioVariantId: variantId, ratioProductId: productId },
+          response: { upserted },
         }),
       )
       .execute();

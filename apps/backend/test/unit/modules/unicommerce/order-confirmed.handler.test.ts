@@ -66,8 +66,12 @@ describe('UcOrderConfirmedHandler', () => {
         created_at: '2026-01-05T10:30:00.000Z',
         email: 'buyer@example.com',
         payment_gateway_names: ['razorpay'],
-        total_discounts: 50,
-        shipping_lines: [{ price: 40 }],
+        // Real Ratio order money fields are in paise — confirmed 2026-08-06
+        // against the live API (an order's total_price matched its payment
+        // gateway's real-rupee amount exactly ×100). 5000 paise = ₹50.00,
+        // matching the pre-existing totalDiscount: 50 assertion below.
+        total_discounts: 5000,
+        shipping_lines: [{ price: 4000 }], // paise — ₹40.00
         shipping_address: {
           first_name: 'Jane',
           last_name: 'Doe',
@@ -96,7 +100,7 @@ describe('UcOrderConfirmedHandler', () => {
             sku: 'SKU-1',
             title: 'T-Shirt',
             quantity: 2,
-            price: '10.00',
+            price: '1000.00', // paise — ₹10.00
           },
           {
             id: 'li-2',
@@ -105,8 +109,8 @@ describe('UcOrderConfirmedHandler', () => {
             sku: 'SKU-2',
             title: 'Shorts',
             quantity: 1,
-            price: '5.00',
-            discount_allocations: [{ amount: '1.00' }],
+            price: '500.00', // paise — ₹5.00
+            discount_allocations: [{ amount: '100.00' }], // paise — ₹1.00
           },
         ],
       },

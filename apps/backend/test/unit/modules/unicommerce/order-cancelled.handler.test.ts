@@ -39,7 +39,7 @@ describe('UcOrderCancelledHandler', () => {
   it('subscribes to orders/cancelled', () => {
     const handler = new UcOrderCancelledHandler(
       { findSaleOrderCode: vi.fn(), findByRatioOrder: vi.fn().mockResolvedValue([]) } as never,
-      { publish: vi.fn() } as never,
+      { publish: vi.fn(), cancelPendingOrderPush: vi.fn().mockResolvedValue(undefined) } as never,
       enabledFlags() as never,
     );
     expect(handler.topic).toBe(UC_ORDER_WEBHOOK_TOPICS.orderCancelled);
@@ -49,9 +49,10 @@ describe('UcOrderCancelledHandler', () => {
   it('is a no-op when merchantId is null', async () => {
     const findSaleOrderCode = vi.fn();
     const publish = vi.fn();
+    const cancelPendingOrderPush = vi.fn();
     const handler = new UcOrderCancelledHandler(
       { findSaleOrderCode, findByRatioOrder: vi.fn().mockResolvedValue([]) } as never,
-      { publish } as never,
+      { publish, cancelPendingOrderPush } as never,
       enabledFlags() as never,
     );
     const { trx, calls } = fakeTrx();
@@ -59,6 +60,7 @@ describe('UcOrderCancelledHandler', () => {
     await handler.handle({ id: 'order-1' }, null, trx);
 
     expect(findSaleOrderCode).not.toHaveBeenCalled();
+    expect(cancelPendingOrderPush).not.toHaveBeenCalled();
     expect(calls).toHaveLength(0);
     expect(publish).not.toHaveBeenCalled();
   });
@@ -69,7 +71,7 @@ describe('UcOrderCancelledHandler', () => {
     const publish = vi.fn();
     const handler = new UcOrderCancelledHandler(
       { findSaleOrderCode, findByRatioOrder } as never,
-      { publish } as never,
+      { publish, cancelPendingOrderPush: vi.fn().mockResolvedValue(undefined) } as never,
       enabledFlags() as never,
     );
     const { trx, findCall } = fakeTrx();
@@ -89,6 +91,27 @@ describe('UcOrderCancelledHandler', () => {
     });
   });
 
+  // Bug: `orders/create` enqueues an order_push job, then the customer
+  // cancels before a worker ever consumes it. `findSaleOrderCode` only sees
+  // a DONE push, so the still-PENDING job would run anyway afterward and
+  // ship an order that was already cancelled — nothing would ever tell UC
+  // it's cancelled. Neutralizing any pending push up front closes this.
+  it('cancels any pending order_push job for the same order before checking whether it was ever pushed', async () => {
+    const findSaleOrderCode = vi.fn().mockResolvedValue(null);
+    const findByRatioOrder = vi.fn().mockResolvedValue([]);
+    const cancelPendingOrderPush = vi.fn().mockResolvedValue(undefined);
+    const handler = new UcOrderCancelledHandler(
+      { findSaleOrderCode, findByRatioOrder } as never,
+      { publish: vi.fn(), cancelPendingOrderPush } as never,
+      enabledFlags() as never,
+    );
+    const { trx } = fakeTrx();
+
+    await handler.handle({ id: 'order-1' }, 'merchant-1', trx);
+
+    expect(cancelPendingOrderPush).toHaveBeenCalledWith('merchant-1', 'order-1');
+  });
+
   it('enqueues a cancel_push uc_sync_jobs row via trx and fires the fast path — WITHOUT awaiting the outbound push', async () => {
     const findSaleOrderCode = vi.fn().mockResolvedValue('UC-999');
     const findByRatioOrder = vi.fn().mockResolvedValue([]);
@@ -104,7 +127,7 @@ describe('UcOrderCancelledHandler', () => {
     );
     const handler = new UcOrderCancelledHandler(
       { findSaleOrderCode, findByRatioOrder } as never,
-      { publish } as never,
+      { publish, cancelPendingOrderPush: vi.fn().mockResolvedValue(undefined) } as never,
       enabledFlags() as never,
     );
     const { trx, findCall } = fakeTrx();
@@ -164,7 +187,7 @@ describe('UcOrderCancelledHandler', () => {
     const publish = vi.fn().mockRejectedValue(new Error('boom'));
     const handler = new UcOrderCancelledHandler(
       { findSaleOrderCode, findByRatioOrder } as never,
-      { publish } as never,
+      { publish, cancelPendingOrderPush: vi.fn().mockResolvedValue(undefined) } as never,
       enabledFlags() as never,
     );
     const { trx } = fakeTrx();
@@ -186,7 +209,7 @@ describe('UcOrderCancelledHandler', () => {
     const flags = { isEnabled: vi.fn().mockResolvedValue(false) };
     const handler = new UcOrderCancelledHandler(
       { findSaleOrderCode, findByRatioOrder } as never,
-      { publish } as never,
+      { publish, cancelPendingOrderPush: vi.fn().mockResolvedValue(undefined) } as never,
       flags as never,
     );
     const { trx, findCall } = fakeTrx();

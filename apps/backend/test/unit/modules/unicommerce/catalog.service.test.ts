@@ -3,6 +3,11 @@ import { UcCatalogService } from '../../../../src/modules/unicommerce/services/c
 import type { UcCredentialsService } from '../../../../src/modules/unicommerce/services/credentials.service';
 import type { UcRatioApiService } from '../../../../src/modules/unicommerce/services/uc-ratio-api.service';
 
+// Real Ratio API money fields are in paise, and the discount field is
+// snake_case `compare_at_price` — both confirmed 2026-08-06 against the live
+// API (a catalog variant's `price` matched its order line-item `price`
+// exactly, and `compare_at_price`/`inventory_quantity` are the real field
+// names, not the camelCase/nested shapes this fixture used to have).
 /** A single Ratio product with one variant, reused across the domain tests. */
 const productFixture = [
   {
@@ -18,9 +23,10 @@ const productFixture = [
         title: '1kg',
         sku: 'WHEY-1KG',
         imageUrl: 'https://example.com/whey.jpg',
-        price: 1999,
-        compareAtPrice: 2499,
-        cost_per_item: 900,
+        price: 199900, // paise — ₹1999.00
+        compare_at_price: 249900, // paise — ₹2499.00
+        cost_per_item: 90000, // paise — ₹900.00
+        inventory_quantity: 42,
       },
     ],
   },
@@ -53,12 +59,18 @@ describe('UcCatalogService.list', () => {
       'https://merchant.storefront.com/products/whey-protein',
     );
     expect(product.variants[0].live).toBe(true);
+    expect(product.variants[0].inventory).toBe(42);
+    // TRD §4.2: "netSellerPayable = listingPrice, all charges = 0 in v1" —
+    // commissionPercentage/paymentGatewayCharge/logisticsCost are all fixed 0,
+    // so nothing is deducted from what the seller actually receives yet. msp
+    // (cost_per_item) is a cost-basis reference, not a platform charge — it
+    // must NOT be subtracted here (that would be margin, not seller payout).
     expect(product.variants[0].itemPrice).toEqual({
       currency: 'INR',
       listingPrice: 1999,
       mrp: 2499,
       msp: 900,
-      netSellerPayable: 1099,
+      netSellerPayable: 1999,
     });
   });
 
@@ -154,7 +166,7 @@ describe('UcCatalogService.count', () => {
           sku: 's',
           imageUrl: null,
           price: 1,
-          compareAtPrice: null,
+          compare_at_price: null,
           cost_per_item: null,
         },
       ],

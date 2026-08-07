@@ -3,6 +3,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'kysely';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
 import type { UnicommerceDatabase } from '../db/types';
+import { isDuplicateKeyError } from './duplicate-key.util';
 import { UC_DB_TOKEN } from '../kysely.module';
 
 export interface OrderItemMapping {
@@ -54,7 +55,7 @@ export class UcOrderItemMapService {
         .execute();
       return orderItemId;
     } catch (err) {
-      if (!this.isDuplicateKeyError(err)) throw err;
+      if (!isDuplicateKeyError(err)) throw err;
       const winner = await this.lookup(merchantId, ratioOrderId, ratioLineItemId);
       if (!winner) throw err;
       return winner;
@@ -74,11 +75,6 @@ export class UcOrderItemMapService {
       .where('ratioLineItemId', '=', ratioLineItemId)
       .executeTakeFirst();
     return row?.orderItemId ?? null;
-  }
-
-  private isDuplicateKeyError(err: unknown): boolean {
-    const e = err as { code?: string; errno?: number } | undefined;
-    return e?.code === 'ER_DUP_ENTRY' || e?.errno === 1062;
   }
 
   async resolve(orderItemId: string): Promise<OrderItemMapping | null> {

@@ -34,6 +34,14 @@ export class UcOrderCancelledHandler implements WebhookHandler {
     const ucTrx = trx as unknown as Transaction<UnicommerceDatabase>;
     const orderId = data.id as string;
 
+    // Race: `orders/create` enqueues an order_push job, then the customer
+    // cancels before a worker ever consumes it. `findSaleOrderCode` below
+    // only sees a DONE push, so a still-PENDING/RETRYING/NEEDS_MANUAL job
+    // would otherwise run anyway and ship an order that was already
+    // cancelled. Neutralize it unconditionally, up front — a no-op if no
+    // such job exists or it's already DONE/IN_PROGRESS.
+    await this.syncQueue.cancelPendingOrderPush(merchantId, orderId);
+
     const orderItems = await this.orderItemMap.findByRatioOrder(merchantId, orderId);
     const allUcOriginated =
       orderItems.length > 0 && orderItems.every((i) => i.source === 'uc_originated');
