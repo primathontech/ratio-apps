@@ -50,16 +50,7 @@ export class UcStatusController {
   @ApiOperation({
     summary: 'Order status notification',
     description:
-      '**Direction: Unicommerce → UC connector app.**\n\n' +
-      "Called BY Unicommerce on every status change (no auto-retry on UC's side — a non-success response stops all " +
-      "further status notifications for that order until the merchant manually retries inside UC). Each item's UC " +
-      "`status` (+ `IsReverse`, capital I) is mapped onto Ratio's `fulfillment_status` (e.g. DISPATCHED/SHIPPED → " +
-      '`fulfilled`, DELIVERED → `delivered`, RETURN_EXPECTED/RETURN_ACKNOWLEDGED → `return_in_progress`, and the ' +
-      'reverse-map: CREATED/COURIER_ALLOCATED → `return_pickup_scheduled`, COMPLETE → `restocked`, NOT_RECEIVED → ' +
-      '`return_failed`). Pre-dispatch forward statuses (CREATED, PICKED, PACKED, ...) map to no write. Out-of-order ' +
-      'or duplicate updates are short-circuited. ' +
-      'TOP-LEVEL `status` IS ALWAYS PINNED TO "SUCCESS" (confirmed by UC\'s team) — real per-item failures go into ' +
-      '`orderItems[].errorMessage` (`unknown orderItemId`, `no_change`, `unrecognized status`, `failed to apply update`).',
+      'Unicommerce calls this on every order status change.',
   })
   @ApiHeader({
     name: 'apikey',

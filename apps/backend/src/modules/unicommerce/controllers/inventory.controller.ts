@@ -39,12 +39,7 @@ export class UcInventoryController {
   @ApiOperation({
     summary: 'Update variant inventory',
     description:
-      '**Direction: Unicommerce → UC connector app.**\n\n' +
-      'Called BY Unicommerce per facility, on stock change. One call per facility per SKU (UC never pre-aggregates). ' +
-      '`variantId` is OUR OWN Ratio variant id (the same `variantId` returned by GET /products) — no SKU resolution ' +
-      'is performed. Each item upserts a facility-level row, then the SUM across every known facility row for that ' +
-      'variant is written to Ratio. A single failing item does not abort the batch — it lands in `failedProductList` ' +
-      'and the top-level `status` reflects the worst case (PARTIAL_SUCCESS/FAILED).',
+      'Unicommerce calls this per facility whenever stock changes.',
   })
   @ApiHeader({
     name: 'apikey',

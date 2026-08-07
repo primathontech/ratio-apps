@@ -82,11 +82,9 @@ async function bootstrap(): Promise<void> {
     const swaggerConfig = new DocumentBuilder()
       .setTitle('Unicommerce Connector API')
       .setDescription(
-        'HTTP contract for the Unicommerce marketplace connector. All ' +
-          '`/unicommerce/api/v1/*` endpoints are called BY Unicommerce against ' +
-          'this backend and authenticate with the `apikey` header (except ' +
-          '/authToken). `POST /unicommerce/webhooks` is called BY Ratio and is ' +
-          'authenticated with the `x-ratio-hmac-sha256` signature header instead.',
+        'HTTP contract for the Unicommerce marketplace connector. Unicommerce calls the api/v1 endpoints ' +
+          'below using an apikey header, except authToken. Ratio calls the webhooks endpoint using an ' +
+          'hmac signature header instead.',
       )
       .setVersion('1.0.0')
       .addTag(
