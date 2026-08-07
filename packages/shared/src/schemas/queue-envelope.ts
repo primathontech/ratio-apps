@@ -24,11 +24,26 @@ export function withNextAttempt<T>(env: QueueEnvelope<T>): QueueEnvelope<T> {
   return { ...env, attempt: env.attempt + 1 };
 }
 
-export function parseEnvelope(raw: string): QueueEnvelope | null {
+export type EnvelopeDecodeFailure = 'invalid-json' | 'schema-mismatch';
+
+export type EnvelopeDecodeResult =
+  | { ok: true; envelope: QueueEnvelope }
+  | { ok: false; reason: EnvelopeDecodeFailure };
+
+export function decodeEnvelope(raw: string): EnvelopeDecodeResult {
+  let json: unknown;
   try {
-    const parsed = queueEnvelopeSchema.safeParse(JSON.parse(raw));
-    return parsed.success ? (parsed.data as QueueEnvelope) : null;
+    json = JSON.parse(raw);
   } catch {
-    return null;
+    return { ok: false, reason: 'invalid-json' };
   }
+  const parsed = queueEnvelopeSchema.safeParse(json);
+  return parsed.success
+    ? { ok: true, envelope: parsed.data as QueueEnvelope }
+    : { ok: false, reason: 'schema-mismatch' };
+}
+
+export function parseEnvelope(raw: string): QueueEnvelope | null {
+  const result = decodeEnvelope(raw);
+  return result.ok ? result.envelope : null;
 }

@@ -1,9 +1,5 @@
 import { Logger } from '@nestjs/common';
-import {
-  parseEnvelope,
-  type QueueEnvelope,
-  withNextAttempt,
-} from '@ratio-app/shared/schemas/queue-envelope';
+import { decodeEnvelope } from '@ratio-app/shared/schemas/queue-envelope';
 import { type Consumer, Kafka, type KafkaConfig } from 'kafkajs';
 
 export interface KafkaHandlerMeta {
@@ -19,54 +15,101 @@ interface LoggerLike {
   error(o: unknown): void;
 }
 
+export type SleepFn = (ms: number, onTick?: () => Promise<void>) => Promise<void>;
+
+export interface MessageMeta {
+  topic: string;
+  partition: number;
+  key?: string;
+  heartbeat?: () => Promise<void>;
+}
+
 export interface ProcessMessageDeps {
   handler: KafkaHandler;
   maxAttempts: number;
-  reproduce: (topic: string, envelope: QueueEnvelope, key?: string) => Promise<void>;
   toDlq: (topic: string, payload: unknown, reason: string) => Promise<void>;
   logger: LoggerLike;
+  sleep?: SleepFn;
+  backoffBaseMs?: number;
+  backoffMaxMs?: number;
 }
 
 const DEFAULT_MAX_ATTEMPTS = 5;
+const DEFAULT_BACKOFF_BASE_MS = 1000;
+const DEFAULT_BACKOFF_MAX_MS = 30_000;
+const HEARTBEAT_STEP_MS = 3000;
+
+export function computeBackoffMs(retry: number, baseMs: number, maxMs: number): number {
+  const exp = Math.min(maxMs, baseMs * 2 ** (retry - 1));
+  return Math.round(exp / 2 + (Math.random() * exp) / 2);
+}
+
+async function defaultSleep(ms: number, onTick?: () => Promise<void>): Promise<void> {
+  let left = ms;
+  while (left > 0) {
+    const chunk = Math.min(HEARTBEAT_STEP_MS, left);
+    await new Promise((resolve) => setTimeout(resolve, chunk));
+    left -= chunk;
+    if (onTick) await onTick();
+  }
+}
 
 export async function processKafkaMessage(
   raw: string | null,
-  meta: { topic: string; partition: number; key?: string },
+  meta: MessageMeta,
   deps: ProcessMessageDeps,
 ): Promise<void> {
-  const envelope = raw !== null ? parseEnvelope(raw) : null;
-  if (!envelope) {
-    await deps.toDlq(meta.topic, { raw }, 'unparseable');
-    deps.logger.error({ msg: 'kafka message unparseable — routed to DLQ', topic: meta.topic });
+  const decoded =
+    raw !== null ? decodeEnvelope(raw) : ({ ok: false, reason: 'invalid-json' } as const);
+  if (!decoded.ok) {
+    await deps.toDlq(meta.topic, { raw }, decoded.reason);
+    deps.logger.error({
+      msg: 'kafka message not decodable — routed to DLQ',
+      topic: meta.topic,
+      reason: decoded.reason,
+    });
     return;
   }
 
-  try {
-    await deps.handler(envelope.payload, {
-      topic: meta.topic,
-      partition: meta.partition,
-      attempt: envelope.attempt,
-    });
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
-    const nextAttempt = envelope.attempt + 1;
-    if (nextAttempt < deps.maxAttempts) {
-      await deps.reproduce(meta.topic, withNextAttempt(envelope), meta.key);
+  const { envelope } = decoded;
+  const maxAttempts = deps.maxAttempts;
+  const baseMs = deps.backoffBaseMs ?? DEFAULT_BACKOFF_BASE_MS;
+  const maxMs = deps.backoffMaxMs ?? DEFAULT_BACKOFF_MAX_MS;
+  const sleep = deps.sleep ?? defaultSleep;
+
+  let attempt = envelope.attempt;
+  while (true) {
+    try {
+      await deps.handler(envelope.payload, {
+        topic: meta.topic,
+        partition: meta.partition,
+        attempt,
+      });
+      return;
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      const nextAttempt = attempt + 1;
+      if (nextAttempt >= maxAttempts) {
+        await deps.toDlq(meta.topic, { ...envelope, attempt }, `max attempts (${maxAttempts})`);
+        deps.logger.error({
+          msg: 'kafka handler failed — max attempts reached, routed to DLQ',
+          topic: meta.topic,
+          attempt,
+          reason,
+        });
+        return;
+      }
+      const delayMs = computeBackoffMs(nextAttempt, baseMs, maxMs);
       deps.logger.warn({
-        msg: 'kafka handler failed — re-enqueued for retry',
+        msg: 'kafka handler failed — retrying in place after backoff',
         topic: meta.topic,
         attempt: nextAttempt,
-        maxAttempts: deps.maxAttempts,
+        maxAttempts,
+        delayMs,
         reason,
       });
-    } else {
-      await deps.toDlq(meta.topic, envelope, `max attempts (${deps.maxAttempts})`);
-      deps.logger.error({
-        msg: 'kafka handler failed — max attempts reached, routed to DLQ',
-        topic: meta.topic,
-        attempt: envelope.attempt,
-        reason,
-      });
+      await sleep(delayMs, meta.heartbeat);
+      attempt = nextAttempt;
     }
   }
 }
@@ -76,15 +119,17 @@ export interface KafkaWorkerOptions {
   groupId: string;
   handler: KafkaHandler;
   maxAttempts?: number;
+  backoffBaseMs?: number;
+  backoffMaxMs?: number;
 }
 
 export interface KafkaWorkerDeps {
   kafkaConfig: KafkaConfig;
-  reproduce: (topic: string, envelope: QueueEnvelope, key?: string) => Promise<void>;
   toDlq: (topic: string, payload: unknown, reason: string) => Promise<void>;
   ensureTopics?: (topics: string[]) => Promise<void>;
   clientFactory?: (cfg: KafkaConfig) => Pick<Kafka, 'consumer'>;
   logger?: LoggerLike;
+  sleep?: SleepFn;
 }
 
 export class KafkaWorker {
@@ -112,22 +157,26 @@ export class KafkaWorker {
     const processDeps: ProcessMessageDeps = {
       handler: this.opts.handler,
       maxAttempts: this.opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
-      reproduce: this.deps.reproduce,
       toDlq: this.deps.toDlq,
       logger: this.logger,
+      ...(this.deps.sleep ? { sleep: this.deps.sleep } : {}),
+      ...(this.opts.backoffBaseMs !== undefined ? { backoffBaseMs: this.opts.backoffBaseMs } : {}),
+      ...(this.opts.backoffMaxMs !== undefined ? { backoffMaxMs: this.opts.backoffMaxMs } : {}),
     };
 
     await consumer.run({
       autoCommit: false,
-      eachMessage: async ({ topic, partition, message }) => {
+      eachMessage: async ({ topic, partition, message, heartbeat }) => {
         const key = message.key?.toString();
-        await processKafkaMessage(
-          message.value?.toString() ?? null,
-          key === undefined ? { topic, partition } : { topic, partition, key },
-          processDeps,
-        );
+        const meta: MessageMeta = {
+          topic,
+          partition,
+          heartbeat,
+          ...(key === undefined ? {} : { key }),
+        };
+        await processKafkaMessage(message.value?.toString() ?? null, meta, processDeps);
         await consumer.commitOffsets([
-          { topic, partition, offset: (Number(message.offset) + 1).toString() },
+          { topic, partition, offset: (BigInt(message.offset) + 1n).toString() },
         ]);
       },
     });

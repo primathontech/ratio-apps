@@ -32,6 +32,7 @@ const GROUP_ID = 'clevertap-forwarding';
 const MAX_ERROR_LEN = 500;
 const OUTBOX_POLL_MS = 2000;
 const OUTBOX_BATCH = 100;
+const OUTBOX_STALE_CLAIM_MS = 60_000;
 
 interface ForwardMessage {
   merchantId: string;
@@ -79,7 +80,6 @@ export class ClevertapForwardingWorker implements OnModuleInit, OnModuleDestroy 
     this.worker = new KafkaWorker(
       {
         kafkaConfig: kafkaConfigFromEnv(this.config),
-        reproduce: (topic, envelope, key) => this.kafka.sendEnvelope(topic, envelope, key),
         toDlq: (topic, payload, reason) => this.kafka.sendToDlq(topic, payload, reason),
         ensureTopics: async (topics) => {
           for (const t of topics) await this.kafka.ensureTopic(t);
@@ -108,14 +108,22 @@ export class ClevertapForwardingWorker implements OnModuleInit, OnModuleDestroy 
     if (this.polling) return;
     this.polling = true;
     try {
-      const rows = await this.handle.db
+      const staleBefore = new Date(Date.now() - OUTBOX_STALE_CLAIM_MS);
+      const fresh = await this.handle.db
         .selectFrom('clevertap_forwarded_events')
         .selectAll()
         .where('status', '=', 'queued')
         .limit(OUTBOX_BATCH)
         .execute();
-      for (const row of rows) {
-        await this.produceOutboxRow(row);
+      const stale = await this.handle.db
+        .selectFrom('clevertap_forwarded_events')
+        .selectAll()
+        .where('status', '=', 'enqueued')
+        .where('claimedAt', '<', staleBefore)
+        .limit(OUTBOX_BATCH)
+        .execute();
+      for (const row of [...fresh, ...stale]) {
+        await this.produceOutboxRow(row, staleBefore);
       }
     } catch (err) {
       this.logger.error({
@@ -127,21 +135,45 @@ export class ClevertapForwardingWorker implements OnModuleInit, OnModuleDestroy 
     }
   }
 
-  private async produceOutboxRow(row: {
-    merchantId: string;
-    idempotencyKey: string;
-    topic: string;
-    clevertapEvent: string;
-    payload: unknown;
-  }): Promise<void> {
-    const claimed = await this.handle.db
+  private async produceOutboxRow(
+    row: {
+      merchantId: string;
+      idempotencyKey: string;
+      topic: string;
+      clevertapEvent: string;
+      payload: unknown;
+      status: ClevertapForwardStatus;
+    },
+    staleBefore: Date,
+  ): Promise<void> {
+    let claim = this.handle.db
       .updateTable('clevertap_forwarded_events')
-      .set({ status: 'enqueued' })
+      .set({ status: 'enqueued', claimedAt: new Date() })
       .where('merchantId', '=', row.merchantId)
-      .where('idempotencyKey', '=', row.idempotencyKey)
-      .where('status', '=', 'queued')
-      .executeTakeFirst();
+      .where('idempotencyKey', '=', row.idempotencyKey);
+    claim =
+      row.status === 'enqueued'
+        ? claim.where('status', '=', 'enqueued').where('claimedAt', '<', staleBefore)
+        : claim.where('status', '=', 'queued');
+    const claimed = await claim.executeTakeFirst();
     if (Number(claimed?.numUpdatedRows ?? 0) === 0) return;
+
+    const records = parseRecords(row.payload);
+    if (records.length === 0) {
+      await this.handle.db
+        .updateTable('clevertap_forwarded_events')
+        .set({ status: 'failed', error: 'outbox payload empty or unparseable', claimedAt: null })
+        .where('merchantId', '=', row.merchantId)
+        .where('idempotencyKey', '=', row.idempotencyKey)
+        .where('status', '=', 'enqueued')
+        .execute();
+      this.logger.error({
+        msg: 'outbox row payload unusable — marked failed',
+        merchantId: row.merchantId,
+        idempotencyKey: row.idempotencyKey,
+      });
+      return;
+    }
 
     try {
       await this.kafka.produce(
@@ -152,7 +184,7 @@ export class ClevertapForwardingWorker implements OnModuleInit, OnModuleDestroy 
             topic: row.topic,
             idempotencyKey: row.idempotencyKey,
             clevertapEvent: row.clevertapEvent,
-            records: parseRecords(row.payload),
+            records,
           },
         ],
         (p) => (p as { merchantId: string }).merchantId,
@@ -160,7 +192,7 @@ export class ClevertapForwardingWorker implements OnModuleInit, OnModuleDestroy 
     } catch (err) {
       await this.handle.db
         .updateTable('clevertap_forwarded_events')
-        .set({ status: 'queued' })
+        .set({ status: 'queued', claimedAt: null })
         .where('merchantId', '=', row.merchantId)
         .where('idempotencyKey', '=', row.idempotencyKey)
         .where('status', '=', 'enqueued')

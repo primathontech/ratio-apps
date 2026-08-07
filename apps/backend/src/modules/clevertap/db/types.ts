@@ -37,6 +37,7 @@ interface ClevertapForwardedEventsTable {
   status: ColumnType<ClevertapForwardStatus, ClevertapForwardStatus, ClevertapForwardStatus>;
   error: ColumnType<string | null, string | null | undefined, string | null>;
   payload: ColumnType<unknown, string | null | undefined, string | null>;
+  claimedAt: ColumnType<Date | null, Date | string | null | undefined, Date | string | null>;
   sentAt: Generated<Date>;
 }
 

@@ -21,8 +21,12 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
   private readonly client: KafkaLike;
   private producer: ProducerLike | null = null;
   private readonly topics = new Set<string>();
+  private readonly defaultPartitions: number;
+  private readonly replicationFactor: number;
 
   constructor(config: ConfigService<Env, true>, client?: KafkaLike) {
+    this.defaultPartitions = readConfigNumber(config, 'KAFKA_TOPIC_PARTITIONS', 3);
+    this.replicationFactor = readConfigNumber(config, 'KAFKA_TOPIC_REPLICATION_FACTOR', 1);
     if (client) {
       this.client = client;
       return;
@@ -57,27 +61,33 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
     return producer;
   }
 
-  async ensureTopic(name: string, partitions = 3): Promise<void> {
+  async ensureTopic(name: string, partitions?: number): Promise<void> {
     if (this.topics.has(name)) return;
+    const numPartitions = partitions ?? this.defaultPartitions;
+    const admin = this.client.admin() as AdminLike;
     try {
-      const admin = this.client.admin() as AdminLike;
       await admin.connect();
       const existing = await admin.listTopics();
       if (!existing.includes(name)) {
         await admin.createTopics({
-          topics: [{ topic: name, numPartitions: partitions, replicationFactor: 1 }],
+          topics: [{ topic: name, numPartitions, replicationFactor: this.replicationFactor }],
         });
-        this.logger.log({ msg: 'Kafka topic created', topic: name, partitions });
+        this.logger.log({
+          msg: 'Kafka topic created',
+          topic: name,
+          partitions: numPartitions,
+          replicationFactor: this.replicationFactor,
+        });
       }
-      await admin.disconnect();
       this.topics.add(name);
     } catch (err) {
       this.logger.warn({
-        msg: 'Kafka ensureTopic failed (non-fatal in dev)',
+        msg: 'Kafka ensureTopic failed — will retry on next call',
         topic: name,
         err: err instanceof Error ? err.message : String(err),
       });
-      this.topics.add(name);
+    } finally {
+      await admin.disconnect().catch(() => undefined);
     }
   }
 
@@ -122,5 +132,18 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
         },
       ],
     });
+  }
+}
+
+function readConfigNumber(
+  config: ConfigService<Env, true>,
+  key: 'KAFKA_TOPIC_PARTITIONS' | 'KAFKA_TOPIC_REPLICATION_FACTOR',
+  fallback: number,
+): number {
+  try {
+    const value = config.get(key, { infer: true }) as number | undefined;
+    return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+  } catch {
+    return fallback;
   }
 }

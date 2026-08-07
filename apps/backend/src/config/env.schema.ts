@@ -188,6 +188,10 @@ const baseEnv = z.object({
   KAFKA_SASL_USERNAME: emptyAsUndefined(z.string().min(1)),
   KAFKA_SASL_PASSWORD: emptyAsUndefined(z.string().min(1)),
   KAFKA_CONNECTION_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
+  // Defaults for worker-created topics. Prod should set replication >= 3; local
+  // single-broker KRaft must stay at 1.
+  KAFKA_TOPIC_PARTITIONS: z.coerce.number().int().min(1).default(3),
+  KAFKA_TOPIC_REPLICATION_FACTOR: z.coerce.number().int().min(1).default(1),
   // Per-module consumer gating: each module that owns a Kafka consumer uses its
   // own env flag so different deployments can decide which consumers to run
   // (e.g. shared API pods run the unicommerce consumer, dedicated workers run

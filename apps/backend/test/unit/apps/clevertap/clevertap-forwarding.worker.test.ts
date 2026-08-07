@@ -152,7 +152,7 @@ describe('ClevertapForwardingWorker.drainOutbox (outbox poller)', () => {
     expect(fake.forwarded(MERCHANT_ID)[0]?.status).toBe('enqueued');
   });
 
-  it('reverts the row to queued when produce throws (retried on the next poll)', async () => {
+  it('reverts the row to queued (clearing the claim) when produce throws', async () => {
     produce = vi.fn(async () => {
       throw new Error('broker down');
     });
@@ -167,6 +167,59 @@ describe('ClevertapForwardingWorker.drainOutbox (outbox poller)', () => {
 
     await build().drainOutbox();
 
-    expect(fake.forwarded(MERCHANT_ID)[0]?.status).toBe('queued');
+    const row = fake.forwarded(MERCHANT_ID)[0];
+    expect(row?.status).toBe('queued');
+    expect(row?.claimedAt).toBeNull();
+  });
+
+  it('reclaims a stale enqueued row (crash between claim and produce) and re-produces it', async () => {
+    fake.seed(
+      'clevertap_forwarded_events',
+      makeForwardedEvent({
+        idempotencyKey: IDEMP,
+        status: 'enqueued',
+        claimedAt: new Date(Date.now() - 5 * 60_000),
+        payload: JSON.stringify([{ evtName: 'Charged', evtData: {} }]) as never,
+      }),
+    );
+
+    await build().drainOutbox();
+
+    expect(produce).toHaveBeenCalledTimes(1);
+    expect(fake.forwarded(MERCHANT_ID)[0]?.status).toBe('enqueued');
+  });
+
+  it('does not reclaim a fresh enqueued row still within the claim window', async () => {
+    fake.seed(
+      'clevertap_forwarded_events',
+      makeForwardedEvent({
+        idempotencyKey: IDEMP,
+        status: 'enqueued',
+        claimedAt: new Date(),
+        payload: JSON.stringify([{ evtName: 'Charged', evtData: {} }]) as never,
+      }),
+    );
+
+    await build().drainOutbox();
+
+    expect(produce).not.toHaveBeenCalled();
+  });
+
+  it('marks a row failed (no produce) when its payload is empty or unparseable', async () => {
+    fake.seed(
+      'clevertap_forwarded_events',
+      makeForwardedEvent({
+        idempotencyKey: IDEMP,
+        status: 'queued',
+        payload: JSON.stringify([]) as never,
+      }),
+    );
+
+    await build().drainOutbox();
+
+    expect(produce).not.toHaveBeenCalled();
+    const row = fake.forwarded(MERCHANT_ID)[0];
+    expect(row?.status).toBe('failed');
+    expect(String(row?.error)).toContain('payload');
   });
 });
