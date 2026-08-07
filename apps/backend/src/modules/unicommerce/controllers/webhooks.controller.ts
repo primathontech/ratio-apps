@@ -31,6 +31,12 @@ export class UcWebhooksController {
   @ApiOperation({
     summary: 'Receive a Ratio webhook delivery (topic-routed internally)',
     description:
+      '**Direction: Ratio → UC connector app** (this is the ONLY endpoint of the 10 that Ratio calls, not Unicommerce). ' +
+      '**Side effect — a SECOND direction:** for `orders/create` and `orders/cancelled`, handling this delivery makes ' +
+      'THE UC CONNECTOR APP turn around and call OUT to Unicommerce (UC connector app → Unicommerce, POST genericproxy.unicommerce.com ' +
+      "/.../order or /.../order/cancel) to push the order/cancel — that outbound call is not itself one of this API's " +
+      "10 documented routes (it's an HTTP call UC connector app makes, not one it receives), which is why it's called out " +
+      'here instead of having its own Swagger entry.\n\n' +
       "Called BY Ratio (the platform), not by Unicommerce — this is the inbound receiver for the module's webhook " +
       'handlers. Dispatch is by `envelope.event_type` inside `WebhooksService`; deliveries are deduped (by ' +
       '`x-webhook-id` + payload fingerprint, or a fallback key derived from the resource), retried, and self-healing ' +

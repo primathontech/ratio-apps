@@ -25,6 +25,7 @@ export class UcOrdersReadController {
   @ApiOperation({
     summary: 'Bulk order pull (orderStatus=CREATED) OR order status lookup (orderIds=...)',
     description:
+      '**Direction: Unicommerce → UC connector app.**\n\n' +
       "Called BY Unicommerce on the SAME path for two distinct operations (confirmed against UC's real contract — " +
       'there is no separate `/orders/status` path):\n' +
       '  1. BULK PULL — `orderStatus=CREATED` (plus optional date range) returns the page of open/unfulfilled Ratio ' +

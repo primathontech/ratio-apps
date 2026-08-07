@@ -44,6 +44,7 @@ export class UcOrderCancelController {
   @ApiOperation({
     summary: 'Cancel order items',
     description:
+      '**Direction: Unicommerce → UC connector app.**\n\n' +
       'Called BY Unicommerce when the seller cancels inside UC. Item-wise, not whole-order-only: each ' +
       "`orderItemId` resolves to a Ratio order, the cancelled `quantity` is decremented from the item's remaining " +
       'quantity, and the cancelled items are tagged `uc_originated` so the outbound cancel-push loop-prevention ' +
