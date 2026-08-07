@@ -34,13 +34,17 @@ import { UcConfigService } from './services/config.service';
 import { UcCredentialsService } from './services/credentials.service';
 import { UcEventLogService } from './services/event-log.service';
 import { UcFeatureFlagsService } from './services/feature-flags.service';
+import { UcInboundConsumerService } from './services/inbound-consumer.service';
+import { UcInboundQueueService } from './services/inbound-queue.service';
 import { UcInventoryService } from './services/inventory.service';
+import { UcInventoryUpdateWorkerService } from './services/inventory-update-worker.service';
 import { UcOrderItemMapService } from './services/order-item-map.service';
 import { UcOrderPushWorkerService } from './services/order-push-worker.service';
 import { UcOutboundConsumerService } from './services/outbound-consumer.service';
 import { UcReconciliationSweepService } from './services/reconciliation-sweep.service';
 import { UcSkuCacheService } from './services/sku-cache.service';
 import { UcStatusMappingService } from './services/status-mapping.service';
+import { UcStatusNotifyWorkerService } from './services/status-notify-worker.service';
 import { UcSyncQueueService } from './services/sync-queue.service';
 import { UcAuthService } from './services/uc-auth.service';
 import { UcHttpClientImpl } from './services/uc-http-client';
@@ -106,6 +110,10 @@ export const UC_PRODUCT_UPDATE_HANDLER = Symbol.for('ratio-app:unicommerce:produ
     UcOrderCancelledHandler,
     UcSyncQueueService,
     UcOutboundConsumerService,
+    UcInboundQueueService,
+    UcInboundConsumerService,
+    UcStatusNotifyWorkerService,
+    UcInventoryUpdateWorkerService,
     {
       provide: UC_PRODUCT_CREATE_HANDLER,
       useFactory: () => new UcProductSyncHandler(UC_WEBHOOK_TOPICS.productCreate),

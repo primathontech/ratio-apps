@@ -1,9 +1,22 @@
-import { BadRequestException, Body, ConflictException, Controller, Get, InternalServerErrorException, NotFoundException, Post, Query } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  ConflictException,
+  Controller,
+  Get,
+  InternalServerErrorException,
+  NotFoundException,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { z } from 'zod';
 import type { Env } from '../../../config/env.schema';
 import { ZodValidationPipe } from '../../../core/common/pipes/zod-validation.pipe';
-import { CredentialsAlreadyExistError, UcCredentialsService } from '../services/credentials.service';
+import {
+  CredentialsAlreadyExistError,
+  UcCredentialsService,
+} from '../services/credentials.service';
 
 const generateSchema = z.object({
   merchantId: z.string().min(1),
@@ -49,7 +62,10 @@ export class UcConnectController {
     @Body(new ZodValidationPipe(generateSchema)) body: GenerateRequest,
   ): Promise<{ username: string; password: string; baseUrl: string }> {
     try {
-      const { username, password } = await this.credentials.generate(body.merchantId, body.ucUsername);
+      const { username, password } = await this.credentials.generate(
+        body.merchantId,
+        body.ucUsername,
+      );
       return { username, password, baseUrl: this.buildBaseUrl() };
     } catch (err) {
       if (err instanceof CredentialsAlreadyExistError) {
@@ -73,9 +89,13 @@ export class UcConnectController {
    * reversible ciphertext (migration 0011), not a comparison hash.
    */
   @Get('credentials')
-  async getCredentials(
-    @Query('merchantId') merchantId: string,
-  ): Promise<{ username: string; password: string; ucUsername: string; baseUrl: string; lastInboundCallAt: Date | null } | null> {
+  async getCredentials(@Query('merchantId') merchantId: string): Promise<{
+    username: string;
+    password: string;
+    ucUsername: string;
+    baseUrl: string;
+    lastInboundCallAt: Date | null;
+  } | null> {
     if (!merchantId) throw new BadRequestException('merchantId is required');
     const existing = await this.credentials.getCredentials(merchantId);
     if (!existing) return null;

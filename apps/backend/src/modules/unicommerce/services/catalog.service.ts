@@ -33,9 +33,9 @@ interface RatioVariant {
   sku: string;
   imageUrl: string | null;
   price: number;
-  compareAtPrice: number | null;
+  compare_at_price: number | null;
   cost_per_item: number | null;
-  inventory?: { quantity: number };
+  inventory_quantity?: number;
 }
 
 interface RatioProduct {
@@ -66,8 +66,9 @@ export class UcCatalogService {
   ) {}
 
   private mapVariant(v: RatioVariant): UcVariant {
-    const mrp = v.compareAtPrice ?? v.price;
-    const msp = v.cost_per_item ?? v.price;
+    const listingPrice = v.price / 100;
+    const mrp = (v.compare_at_price ?? v.price) / 100;
+    const msp = (v.cost_per_item ?? v.price) / 100;
     return {
       variantId: v.id,
       title: v.title,
@@ -76,13 +77,17 @@ export class UcCatalogService {
       live: true, // overwritten by mapProduct using the parent's status/published_at
       imageUrl: v.imageUrl,
       productUrl: '',
-      inventory: v.inventory?.quantity ?? 0,
+      inventory: v.inventory_quantity ?? 0,
       itemPrice: {
         currency: 'INR',
-        listingPrice: v.price,
+        listingPrice,
         mrp,
         msp,
-        netSellerPayable: v.price - msp,
+        // TRD §4.2: "= listingPrice, all charges = 0 in v1" — nothing is
+        // deducted from what the seller receives yet (commission/gateway/
+        // logistics are all fixed 0); msp is a cost-basis reference, not a
+        // charge, so it must not be subtracted here.
+        netSellerPayable: listingPrice,
       },
     };
   }

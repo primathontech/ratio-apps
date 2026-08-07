@@ -67,6 +67,29 @@ export class UcSyncQueueService implements OnModuleInit {
     });
   }
 
+  /**
+   * Neutralizes any not-yet-executed `order_push` job for this order —
+   * called when a cancel webhook arrives while the push may still be
+   * sitting in the queue (`orders/create` and `orders/cancelled` can race:
+   * the push job is enqueued, then cancelled before a worker ever consumes
+   * it). Only touches `PENDING`/`RETRYING`/`NEEDS_MANUAL` — safe to drop
+   * outright. Deliberately leaves `IN_PROGRESS` alone (a worker may be
+   * mid-HTTP-call to Unicommerce right this moment; that narrower race is
+   * an accepted residual risk, not something a DB update can stop) and
+   * leaves `DONE` alone (the caller's own `findSaleOrderCode` check already
+   * handles a real cancel-push for an order that was genuinely pushed).
+   */
+  async cancelPendingOrderPush(merchantId: string, ratioOrderId: string): Promise<void> {
+    await this.handle.db
+      .updateTable('ucSyncJobs')
+      .set({ status: 'CANCELLED' })
+      .where('merchantId', '=', merchantId)
+      .where('ratioOrderId', '=', ratioOrderId)
+      .where('type', '=', 'order_push')
+      .where('status', 'in', ['PENDING', 'RETRYING', 'NEEDS_MANUAL'])
+      .execute();
+  }
+
   private isNonRecoverable(error: unknown): boolean {
     const message = error instanceof Error ? error.message : String(error);
     return NON_RECOVERABLE_PATTERNS.some((p) => p.test(message));

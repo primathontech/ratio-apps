@@ -11,6 +11,7 @@ import rateLimit from '@fastify/rate-limit';
 import { Logger as NestLogger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import type { FastifyRequest } from 'fastify';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
@@ -19,6 +20,7 @@ import { resolveEnabledModules } from './config/enabled-modules';
 import { loadEnv } from './config/env.schema';
 import { buildCorsOriginChecker } from './core/common/cors';
 import { HealthRegistry } from './core/health/health-registry.service';
+import { UnicommerceModule } from './modules/unicommerce/unicommerce.module';
 
 // CORS origin allowlist logic lives in core/common/cors.ts so the forms CSV
 // export (which hijacks the raw response and must reapply CORS itself) shares
@@ -65,6 +67,56 @@ async function bootstrap(): Promise<void> {
   // Wire global filter / interceptor / pipe + register helmet / cookie.
   // Shared with e2e setup so the two boot paths can't drift again.
   await configureApp(app);
+
+  // Swagger/OpenAPI docs — DEV/TEST/STAGING only, never production. Exposing
+  // interactive API docs on a production deployment would leak the full route
+  // surface of every connector module; the webhook signature guard already
+  // uses the same `NODE_ENV !== 'production'` gate for its skip behavior.
+  //
+  // Scoped to exactly the 10 Unicommerce-facing routes: @nestjs/swagger's
+  // `include` option can only filter by MODULE metatype (not by controller),
+  // so we scan just UnicommerceModule and then keep only the UC-facing path
+  // prefixes — dropping the module's internal admin/oauth/merchants
+  // controllers, which are never called by Unicommerce itself.
+  if (env.NODE_ENV !== 'production' && resolveEnabledModules().includes('unicommerce')) {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('Unicommerce Connector API')
+      .setDescription(
+        'HTTP contract for the Unicommerce marketplace connector. All ' +
+          '`/unicommerce/api/v1/*` endpoints are called BY Unicommerce against ' +
+          'this backend and authenticate with the `apikey` header (except ' +
+          '/authToken). `POST /unicommerce/webhooks` is called BY Ratio and is ' +
+          'authenticated with the `x-ratio-hmac-sha256` signature header instead.',
+      )
+      .setVersion('1.0.0')
+      .addTag(
+        'unicommerce',
+        'Unicommerce connector endpoints (UC → Ratio MP contract + Ratio → UC webhook receiver)',
+      )
+      .build();
+    const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig, {
+      include: [UnicommerceModule],
+    });
+    // Keep exactly the 10 UC-facing routes; drop the module's internal
+    // /unicommerce/admin, /unicommerce/api/merchants and
+    // /unicommerce/api/v1/oauth controllers from the doc.
+    swaggerDocument.paths = Object.fromEntries(
+      Object.entries(swaggerDocument.paths).filter(
+        ([path]) =>
+          path === '/unicommerce/webhooks' ||
+          (path.startsWith('/unicommerce/api/v1/') &&
+            !path.startsWith('/unicommerce/api/v1/oauth')),
+      ),
+    );
+    // The scanned-but-dropped internal controllers contributed their own
+    // auto-generated tags — keep only the shared `unicommerce` tag so the UI
+    // groups exactly these 10 routes.
+    swaggerDocument.tags = (swaggerDocument.tags ?? []).filter((t) => t.name === 'unicommerce');
+    SwaggerModule.setup('docs', app, swaggerDocument, {
+      swaggerOptions: { tagsSorter: 'alpha', operationsSorter: 'alpha' },
+    });
+    new NestLogger('Bootstrap').log({ msg: 'swagger docs enabled', path: '/docs' });
+  }
 
   // Per-route rate limits (spec §3.6). `@fastify/rate-limit` accepts function
   // forms for `max` / `keyGenerator` so we can vary by URL without needing
