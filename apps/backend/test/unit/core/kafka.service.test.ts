@@ -59,7 +59,7 @@ describe('KafkaService', () => {
     expect(ctx.producer.send).not.toHaveBeenCalled();
   });
 
-  it('sendToDlq() routes to `${topic}.dlq` with a reason and the original payload', async () => {
+  it('sendToDlq() routes to the topic.dlq queue with a reason and the original payload', async () => {
     await ctx.svc.sendToDlq('clevertap.forwarding', { orderId: 'bad' }, 'max attempts');
 
     expect(ctx.sent[0].topic).toBe('clevertap.forwarding.dlq');

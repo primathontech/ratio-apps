@@ -46,15 +46,36 @@ describe('processKafkaMessage', () => {
     expect(deps.toDlq).not.toHaveBeenCalled();
   });
 
+  it('preserves the partition key when re-enqueuing a retry', async () => {
+    const deps = makeDeps({
+      handler: vi.fn(async () => {
+        throw new Error('x');
+      }),
+    });
+    await processKafkaMessage(
+      JSON.stringify(wrapEnvelope({ m: 'm1' }, 'now', 0)),
+      { ...AT, key: 'm1' },
+      deps,
+    );
+    expect(deps.reproduce).toHaveBeenCalledWith(
+      AT.topic,
+      expect.objectContaining({ attempt: 1 }),
+      'm1',
+    );
+  });
+
   it('routes to DLQ when the handler throws at the last attempt', async () => {
     const deps = makeDeps({
       handler: vi.fn(async () => {
         throw new Error('boom');
       }),
     });
-    // attempt 2, maxAttempts 3 → next (3) is NOT < 3 → DLQ
     await processKafkaMessage(JSON.stringify(wrapEnvelope({ id: 1 }, 'now', 2)), AT, deps);
-    expect(deps.toDlq).toHaveBeenCalledWith(AT.topic, { id: 1 }, 'max attempts (3)');
+    expect(deps.toDlq).toHaveBeenCalledWith(
+      AT.topic,
+      expect.objectContaining({ payload: { id: 1 }, attempt: 2 }),
+      'max attempts (3)',
+    );
     expect(deps.reproduce).not.toHaveBeenCalled();
   });
 

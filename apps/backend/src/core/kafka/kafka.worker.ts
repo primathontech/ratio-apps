@@ -22,20 +22,16 @@ interface LoggerLike {
 export interface ProcessMessageDeps {
   handler: KafkaHandler;
   maxAttempts: number;
-  reproduce: (topic: string, envelope: QueueEnvelope) => Promise<void>;
+  reproduce: (topic: string, envelope: QueueEnvelope, key?: string) => Promise<void>;
   toDlq: (topic: string, payload: unknown, reason: string) => Promise<void>;
   logger: LoggerLike;
 }
 
 const DEFAULT_MAX_ATTEMPTS = 5;
 
-// Dispose exactly one message. NEVER throws: a thrown handler is caught and the
-// message is either re-enqueued with attempt+1 (below maxAttempts) or routed to
-// the DLQ, so the partition offset can always advance — Kafka has no per-message
-// redelivery, so "make forward progress or paper-trail it" is the contract.
 export async function processKafkaMessage(
   raw: string | null,
-  meta: { topic: string; partition: number },
+  meta: { topic: string; partition: number; key?: string },
   deps: ProcessMessageDeps,
 ): Promise<void> {
   const envelope = raw !== null ? parseEnvelope(raw) : null;
@@ -55,7 +51,7 @@ export async function processKafkaMessage(
     const reason = err instanceof Error ? err.message : String(err);
     const nextAttempt = envelope.attempt + 1;
     if (nextAttempt < deps.maxAttempts) {
-      await deps.reproduce(meta.topic, withNextAttempt(envelope));
+      await deps.reproduce(meta.topic, withNextAttempt(envelope), meta.key);
       deps.logger.warn({
         msg: 'kafka handler failed — re-enqueued for retry',
         topic: meta.topic,
@@ -64,7 +60,7 @@ export async function processKafkaMessage(
         reason,
       });
     } else {
-      await deps.toDlq(meta.topic, envelope.payload, `max attempts (${deps.maxAttempts})`);
+      await deps.toDlq(meta.topic, envelope, `max attempts (${deps.maxAttempts})`);
       deps.logger.error({
         msg: 'kafka handler failed — max attempts reached, routed to DLQ',
         topic: meta.topic,
@@ -84,18 +80,13 @@ export interface KafkaWorkerOptions {
 
 export interface KafkaWorkerDeps {
   kafkaConfig: KafkaConfig;
-  reproduce: (topic: string, envelope: QueueEnvelope) => Promise<void>;
+  reproduce: (topic: string, envelope: QueueEnvelope, key?: string) => Promise<void>;
   toDlq: (topic: string, payload: unknown, reason: string) => Promise<void>;
   ensureTopics?: (topics: string[]) => Promise<void>;
-  // Test seam: default builds a real kafkajs client from kafkaConfig.
   clientFactory?: (cfg: KafkaConfig) => Pick<Kafka, 'consumer'>;
   logger?: LoggerLike;
 }
 
-// Production consumer: manual-commit poll loop with at-least-once + in-band
-// retry/DLQ (via processKafkaMessage) and graceful disconnect. One instance per
-// logical consumer (topics + groupId); the app wraps it in an OnModuleInit/
-// OnModuleDestroy service, gated by that app's *_WORKER_ENABLED flag.
 export class KafkaWorker {
   private readonly logger: LoggerLike;
   private consumer: Consumer | null = null;
@@ -129,9 +120,10 @@ export class KafkaWorker {
     await consumer.run({
       autoCommit: false,
       eachMessage: async ({ topic, partition, message }) => {
+        const key = message.key?.toString();
         await processKafkaMessage(
           message.value?.toString() ?? null,
-          { topic, partition },
+          key === undefined ? { topic, partition } : { topic, partition, key },
           processDeps,
         );
         await consumer.commitOffsets([

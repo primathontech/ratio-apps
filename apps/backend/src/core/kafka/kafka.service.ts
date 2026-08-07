@@ -32,8 +32,6 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
   private producer: ProducerLike | null = null;
   private readonly topics = new Set<string>();
 
-  // `client` is injectable so unit tests pass an in-memory fake; production
-  // builds the real kafkajs client from validated env (brokers/SSL/SASL).
   constructor(config: ConfigService<Env, true>, client?: KafkaLike) {
     if (client) {
       this.client = client;
@@ -90,9 +88,6 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  // Envelope-wrapping producer: every payload becomes a versioned envelope with
-  // an attempt counter, and an optional key sets the partition so a keyed
-  // pipeline (e.g. per-merchant) keeps its ordering.
   async produce(
     topic: string,
     payloads: unknown[],
@@ -109,8 +104,6 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  // Re-enqueue an already-wrapped envelope verbatim (preserving its attempt
-  // count) — the worker's retry path calls this with withNextAttempt().
   async sendEnvelope(topic: string, envelope: QueueEnvelope, key?: string): Promise<void> {
     await this.send({
       topic,
@@ -118,9 +111,6 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  // Route a poison message to `${topic}.dlq` so nothing vanishes unexplained
-  // (Kafka has no redrive; the worker calls this after maxAttempts or on an
-  // unparseable body, then commits the original offset to make progress).
   async sendToDlq(topic: string, payload: unknown, reason: string): Promise<void> {
     await this.send({
       topic: dlqTopic(topic),

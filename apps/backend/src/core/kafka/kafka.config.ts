@@ -12,9 +12,6 @@ export type KafkaEnv = Pick<
   | 'KAFKA_CONNECTION_TIMEOUT_MS'
 >;
 
-// Single source of truth for the kafkajs client config so the producer and every
-// consumer connect identically. Local dev is PLAINTEXT (no SSL/SASL); managed
-// Kafka (MSK / Confluent) sets KAFKA_SSL=true + the SASL trio.
 export function buildKafkaConfig(env: KafkaEnv): KafkaConfig {
   const brokers = env.KAFKA_BROKERS.split(',')
     .map((b) => b.trim())

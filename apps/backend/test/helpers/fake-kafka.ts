@@ -6,9 +6,6 @@ interface EachMessageArgs {
   message: { offset: string; value: Buffer | null };
 }
 
-// Minimal in-memory kafkajs consumer double: `run()` captures the eachMessage
-// callback and `deliver()` invokes it, so worker wiring (subscribe → process →
-// commit) is testable with no broker.
 export function makeFakeKafka() {
   let eachMessage: ((args: EachMessageArgs) => Promise<void>) | null = null;
   const commits: { topic: string; partition: number; offset: string }[] = [];
