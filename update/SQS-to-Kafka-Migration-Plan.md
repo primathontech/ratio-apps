@@ -14,7 +14,22 @@
 > original SQS-interface framing for reference; the delivery semantics,
 > topic map, ordering, DLQ, and rollout guidance all still apply.
 
-Status: **proposal / planning document only — no code changed.**
+Status: original proposal below. **Implementation update 2026-08-07** — the shared Kafka layer and the CleverTap forwarding path are code-complete, hardened, and green (branch `feat/sqs-to-kafka`, PR #93). The remaining-work checklist is immediately below; the original plan follows for reference.
+
+## Remaining work (status 2026-08-07)
+
+**Done (do not redo):** shared layer (`queue-envelope` + `decodeEnvelope`, `kafka-topics`); core `kafka.{config,service,worker}.ts` (lazy/boot-tolerant non-blocking producer with connect-dedupe, in-place exponential-backoff+jitter+heartbeat retry → DLQ, BigInt offset commits, invalid-json vs schema-mismatch DLQ reasons, `ensureTopic` finally-disconnect + no-cache-on-failure + configurable RF/partitions); CleverTap forwarding behind opt-in `CLEVERTAP_FORWARD_WORKER_ENABLED` (default off) with a transactional outbox (`claimed_at` + stale reclaim, migration 0006) and queued observability; DI boot fix (`@Optional()`). Full backend suite green (2014 tests).
+
+**Remaining:**
+1. **Run a broker per env (blocker for anything live).** Local: `docker compose up -d kafka` (KRaft service already in docker-compose; boot logs `ECONNREFUSED` without it but no longer crashes). Prod: provision MSK/Confluent + set `KAFKA_BROKERS`, `KAFKA_SSL=true`, `KAFKA_SASL_*`, `KAFKA_TOPIC_REPLICATION_FACTOR=3`; prefer pre-provisioned topics.
+2. **Migrate the other apps off SQS (the point of this branch).** Still on SQS: Loyalty, Forms, Wizzy, Google, Meta; unicommerce is on the old `kafka-consumer.util.ts` wrapper. Topics already declared in `kafka-topics.ts`. Suggested order: Loyalty first, then Forms, Wizzy, Google, Meta. Follow the CleverTap forwarding worker pattern (`KafkaService.produce` + `KafkaWorker` + per-module `*_WORKER_ENABLED` flag).
+3. **DLQ consumer + alerting** — nothing reads/alerts on `${topic}.dlq` yet.
+4. **Retire SQS/elasticmq** once all apps are cut over.
+5. **Enable + live-verify** CleverTap forwarding once a broker exists (`CLEVERTAP_FORWARD_WORKER_ENABLED=true`, confirm webhook → outbox → Kafka → CleverTap).
+6. **Branch housekeeping:** after PR #92 merges to main, rebase `feat/sqs-to-kafka` onto main and retarget PR #93.
+
+---
+
 Repo: `ratio-apps-clevertap` (pnpm workspace; NestJS 11 + Fastify at `apps/backend`; shared package at `packages/shared`).
 
 ---
