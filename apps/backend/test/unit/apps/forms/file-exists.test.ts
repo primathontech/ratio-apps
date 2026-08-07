@@ -3,16 +3,16 @@ import { validateFileExists } from '../../../../src/modules/forms/submissions/fi
 import { FormsS3Service } from '../../../../src/modules/forms/uploads/s3.service';
 import { FakeS3Service } from './fixtures/fakes';
 
-const savedEnv = { bucket: process.env.FORMS_S3_BUCKET, region: process.env.FORMS_S3_REGION };
+const savedEnv = { bucket: process.env.S3_BUCKET, region: process.env.S3_REGION };
 beforeEach(() => {
-  process.env.FORMS_S3_BUCKET = 'ratio-forms-uploads';
-  process.env.FORMS_S3_REGION = 'ap-south-1';
+  process.env.S3_BUCKET = 'ratio-forms-uploads';
+  process.env.S3_REGION = 'ap-south-1';
 });
 afterEach(() => {
-  if (savedEnv.bucket === undefined) delete process.env.FORMS_S3_BUCKET;
-  else process.env.FORMS_S3_BUCKET = savedEnv.bucket;
-  if (savedEnv.region === undefined) delete process.env.FORMS_S3_REGION;
-  else process.env.FORMS_S3_REGION = savedEnv.region;
+  if (savedEnv.bucket === undefined) delete process.env.S3_BUCKET;
+  else process.env.S3_BUCKET = savedEnv.bucket;
+  if (savedEnv.region === undefined) delete process.env.S3_REGION;
+  else process.env.S3_REGION = savedEnv.region;
 });
 
 describe('FormsS3Service.exists (P2-2)', () => {

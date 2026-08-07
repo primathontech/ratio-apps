@@ -122,6 +122,7 @@ describe('ExportPage', () => {
           filters: [],
           email: null,
           rowCount: 12,
+          errorReason: null,
           emailedAt: null,
           completedAt: '2026-07-01T00:00:00.000Z',
           createdAt: '2026-07-01T00:00:00.000Z',
@@ -131,5 +132,51 @@ describe('ExportPage', () => {
     renderWithProviders(<ExportPage />);
     const dl = await screen.findByRole('button', { name: 'Download CSV' });
     expect(dl).not.toBeDisabled();
+  });
+
+  it('shows why a failed export failed', async () => {
+    // "failed" on its own told the merchant nothing and left them re-clicking
+    // Start export against a environment that could never produce a file.
+    routeApi({
+      count: 5,
+      exports: [
+        {
+          id: 'e2',
+          status: 'failed',
+          filters: [],
+          email: null,
+          rowCount: null,
+          errorReason: 'Exports are not configured on this environment',
+          emailedAt: null,
+          completedAt: null,
+          createdAt: '2026-07-01T00:00:00.000Z',
+        },
+      ],
+    });
+    renderWithProviders(<ExportPage />);
+    expect(
+      await screen.findByText('Exports are not configured on this environment'),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Download CSV' })).toBeDisabled();
+  });
+
+  it('surfaces an unconfigured-exports server error instead of a silent no-op', async () => {
+    routeApi({
+      count: 5,
+      onCreate: () =>
+        Promise.reject(
+          new ApiException(
+            'Exports are not configured on this environment (LOYALTY_EXPORT_S3_BUCKET is unset)',
+            503,
+            'EXPORTS_NOT_CONFIGURED',
+          ),
+        ),
+    });
+    renderWithProviders(<ExportPage />);
+    await screen.findByTestId('preview-count');
+    fireEvent.click(screen.getByRole('button', { name: 'Start export' }));
+    await waitFor(() =>
+      expect(screen.getByText(/LOYALTY_EXPORT_S3_BUCKET is unset/)).toBeInTheDocument(),
+    );
   });
 });

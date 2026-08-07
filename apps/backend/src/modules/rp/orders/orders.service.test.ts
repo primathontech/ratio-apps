@@ -1,9 +1,9 @@
-import { describe, it, expect, vi } from 'vitest';
-import { RpOrdersService } from './orders.service';
-import type { RpRatioClientService } from '../ratio-client/ratio-client.service';
-import type { RpRatioTokenProvider } from '../oauth/ratio-token.provider';
-import type { RpTransformerService } from '../transformer/transformer.service';
+import { describe, expect, it, vi } from 'vitest';
 import type { RpIdMappingService } from '../id-mapping/id-mapping.service';
+import type { RpRatioTokenProvider } from '../oauth/ratio-token.provider';
+import type { RpRatioClientService } from '../ratio-client/ratio-client.service';
+import type { RpTransformerService } from '../transformer/transformer.service';
+import { RpOrdersService } from './orders.service';
 
 /**
  * getOrder/getOrders normalize the OS order (normalize-order.ts hashes each line item's
@@ -20,7 +20,9 @@ function makeService(opts: { getOrderResult?: unknown; getOrdersResult?: unknown
   } as unknown as RpRatioClientService;
   const tokenProvider = {
     getAccessToken: vi.fn().mockResolvedValue('access-tok-1'),
-    withAuthRetry: vi.fn((_merchantId: string, fn: (token: string) => unknown) => fn('access-tok-1')),
+    withAuthRetry: vi.fn((_merchantId: string, fn: (token: string) => unknown) =>
+      fn('access-tok-1'),
+    ),
   } as unknown as RpRatioTokenProvider;
   const transformer = {} as unknown as RpTransformerService;
   const idMapping = { hashAndPersist } as unknown as RpIdMappingService;
@@ -54,8 +56,12 @@ describe('RpOrdersService.getOrder — id-mapping persistence', () => {
 
     await service.getOrder('m1', 'ordr_496');
 
-    expect(hashAndPersist).toHaveBeenCalledWith('product', '17720225894304237');
-    expect(hashAndPersist).toHaveBeenCalledWith('variant', '1780327220438871');
+    // Same fire-and-forget race as the list case below — poll, don't assume
+    // the background writes finished within getOrder's own await.
+    await vi.waitFor(() => {
+      expect(hashAndPersist).toHaveBeenCalledWith('product', '17720225894304237');
+      expect(hashAndPersist).toHaveBeenCalledWith('variant', '1780327220438871');
+    });
   });
 
   it('skips persistence for line items missing product_id/variant_id', async () => {
@@ -82,9 +88,17 @@ describe('RpOrdersService.getOrders — id-mapping persistence', () => {
 
     await service.getOrders('m1', {});
 
-    expect(hashAndPersist).toHaveBeenCalledWith('product', 'a');
-    expect(hashAndPersist).toHaveBeenCalledWith('product', 'c');
-    expect(hashAndPersist).toHaveBeenCalledWith('variant', 'b');
-    expect(hashAndPersist).toHaveBeenCalledWith('variant', 'd');
+    // The persistence is deliberately fire-and-forget AND sequential (one
+    // awaited write at a time, so a long orders list can't exhaust the MySQL
+    // pool). Awaiting getOrders therefore only guarantees the FIRST write has
+    // been issued — the rest land on later microtasks. Poll instead of
+    // asserting straight away, or this races the background loop and sees
+    // whichever prefix happened to flush.
+    await vi.waitFor(() => {
+      expect(hashAndPersist).toHaveBeenCalledWith('product', 'a');
+      expect(hashAndPersist).toHaveBeenCalledWith('product', 'c');
+      expect(hashAndPersist).toHaveBeenCalledWith('variant', 'b');
+      expect(hashAndPersist).toHaveBeenCalledWith('variant', 'd');
+    });
   });
 });

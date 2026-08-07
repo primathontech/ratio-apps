@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
 import { QueueService } from '../../../core/queue/queue.service';
+import { s3Bucket } from '../../../core/storage/s3.service';
 import type { FormExportJobRow, FormsDatabase } from '../db/types';
 import { FORMS_DB_TOKEN } from '../kysely.module';
 import { FORMS_EXPORT_GET_EXPIRY_SECONDS, FormsS3Service } from '../uploads/s3.service';
@@ -28,9 +29,7 @@ export class ExportJobService {
 
   /** Async export is available only when BOTH a bucket and a queue exist. */
   private get available(): boolean {
-    return Boolean(
-      process.env.FORMS_S3_BUCKET?.trim() && process.env.FORMS_EXPORT_QUEUE_URL?.trim(),
-    );
+    return Boolean(s3Bucket() && process.env.FORMS_EXPORT_QUEUE_URL?.trim());
   }
 
   /** Ownership → 503-if-unconfigured → insert `pending` → enqueue; returns the row composed in memory (MySQL has no RETURNING). */

@@ -4,6 +4,7 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import {
@@ -15,7 +16,7 @@ import {
 import { ulid } from 'ulid';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
 import { QueueService } from '../../../core/queue/queue.service';
-import type { S3Service } from '../../../core/storage/s3.service';
+import { type S3Service, s3Bucket } from '../../../core/storage/s3.service';
 import { LOYALTY_QUEUE_NAMES, type LoyaltyExportMessage } from '../bulk/loyalty-queues';
 import type { LoyaltyDatabase, LoyaltyExportRow } from '../db/types';
 import { LOYALTY_DB_TOKEN } from '../kysely.module';
@@ -29,12 +30,20 @@ import type { CustomerQuery } from '../mirror/customer-query.types';
  */
 export const LOYALTY_CUSTOMER_QUERY = Symbol.for('ratio-app:loyalty:customer-query');
 
+/**
+ * Shared by the create-time guard and the worker so a merchant sees the same
+ * sentence whichever side catches the missing bucket.
+ */
+export const EXPORTS_NOT_CONFIGURED_REASON =
+  'Exports are not configured on this environment (S3_BUCKET is unset)';
+
 export interface ExportSummary {
   id: string;
   status: string;
   filters: LoyaltyCustomerFilters;
   email: string | null;
   rowCount: number | null;
+  errorReason: string | null;
   emailedAt: Date | null;
   completedAt: Date | null;
   createdAt: Date;
@@ -57,6 +66,16 @@ export class ExportsService {
     merchantId: string,
     body: unknown,
   ): Promise<ExportSummary & { rowCountEstimate: number }> {
+    // Fail fast rather than queue a job that the worker can only mark failed:
+    // without a bucket every export dies downstream, and the merchant is left
+    // retrying a button that cannot work.
+    if (!s3Bucket()) {
+      throw new ServiceUnavailableException({
+        message: EXPORTS_NOT_CONFIGURED_REASON,
+        error_code: 'EXPORTS_NOT_CONFIGURED',
+      });
+    }
+
     const parsed = loyaltyExportRequestSchema.safeParse(body);
     if (!parsed.success) {
       throw new BadRequestException({
@@ -133,7 +152,7 @@ export class ExportsService {
   /** Fresh 15-minute presigned URL for a finished export (TRD §2c step 5). */
   async downloadUrl(merchantId: string, id: string, s3: S3Service): Promise<string> {
     const row = await this.getRow(merchantId, id);
-    const bucket = process.env.LOYALTY_EXPORT_S3_BUCKET;
+    const bucket = s3Bucket();
     if (row.status !== 'done' || !row.s3Key || !bucket) {
       throw new ConflictException({
         message: `export is not ready for download (status '${row.status}')`,
@@ -166,6 +185,7 @@ export class ExportsService {
       filters: parseFilters(row.filters),
       email: row.email,
       rowCount: row.rowCount,
+      errorReason: row.errorReason,
       emailedAt: row.emailedAt,
       completedAt: row.completedAt,
       createdAt: row.createdAt,

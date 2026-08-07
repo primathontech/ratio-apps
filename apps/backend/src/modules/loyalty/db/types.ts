@@ -167,6 +167,8 @@ export interface LoyaltyExportsTable {
   status: Generated<LoyaltyExportStatus>;
   rowCount: number | null;
   s3Key: string | null;
+  /** Why a `failed` export failed — shown verbatim in the admin history. */
+  errorReason: string | null;
   email: string | null;
   emailedAt: Date | null;
   createdBy: string | null;

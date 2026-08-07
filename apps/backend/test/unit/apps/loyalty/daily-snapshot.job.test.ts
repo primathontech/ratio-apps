@@ -155,6 +155,56 @@ describe('DailySnapshotJob', () => {
     expect(inserts).toHaveLength(1);
   });
 
+  it('counts adjusted coins as issued — a bulk credit is not invisible on the dashboard', async () => {
+    // Core files OUR credits (bulk uploads, manual adjustments, QR claims)
+    // under `adjusted`, not `earned`. Summing only `earned` is what produced
+    // "Coins issued: 0" beside an outstanding balance of everything the
+    // merchant had just credited.
+    const { handle, inserts } = makeSnapshotDb({
+      merchants: [{ id: MERCHANT_ID }],
+      loyalty_customers: [
+        { earned: 0, adjusted: 5150, redeemed: 0, expired: 0, outstanding: 5030, withBalance: 5 },
+      ],
+      loyalty_daily_stats: [{ issued: null, redeemed: null, expired: null }],
+      loyalty_bulk_operation_rows: [{ type: 'credit', points: 5150 }],
+      loyalty_qr_scans: [{ points: null }],
+      loyalty_rule_applications: [{ points: null }],
+    });
+    const job = new DailySnapshotJob(handle, redis as unknown as RedisService);
+
+    await job.runForDate(DATE);
+
+    expect(inserts[0].values).toMatchObject({ pointsIssued: 5150, outstandingPoints: 5030 });
+  });
+
+  it('floors a net-negative adjusted bucket instead of eating into earned', async () => {
+    const { handle, inserts } = makeSnapshotDb({
+      merchants: [{ id: MERCHANT_ID }],
+      loyalty_customers: [
+        { earned: 300, adjusted: -500, redeemed: 0, expired: 0, outstanding: 0, withBalance: 0 },
+      ],
+      loyalty_daily_stats: [{ issued: null, redeemed: null, expired: null }],
+      loyalty_bulk_operation_rows: [],
+      loyalty_qr_scans: [{ points: null }],
+      loyalty_rule_applications: [{ points: null }],
+    });
+    const job = new DailySnapshotJob(handle, redis as unknown as RedisService);
+
+    await job.runForDate(DATE);
+
+    expect(inserts[0].values).toMatchObject({ pointsIssued: 300 });
+  });
+
+  it("live mode takes its own lock so the intraday refresh and the day's final run never block each other", async () => {
+    const { handle, inserts } = makeSnapshotDb(cannedActivity());
+    const job = new DailySnapshotJob(handle, redis as unknown as RedisService);
+
+    expect(await job.runForDate(DATE, 'live')).toBe('done');
+    expect(await job.runForDate(DATE, 'live')).toBe('locked'); // throttled by its short TTL
+    expect(await job.runForDate(DATE, 'final')).toBe('done'); // settled run still gets through
+    expect(inserts).toHaveLength(2);
+  });
+
   it('re-run after lock expiry is an idempotent upsert (ODKU), not a duplicate', async () => {
     const { handle, inserts, statsTable } = makeSnapshotDb(cannedActivity());
     const job = new DailySnapshotJob(handle, redis as unknown as RedisService);

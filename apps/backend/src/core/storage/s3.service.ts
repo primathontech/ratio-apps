@@ -9,7 +9,32 @@ import { Upload } from '@aws-sdk/lib-storage';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 
-/** Vendor-agnostic S3 wrapper; same code hits real S3 or local MinIO by env only. Buckets are IaC-owned (never created here); an optional injected S3Client is the seam for a non-`AWS_REGION` region. */
+/**
+ * THE object store for every module: one bucket, `S3_BUCKET`, with each module
+ * namespacing its own key prefix. Modules do not get their own bucket env —
+ * add one only when a module genuinely needs separate lifecycle/IAM rules.
+ *
+ * Returns `undefined` when unset so callers can gate a feature cleanly
+ * (forms uploads disable themselves; loyalty exports refuse the job).
+ */
+export function s3Bucket(): string | undefined {
+  return process.env.S3_BUCKET?.trim() || undefined;
+}
+
+/**
+ * The bucket's region — `S3_REGION`, deliberately NOT `AWS_REGION`.
+ *
+ * `AWS_REGION` is the SQS knob in this repo (`elasticmq` against the local
+ * emulator, `us-east-1` in `.env.example`). Signing S3 with it yields a
+ * `PermanentRedirect`/`AuthorizationHeaderMalformed` the moment the bucket
+ * lives elsewhere — which is exactly how loyalty exports failed while forms,
+ * which had pinned its own region, kept working.
+ */
+export function s3Region(): string {
+  return process.env.S3_REGION?.trim() || 'ap-south-1';
+}
+
+/** Vendor-agnostic S3 wrapper; same code hits real S3 or local MinIO by env only. Buckets are IaC-owned (never created here); an optional injected S3Client is the seam for tests and for the rare module that needs its own region. */
 @Injectable()
 export class S3Service {
   private readonly logger = new Logger(S3Service.name);
@@ -22,7 +47,7 @@ export class S3Service {
     }
     const endpoint = process.env.S3_ENDPOINT;
     this.client = new S3Client({
-      region: process.env.AWS_REGION ?? 'ap-south-1',
+      region: s3Region(),
       ...(endpoint ? { endpoint, forcePathStyle: true } : {}),
       ...(endpoint
         ? {

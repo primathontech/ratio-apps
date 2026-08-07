@@ -31,7 +31,7 @@ describe('ExportsWorker', () => {
   beforeEach(() => {
     savedEnv = { ...process.env };
     delete process.env.LOYALTY_WORKER_ENABLED;
-    process.env.LOYALTY_EXPORT_S3_BUCKET = BUCKET;
+    process.env.S3_BUCKET = BUCKET;
     const made = makeFakeLoyaltyHandle();
     fake = made.fake;
     queue = new FakeQueue();
@@ -60,6 +60,7 @@ describe('ExportsWorker', () => {
       status: 'pending',
       rowCount: null,
       s3Key: null,
+      errorReason: null,
       email: null,
       emailedAt: null,
       createdBy: null,
@@ -162,36 +163,43 @@ describe('ExportsWorker', () => {
     expect(queue.acked.get(LOYALTY_QUEUE_NAMES.exports)).toHaveLength(1);
   });
 
-  it('missing LOYALTY_EXPORT_S3_BUCKET → export failed, message acked (permanent config error)', async () => {
-    delete process.env.LOYALTY_EXPORT_S3_BUCKET;
+  it('missing S3_BUCKET → export failed with a reason, message acked', async () => {
+    delete process.env.S3_BUCKET;
     query.rows = [mkCustomer()];
     seedExport();
 
     await worker.drainOnce();
 
     expect(s3.puts).toHaveLength(0);
-    expect(fake.table('loyalty_exports')[0].status).toBe('failed');
+    const row = fake.table('loyalty_exports')[0];
+    expect(row.status).toBe('failed');
+    // A bare "failed" tag in the admin gave the merchant nothing to act on.
+    expect(row.errorReason).toMatch(/S3_BUCKET/);
     expect(queue.acked.get(LOYALTY_QUEUE_NAMES.exports)).toHaveLength(1);
   });
 
-  it('S3 failure → export failed, message NOT acked (redelivery)', async () => {
+  it('S3 failure → export failed with a reason, message NOT acked (redelivery)', async () => {
     query.rows = [mkCustomer()];
     seedExport();
     s3.failNext = new Error('s3 down');
 
     await worker.drainOnce();
 
-    expect(fake.table('loyalty_exports')[0].status).toBe('failed');
+    const row = fake.table('loyalty_exports')[0];
+    expect(row.status).toBe('failed');
+    expect(row.errorReason).toMatch(/upload/i);
     expect(queue.acked.get(LOYALTY_QUEUE_NAMES.exports) ?? []).toHaveLength(0);
   });
 
-  it('a redelivered message reprocesses a failed export to done', async () => {
+  it('a redelivered message reprocesses a failed export to done and clears the reason', async () => {
     query.rows = [mkCustomer()];
-    seedExport({ status: 'failed' });
+    seedExport({ status: 'failed', errorReason: 'Could not upload the CSV to storage' });
 
     await worker.drainOnce();
 
-    expect(fake.table('loyalty_exports')[0].status).toBe('done');
+    const row = fake.table('loyalty_exports')[0];
+    expect(row.status).toBe('done');
+    expect(row.errorReason).toBeNull();
     expect(s3.puts).toHaveLength(1);
   });
 

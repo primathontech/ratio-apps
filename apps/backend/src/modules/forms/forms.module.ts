@@ -1,4 +1,3 @@
-import { S3Client } from '@aws-sdk/client-s3';
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { EmailService } from '../../core/email/email.service';
@@ -8,13 +7,6 @@ import { S3Service } from '../../core/storage/s3.service';
 import { FormsConfigController } from './config/config.controller';
 import { FormsConfigService } from './config/config.service';
 import type { FormsDatabase } from './db/types';
-import { FormsBounceController } from './outbound/bounce.controller';
-import { FormsBounceService } from './outbound/bounce.service';
-import { DeliverySweeperService } from './outbound/delivery-sweeper.service';
-import { FormsEmailService } from './outbound/email.service';
-import { FormsEmailWorker } from './outbound/email.worker';
-import { WebhookDeliveryService } from './outbound/webhook-delivery.service';
-import { WebhookDeliveryWorker } from './outbound/webhook-delivery.worker';
 import { FormsController } from './forms/forms.controller';
 import { FormsService } from './forms/forms.service';
 import { FormsBootstrap } from './forms.bootstrap';
@@ -22,6 +14,13 @@ import { FormsMerchantTokenGuard, FormsWebhookSignatureGuard } from './guards';
 import { FORMS_DB_TOKEN, FormsKyselyModule } from './kysely.module';
 import { FormsMerchantsController } from './merchants/merchants.controller';
 import { FormsOAuthController } from './oauth/oauth.controller';
+import { FormsBounceController } from './outbound/bounce.controller';
+import { FormsBounceService } from './outbound/bounce.service';
+import { DeliverySweeperService } from './outbound/delivery-sweeper.service';
+import { FormsEmailService } from './outbound/email.service';
+import { FormsEmailWorker } from './outbound/email.worker';
+import { WebhookDeliveryService } from './outbound/webhook-delivery.service';
+import { WebhookDeliveryWorker } from './outbound/webhook-delivery.worker';
 import { FormsEmbedController } from './sdk/embed.controller';
 import { FormsEmbedService } from './sdk/embed.service';
 import { FormsSdkController } from './sdk/sdk.controller';
@@ -84,14 +83,8 @@ export {
     IdempotencyService,
     SubmissionsService,
     CsvExportService,
-    // Core S3 transport pinned to FORMS_S3_REGION (default ap-south-1) so forms S3 isn't bound to bare AWS_REGION (local SQS emulator).
-    {
-      provide: S3Service,
-      useFactory: () =>
-        new S3Service(
-          new S3Client({ region: process.env.FORMS_S3_REGION?.trim() || 'ap-south-1' }),
-        ),
-    },
+    // Core S3 transport: one shared bucket/region for every module (S3_BUCKET/S3_REGION).
+    S3Service,
     FormsS3Service,
     // Async CSV export: POST enqueues → worker streams CSV to S3 → GET polls for the signed URL.
     ExportJobService,

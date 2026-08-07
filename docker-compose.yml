@@ -120,7 +120,7 @@ services:
       REDIS_URL: redis://redis:6385
       # loyalty bulk-ops + exports consumers and the daily-snapshot tick. Safe
       # to run in the single compose backend (consumers idempotent, snapshot
-      # Redis-locked). Exports need S3 — set LOYALTY_EXPORT_S3_BUCKET + an
+      # Redis-locked). Exports need S3 — set the shared S3_BUCKET + an
       # S3_ENDPOINT (e.g. a MinIO service) in .env to exercise them locally.
       LOYALTY_WORKER_ENABLED: "true"
       WEBHOOK_SIGNATURE_OPTIONAL: "true"

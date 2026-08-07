@@ -6,21 +6,33 @@ import type { LoyaltyDatabase } from '../db/types';
 import { LOYALTY_DB_TOKEN } from '../kysely.module';
 
 /**
- * Midnight-IST snapshot into `loyalty_daily_stats`, one row per
- * (merchant, date).
+ * Snapshot into `loyalty_daily_stats`, one row per (merchant, date).
  *
  * There is no Core event stream, so daily issued/redeemed/expired are derived
  * as DELTAS: today's mirror lifetime absolutes minus the sum of every prior
  * snapshot's delta. Each delta clamps at 0 (`max(0, …)`) so a mirror
  * correction can never produce a negative day. The write is INSERT…ODKU —
  * re-running a date overwrites the same row instead of duplicating it, and a
- * Redis `firstSeen` lock (26 h — covers the 24 h cadence plus drift) keeps
- * concurrent pods from double-running.
+ * Redis lock keeps concurrent pods from double-running.
+ *
+ * Two modes, because a once-a-day job left the dashboard blank for everything
+ * that happened since midnight (a merchant who bulk-credited this morning saw
+ * "no coin activity in this period"):
+ *   - `'final'` — the settled snapshot for a past date, locked for 26 h (the
+ *     24 h cadence plus drift) so it runs once per date;
+ *   - `'live'`  — the same computation re-run for TODAY on the maintenance
+ *     tick, under a separate short-lived key so the dashboard tracks the day
+ *     as it happens. Idempotent: the delta only ever reads snapshots STRICTLY
+ *     BEFORE `date`, so recomputing today's row mid-day is self-correcting.
  */
 
 /** Lock TTL: one day + slack so tomorrow's run gets a fresh key. */
 const LOCK_TTL_SECONDS = 26 * 3600;
+/** Intraday refresh cadence — how stale the live dashboard may be. */
+const LIVE_LOCK_TTL_SECONDS = 300;
 const IST_OFFSET = '+05:30';
+
+export type SnapshotMode = 'final' | 'live';
 
 /** The IST calendar day [start, end) for a `YYYY-MM-DD` date. */
 function istDayRange(date: string): [Date, Date] {
@@ -41,8 +53,14 @@ export class DailySnapshotJob {
     private readonly redis: RedisService,
   ) {}
 
-  async runForDate(date: string): Promise<'locked' | 'done'> {
-    if (!(await this.redis.firstSeen(`loyalty:snap:${date}`, LOCK_TTL_SECONDS))) {
+  async runForDate(date: string, mode: SnapshotMode = 'final'): Promise<'locked' | 'done'> {
+    // Distinct keys: the intraday refresh must not consume the once-per-date
+    // lock that guards the settled end-of-day run (and vice versa).
+    const [key, ttl] =
+      mode === 'live'
+        ? [`loyalty:snap:live:${date}`, LIVE_LOCK_TTL_SECONDS]
+        : [`loyalty:snap:${date}`, LOCK_TTL_SECONDS];
+    if (!(await this.redis.firstSeen(key, ttl))) {
       return 'locked';
     }
 
@@ -78,6 +96,7 @@ export class DailySnapshotJob {
       .selectFrom('loyalty_customers')
       .select((eb) => [
         eb.fn.sum<number>('lifetimeEarned').as('earned'),
+        eb.fn.sum<number>('lifetimeAdjusted').as('adjusted'),
         eb.fn.sum<number>('lifetimeRedeemed').as('redeemed'),
         eb.fn.sum<number>('lifetimeExpired').as('expired'),
         eb.fn.sum<number>('pointsBalance').as('outstanding'),
@@ -98,7 +117,15 @@ export class DailySnapshotJob {
       .where('statDate', '<', date)
       .executeTakeFirst();
 
-    const pointsIssued = Math.max(0, num(absolutes?.earned) - num(priors?.issued));
+    // Core keeps ledger types in disjoint lifetime buckets (earn / redeem /
+    // adjust / expire), and OUR credits — bulk uploads, manual adjustments, QR
+    // claims — land in `adjusted`, not `earned`. Counting only `earned` made
+    // the dashboard report "coins issued: 0" next to an outstanding balance of
+    // everything a merchant had just bulk-credited. Issuance is therefore
+    // earned + adjusted, with adjusted floored at 0 so a net-negative
+    // adjustment bucket can never eat into organic earning.
+    const issuedAbsolute = num(absolutes?.earned) + Math.max(0, num(absolutes?.adjusted));
+    const pointsIssued = Math.max(0, issuedAbsolute - num(priors?.issued));
     const pointsRedeemed = Math.max(0, num(absolutes?.redeemed) - num(priors?.redeemed));
     const pointsExpired = Math.max(0, num(absolutes?.expired) - num(priors?.expired));
 

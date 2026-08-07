@@ -523,6 +523,8 @@ export interface ExportJob {
   filters: LoyaltyCustomerFilters;
   email: string | null;
   rowCount: number | null;
+  /** Set when `status === 'failed'` — why it failed, in merchant language. */
+  errorReason: string | null;
   emailedAt: string | null;
   completedAt: string | null;
   createdAt: string;

@@ -88,9 +88,14 @@ export class CustomerMirrorService {
    * Set just the cached balance after a credit/debit we performed ourselves.
    *
    * Credit/debit responses carry only `new_balance`, not the full lifetime
-   * breakdown, so this writes the one column we actually know. The remaining
-   * lifetime counters resync on the next {@link applyCoreBalance} (any profile
-   * view or balance refresh).
+   * breakdown, so this writes the one column we actually know and clears
+   * `balanceSyncedAt` to mark the rest stale. That NULL is deliberate: the
+   * maintenance sweep orders by `balanceSyncedAt ASC` (NULLs first), so the
+   * lifetime counters resync from Core within a tick (~60 s) instead of
+   * whenever someone happens to open the profile. Leaving them stale is what
+   * made the dashboard report "0 coins issued" right after a bulk credit —
+   * `outstanding_points` tracks `points_balance` (written here) but the
+   * issued/redeemed trend is derived from the lifetime columns.
    */
   async applyAdjustedBalance(
     exec: LoyaltyExecutor,
@@ -102,7 +107,7 @@ export class CustomerMirrorService {
       .updateTable('loyalty_customers')
       .set({
         pointsBalance,
-        balanceSyncedAt: new Date(),
+        balanceSyncedAt: null,
         updatedAt: sql<Date>`CURRENT_TIMESTAMP(3)`,
       })
       .where('merchantId', '=', merchantId)

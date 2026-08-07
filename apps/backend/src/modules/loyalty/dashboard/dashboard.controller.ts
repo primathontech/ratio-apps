@@ -8,10 +8,21 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_MS = 24 * 3600 * 1000;
 /** Default window: the last 30 days (inclusive of today). */
 const DEFAULT_RANGE_DAYS = 30;
+const IST_OFFSET_MS = 5.5 * 3600 * 1000;
 
 interface DateRange {
   from: string;
   to: string;
+}
+
+/**
+ * `loyalty_daily_stats.stat_date` is an IST calendar day (the snapshot job
+ * buckets by `+05:30`), so the default window must be IST too. Defaulting `to`
+ * to the UTC date hid the newest snapshot between 00:00 and 05:30 IST, when
+ * UTC is still on yesterday.
+ */
+function istToday(): string {
+  return new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
 }
 
 function resolveRange(from?: string, to?: string): DateRange {
@@ -23,7 +34,7 @@ function resolveRange(from?: string, to?: string): DateRange {
       });
     }
   }
-  const toStr = to ?? new Date().toISOString().slice(0, 10);
+  const toStr = to ?? istToday();
   const fromStr =
     from ??
     new Date(Date.parse(`${toStr}T00:00:00Z`) - (DEFAULT_RANGE_DAYS - 1) * DAY_MS)

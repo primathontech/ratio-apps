@@ -25,21 +25,21 @@ function setup(seed: Record<string, Row[]>) {
 }
 
 const savedEnv = {
-  bucket: process.env.FORMS_S3_BUCKET,
-  region: process.env.FORMS_S3_REGION,
+  bucket: process.env.S3_BUCKET,
+  region: process.env.S3_REGION,
   queue: process.env.FORMS_EXPORT_QUEUE_URL,
 };
 
 beforeEach(() => {
-  process.env.FORMS_S3_BUCKET = 'ratio-forms-uploads';
-  process.env.FORMS_S3_REGION = 'ap-south-1';
+  process.env.S3_BUCKET = 'ratio-forms-uploads';
+  process.env.S3_REGION = 'ap-south-1';
   process.env.FORMS_EXPORT_QUEUE_URL = 'forms-export';
 });
 
 afterEach(() => {
   for (const [key, val] of [
-    ['FORMS_S3_BUCKET', savedEnv.bucket],
-    ['FORMS_S3_REGION', savedEnv.region],
+    ['S3_BUCKET', savedEnv.bucket],
+    ['S3_REGION', savedEnv.region],
     ['FORMS_EXPORT_QUEUE_URL', savedEnv.queue],
   ] as const) {
     if (val === undefined) delete process.env[key];
@@ -77,7 +77,7 @@ describe('ExportJobService — async CSV export orchestration', () => {
   });
 
   it('createJob → 503 exports_unavailable when the bucket is unset', async () => {
-    delete process.env.FORMS_S3_BUCKET;
+    delete process.env.S3_BUCKET;
     const { service, fake, queue } = setup({ forms: [contactForm()] });
     await expect(service.createJob(MERCHANT_ID, 'form_contact')).rejects.toSatisfy(
       (err: unknown) =>

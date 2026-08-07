@@ -153,7 +153,11 @@ describe('BulkWorker', () => {
       firstSeenSource: 'bulk',
       pointsBalance: 100,
     });
-    expect(customers[0].balanceSyncedAt).toBeInstanceOf(Date);
+    // NULL on purpose: the credit response carries only `new_balance`, so the
+    // lifetime counters the dashboard trend is built from are now stale. The
+    // maintenance sweep orders by `balanceSyncedAt ASC` (NULLs first) and
+    // resyncs them from Core on its next tick.
+    expect(customers[0].balanceSyncedAt).toBeNull();
   });
 
   it('#mirror-preserves-existing-customers: no duplicate row, original source kept', async () => {

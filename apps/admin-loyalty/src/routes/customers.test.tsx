@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiException, api } from '@/lib/api';
 import { useMerchantStore } from '@/stores/useMerchantStore';
@@ -63,7 +63,9 @@ function routeApi(opts: { onAdjust?: () => Promise<unknown>; profileError?: ApiE
         rows: [
           {
             merchantId: 'm1',
-            phone: '9876543210',
+            // The mirror stores E.164, so a leaderboard row already carries
+            // the canonical phone the profile endpoint expects.
+            phone: '+919876543210',
             name: 'Asha Rao',
             email: null,
             pointsBalance: 500,
@@ -97,21 +99,31 @@ async function search(value = '9876543210') {
   fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 }
 
+/**
+ * The leaderboard renders alongside the lookup now, and it lists the same
+ * customer — so profile assertions scope to the profile block rather than the
+ * whole page.
+ */
+async function profileCard() {
+  return within(await screen.findByTestId('customer-profile'));
+}
+
 describe('CustomersPage — search', () => {
   it('renders the profile with mirror and live Core balances', async () => {
     routeApi();
     renderWithProviders(<CustomersPage />);
     await search();
-    await waitFor(() => expect(screen.getByText('Asha Rao')).toBeInTheDocument());
-    expect(screen.getByText('500')).toBeInTheDocument(); // mirror balance
-    expect(screen.getByText('505')).toBeInTheDocument(); // live Core balance
+    const profile = await profileCard();
+    expect(profile.getByText('Asha Rao')).toBeInTheDocument();
+    expect(profile.getByText('500')).toBeInTheDocument(); // mirror balance
+    expect(profile.getByText('505')).toBeInTheDocument(); // live Core balance
   });
 
   it('normalizes any accepted phone format to the one stored customer', async () => {
     routeApi();
     renderWithProviders(<CustomersPage />);
     await search('+91 98765-43210');
-    await waitFor(() => expect(screen.getByText('Asha Rao')).toBeInTheDocument());
+    expect((await profileCard()).getByText('Asha Rao')).toBeInTheDocument();
   });
 
   it('rejects an invalid phone against the search field without calling the API', async () => {
@@ -198,10 +210,23 @@ describe('CustomersPage — search', () => {
 });
 
 describe('CustomersPage — leaderboard', () => {
+  it('loads the leaderboard on arrival, with no search needed', async () => {
+    // The page used to open on an empty Search tab: a merchant saw nothing
+    // about their own programme until they typed a number they already knew.
+    routeApi();
+    renderWithProviders(<CustomersPage />);
+    await waitFor(() =>
+      expect(mockedApi.mock.calls.some((c) => String(c[1]).includes('sort=points_balance'))).toBe(
+        true,
+      ),
+    );
+    expect(screen.getByText('Coins leaderboard')).toBeInTheDocument();
+    expect(screen.queryByTestId('customer-profile')).not.toBeInTheDocument();
+  });
+
   it('queries with the selected sort when toggled', async () => {
     routeApi();
     renderWithProviders(<CustomersPage />);
-    fireEvent.click(screen.getByRole('tab', { name: 'Leaderboard' }));
     await waitFor(() =>
       expect(mockedApi.mock.calls.some((c) => String(c[1]).includes('sort=points_balance'))).toBe(
         true,
@@ -213,5 +238,13 @@ describe('CustomersPage — leaderboard', () => {
         true,
       ),
     );
+  });
+
+  it('opens a customer straight from a leaderboard row', async () => {
+    routeApi();
+    renderWithProviders(<CustomersPage />);
+    const cell = await screen.findByRole('cell', { name: '+919876543210' });
+    fireEvent.click(cell);
+    expect((await profileCard()).getByText('Asha Rao')).toBeInTheDocument();
   });
 });

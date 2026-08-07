@@ -77,6 +77,12 @@ function operatorsFor(field: LoyaltyFilterField): string[] {
   }
 }
 
+const STATUS_COLORS: Record<string, string | undefined> = {
+  done: 'green',
+  failed: 'red',
+  processing: 'blue',
+};
+
 interface FilterRow {
   field: LoyaltyFilterField;
   operator: string;
@@ -174,7 +180,26 @@ export function ExportPage() {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      render: (value: unknown) => <Tag>{String(value)}</Tag>,
+      render: (value: unknown) => {
+        const status = String(value);
+        const color = STATUS_COLORS[status];
+        return <Tag {...(color ? { color } : {})}>{status}</Tag>;
+      },
+    },
+    {
+      // A bare "failed" tag left merchants with nothing to act on; the worker
+      // now records why, so show it right next to the status.
+      title: 'Details',
+      dataIndex: 'errorReason',
+      key: 'errorReason',
+      render: (value: unknown) =>
+        value ? (
+          <Typography.Text type="danger" style={{ fontSize: 12 }}>
+            {String(value)}
+          </Typography.Text>
+        ) : (
+          '—'
+        ),
     },
     {
       title: 'Rows',

@@ -78,13 +78,13 @@ describe('validateFileType (P2-3 allowlist enforcement)', () => {
   });
 });
 
-const savedBucket = process.env.FORMS_S3_BUCKET;
+const savedBucket = process.env.S3_BUCKET;
 beforeEach(() => {
-  process.env.FORMS_S3_BUCKET = 'ratio-forms-uploads';
+  process.env.S3_BUCKET = 'ratio-forms-uploads';
 });
 afterEach(() => {
-  if (savedBucket === undefined) delete process.env.FORMS_S3_BUCKET;
-  else process.env.FORMS_S3_BUCKET = savedBucket;
+  if (savedBucket === undefined) delete process.env.S3_BUCKET;
+  else process.env.S3_BUCKET = savedBucket;
 });
 
 describe('FormsS3Service.readHeadBytes (P2-3)', () => {

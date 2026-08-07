@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { Readable } from 'node:stream';
 import { Injectable } from '@nestjs/common';
-import { S3Service } from '../../../core/storage/s3.service';
+import { S3Service, s3Bucket } from '../../../core/storage/s3.service';
 
 /** Presigned PUT window — long enough for a slow mobile upload, no longer. */
 export const FORMS_UPLOAD_PUT_EXPIRY_SECONDS = 15 * 60;
@@ -17,13 +17,13 @@ export const FORMS_EXPORT_GET_EXPIRY_SECONDS = 60 * 60;
 export class FormsS3Service {
   constructor(private readonly s3: S3Service) {}
 
-  /** Uploads are enabled only when a bucket is configured. */
+  /** Uploads are enabled only when the shared core bucket is configured. */
   get enabled(): boolean {
-    return Boolean(process.env.FORMS_S3_BUCKET?.trim());
+    return Boolean(s3Bucket());
   }
 
   private bucket(): string {
-    return process.env.FORMS_S3_BUCKET?.trim() ?? '';
+    return s3Bucket() ?? '';
   }
 
   /** Mint the draft-scoped object key + presigned PUT for one file field. */

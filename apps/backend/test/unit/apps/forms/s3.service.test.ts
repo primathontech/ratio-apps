@@ -11,18 +11,18 @@ import { UploadsController } from '../../../../src/modules/forms/uploads/uploads
 import { FakeS3Service } from './fixtures/fakes';
 import { KITCHEN_SINK_FIELDS, kitchenSinkForm, MERCHANT_ID } from './fixtures/forms';
 
-const savedEnv = { bucket: process.env.FORMS_S3_BUCKET, region: process.env.FORMS_S3_REGION };
+const savedEnv = { bucket: process.env.S3_BUCKET, region: process.env.S3_REGION };
 
 beforeEach(() => {
-  process.env.FORMS_S3_BUCKET = 'ratio-forms-uploads';
-  process.env.FORMS_S3_REGION = 'ap-south-1';
+  process.env.S3_BUCKET = 'ratio-forms-uploads';
+  process.env.S3_REGION = 'ap-south-1';
 });
 
 afterEach(() => {
-  if (savedEnv.bucket === undefined) delete process.env.FORMS_S3_BUCKET;
-  else process.env.FORMS_S3_BUCKET = savedEnv.bucket;
-  if (savedEnv.region === undefined) delete process.env.FORMS_S3_REGION;
-  else process.env.FORMS_S3_REGION = savedEnv.region;
+  if (savedEnv.bucket === undefined) delete process.env.S3_BUCKET;
+  else process.env.S3_BUCKET = savedEnv.bucket;
+  if (savedEnv.region === undefined) delete process.env.S3_REGION;
+  else process.env.S3_REGION = savedEnv.region;
 });
 
 describe('FormsS3Service (TDD §3.6)', () => {
@@ -80,8 +80,8 @@ describe('FormsS3Service (TDD §3.6)', () => {
     expect(a.objectKey).not.toBe(b.objectKey);
   });
 
-  it('is disabled when FORMS_S3_BUCKET is unset', () => {
-    delete process.env.FORMS_S3_BUCKET;
+  it('is disabled when S3_BUCKET is unset', () => {
+    delete process.env.S3_BUCKET;
     expect(new FormsS3Service(new FakeS3Service().asS3Service()).enabled).toBe(false);
   });
 });
@@ -131,7 +131,7 @@ describe('UploadsController — public presign endpoint (AC7/F2/F3)', () => {
   });
 
   it('503 uploads_unavailable when no bucket is configured (local dev no-op)', async () => {
-    delete process.env.FORMS_S3_BUCKET;
+    delete process.env.S3_BUCKET;
     const { controller, req, submissions } = setup();
     await expectStatus(
       controller.createUpload('form_sink', validBody, req),

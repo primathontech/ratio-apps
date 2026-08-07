@@ -1,5 +1,10 @@
-import { ConflictException, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
-import { beforeEach, describe, expect, it } from 'vitest';
+import {
+  ConflictException,
+  NotFoundException,
+  ServiceUnavailableException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { QueueService } from '../../../../src/core/queue/queue.service';
 import type { S3Service } from '../../../../src/core/storage/s3.service';
 import {
@@ -33,11 +38,35 @@ describe('ExportsService', () => {
   let service: ExportsService;
 
   beforeEach(() => {
+    // `create` refuses to queue a job the worker could only fail; every test
+    // below exercises a configured environment (the unconfigured one has its
+    // own case).
+    process.env.S3_BUCKET = 'loyalty-bucket';
     const made = makeFakeLoyaltyHandle();
     fake = made.fake;
     queue = new FakeQueue();
     query = new FakeCustomerQuery();
     service = new ExportsService(made.handle, queue as unknown as QueueService, query);
+  });
+
+  afterEach(() => {
+    delete process.env.S3_BUCKET;
+  });
+
+  it('refuses to queue an export when S3_BUCKET is unset', async () => {
+    // Otherwise the merchant gets a job that marches straight to `failed`:
+    // the worker has nowhere to put the CSV, and no retry can fix an env gap.
+    delete process.env.S3_BUCKET;
+    query.countValue = 5;
+
+    await expect(service.create(MERCHANT_ID, { filters: [] })).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+    expect(await errorCode(service.create(MERCHANT_ID, { filters: [] }))).toBe(
+      'EXPORTS_NOT_CONFIGURED',
+    );
+    expect(fake.table('loyalty_exports')).toHaveLength(0);
+    expect(queue.queues.get(LOYALTY_QUEUE_NAMES.exports) ?? []).toHaveLength(0);
   });
 
   it('#rejects-over-10k-without-email with error_code EMAIL_REQUIRED', async () => {
@@ -108,8 +137,8 @@ describe('ExportsService', () => {
   });
 
   it('downloadUrl presigns 15 minutes when done, 409 before', async () => {
-    const prevBucket = process.env.LOYALTY_EXPORT_S3_BUCKET;
-    process.env.LOYALTY_EXPORT_S3_BUCKET = 'loyalty-bucket';
+    const prevBucket = process.env.S3_BUCKET;
+    process.env.S3_BUCKET = 'loyalty-bucket';
     try {
       query.countValue = 1;
       const s3 = new FakeS3();
@@ -128,8 +157,8 @@ describe('ExportsService', () => {
         `https://s3.fake/loyalty-bucket/loyalty/exports/${MERCHANT_ID}/${id}.csv.gz?expires=900`,
       );
     } finally {
-      if (prevBucket === undefined) delete process.env.LOYALTY_EXPORT_S3_BUCKET;
-      else process.env.LOYALTY_EXPORT_S3_BUCKET = prevBucket;
+      if (prevBucket === undefined) delete process.env.S3_BUCKET;
+      else process.env.S3_BUCKET = prevBucket;
     }
   });
 });

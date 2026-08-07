@@ -260,7 +260,7 @@ amendment banner at the top and `docs/agent/changes/loyalty-qr-claim-v2/PLAN.md`
 2. `POST /api/exports {filters, email?}` — if count > 10,000 the admin UI
    requires an email (pre-filled from config `export_email`); server re-checks.
 3. `exports.worker.ts` streams the mirror query to CSV (gzip), uploads via
-   `S3Service.putObject(LOYALTY_EXPORT_S3_BUCKET, 'loyalty/exports/{merchantId}/{exportId}.csv.gz')`,
+   `S3Service.putObject(S3_BUCKET, 'loyalty/exports/{merchantId}/{exportId}.csv.gz')`,
    stamps `row_count`/`s3_key`/`completed_at`.
 4. If `email` set → `EmailService.send` with a 7-day presigned link; stamp `emailed_at`.
 5. Admin history always offers `/download` (fresh 15-min presigned URL) —
@@ -338,7 +338,7 @@ identically. The SDK imports shared types **type-only** (no Zod in browser).
   `RATIO_LOYALTY_CALLBACK_URL`, `RATIO_LOYALTY_ADMIN_BASE_URL`.
 - **Env keys (module block in `env.schema.ts` baseEnv, like the WIZZY_ block):**
   `LOYALTY_WORKER_ENABLED` (`'true'|'false'`, default `'false'`),
-  `LOYALTY_EXPORT_S3_BUCKET` (string), `LOYALTY_BULK_CONCURRENCY` (int, default 5),
+  `S3_BUCKET` (string), `LOYALTY_BULK_CONCURRENCY` (int, default 5),
   `LOYALTY_BULK_VISIBILITY` (seconds, default 300).
   **Both** the Core Loyalty client and the GoKwik customer-profile client
   (KwikPass token verification) derive their base from `RATIO_API_BASE_URL` —
@@ -383,7 +383,7 @@ identically. The SDK imports shared types **type-only** (no Zod in browser).
 - **External delivery change (GitOps/pipeline repo owned by DevOps):** six
   `RATIO_LOYALTY_*` secrets + `LOYALTY_*` vars (+ core `EMAIL_FROM`); pod IAM →
   two SQS queues (+ DLQs), `s3:PutObject/GetObject` on
-  `LOYALTY_EXPORT_S3_BUCKET/loyalty/exports/*`, `ses:SendEmail` from `EMAIL_FROM`;
+  `S3_BUCKET/loyalty/exports/*`, `ses:SendEmail` from `EMAIL_FROM`;
   ALB routes `/loyalty/*` (incl. public `/loyalty/qr/*`, `/loyalty/sdk/*`);
   storefront origin in `ALLOWED_ORIGINS`; publish `apps/admin-loyalty` via the
   standard admin static pipeline.
@@ -404,7 +404,7 @@ identically. The SDK imports shared types **type-only** (no Zod in browser).
    backend-builder; auth isolated in `core-loyalty.client.ts`.
 2. **Core phone-key format** — `+91…` vs 10-digit unknown; wrong guess ⇒ split
    balances. Verify against UAT early; normalization in one `normalizePhone()`.
-3. **S3 bucket + SES identity provisioning** — `LOYALTY_EXPORT_S3_BUCKET` and a
+3. **S3 bucket + SES identity provisioning** — `S3_BUCKET` and a
    verified SES sender (`EMAIL_FROM`) must exist per environment (DevOps).
    Local dev: email no-ops, S3 via `S3_ENDPOINT` override or skipped.
 4. **Does Core credit base earn on `orders/create` in UAT today?** App credits

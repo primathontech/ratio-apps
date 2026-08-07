@@ -11,12 +11,16 @@ import { csvEscape } from '../../../core/common/csv';
 import type { KyselyClient } from '../../../core/db/kysely-factory';
 import { EmailService } from '../../../core/email/email.service';
 import { QueueService } from '../../../core/queue/queue.service';
-import { S3Service } from '../../../core/storage/s3.service';
+import { S3Service, s3Bucket } from '../../../core/storage/s3.service';
 import { LOYALTY_QUEUE_NAMES, type LoyaltyExportMessage } from '../bulk/loyalty-queues';
 import type { LoyaltyCustomerRow, LoyaltyDatabase } from '../db/types';
 import { LOYALTY_DB_TOKEN } from '../kysely.module';
 import type { CustomerQuery } from '../mirror/customer-query.types';
-import { LOYALTY_CUSTOMER_QUERY, parseFilters } from './exports.service';
+import {
+  LOYALTY_CUSTOMER_QUERY,
+  EXPORTS_NOT_CONFIGURED_REASON as NOT_CONFIGURED_REASON,
+  parseFilters,
+} from './exports.service';
 
 const CSV_HEADER =
   'customer_id,phone_number,email,name,coins_balance,lifetime_earned,' +
@@ -31,10 +35,14 @@ const EMAIL_LINK_EXPIRES_S = 7 * 24 * 3600;
  * 7-day presigned link (TRD §2c). Wizzy worker pattern — runs only when
  * `LOYALTY_WORKER_ENABLED=true`; ack on success, thrown error → no ack.
  *
- * Failure taxonomy:
+ * Failure taxonomy (every failure records an `errorReason` — the admin history
+ * shows it, so "failed" is never a dead end for the merchant):
  *   - missing/`done` export → skip + ack (stale or duplicate message);
- *   - `LOYALTY_EXPORT_S3_BUCKET` unset → permanent config error: mark the
+ *   - `S3_BUCKET` unset → permanent config error: mark the
  *     export `failed`, ACK (redelivery can't fix an env gap), log loudly;
+ *   - CSV build failure → mark `failed` and THROW; without this an error
+ *     between `processing` and the upload left the job stuck on `processing`
+ *     forever, polling in the admin with nothing to report;
  *   - S3 upload failure → mark `failed` but THROW (no ack) so the redelivered
  *     message retries — `failed` is a processable status;
  *   - email failure → log only; the export itself is already `done`.
@@ -112,35 +120,41 @@ export class ExportsWorker implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    const bucket = process.env.LOYALTY_EXPORT_S3_BUCKET;
+    const bucket = s3Bucket();
     if (!bucket) {
       this.logger.error({
-        msg: 'LOYALTY_EXPORT_S3_BUCKET is not set — export permanently failed',
+        msg: 'S3_BUCKET is not set — export permanently failed',
         exportId: msg.exportId,
       });
-      await this.setStatus(msg.exportId, 'failed');
+      await this.setStatus(msg.exportId, 'failed', NOT_CONFIGURED_REASON);
       return; // permanent config error — ack, redelivery cannot fix it
     }
 
     await this.setStatus(msg.exportId, 'processing');
 
-    const lines = [CSV_HEADER];
+    let body: Buffer;
     let rowCount = 0;
-    for await (const customer of this.query.streamAll(
-      msg.merchantId,
-      parseFilters(row.filters),
-      LOYALTY_EXPORT_MAX_ROWS,
-    )) {
-      lines.push(toCsvLine(customer));
-      rowCount += 1;
+    try {
+      const lines = [CSV_HEADER];
+      for await (const customer of this.query.streamAll(
+        msg.merchantId,
+        parseFilters(row.filters),
+        LOYALTY_EXPORT_MAX_ROWS,
+      )) {
+        lines.push(toCsvLine(customer));
+        rowCount += 1;
+      }
+      body = gzipSync(Buffer.from(`${lines.join('\n')}\n`, 'utf8'));
+    } catch (err) {
+      await this.setStatus(msg.exportId, 'failed', 'Could not build the CSV — please retry');
+      throw err; // no ack — redelivery retries the build
     }
-    const body = gzipSync(Buffer.from(`${lines.join('\n')}\n`, 'utf8'));
-    const s3Key = `loyalty/exports/${msg.merchantId}/${msg.exportId}.csv.gz`;
 
+    const s3Key = `loyalty/exports/${msg.merchantId}/${msg.exportId}.csv.gz`;
     try {
       await this.s3.putObject(bucket, s3Key, body, 'text/csv', 'gzip');
     } catch (err) {
-      await this.setStatus(msg.exportId, 'failed');
+      await this.setStatus(msg.exportId, 'failed', 'Could not upload the CSV to storage');
       throw err; // no ack — redelivery retries the upload
     }
 
@@ -150,6 +164,7 @@ export class ExportsWorker implements OnModuleInit, OnModuleDestroy {
         status: 'done',
         rowCount,
         s3Key,
+        errorReason: null, // a retry that succeeds clears the earlier failure
         completedAt: new Date(),
         updatedAt: new Date(),
       })
@@ -186,10 +201,14 @@ export class ExportsWorker implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async setStatus(exportId: string, status: 'processing' | 'failed'): Promise<void> {
+  private async setStatus(
+    exportId: string,
+    status: 'processing' | 'failed',
+    errorReason: string | null = null,
+  ): Promise<void> {
     await this.handle.db
       .updateTable('loyalty_exports')
-      .set({ status, updatedAt: new Date() })
+      .set({ status, errorReason, updatedAt: new Date() })
       .where('id', '=', exportId)
       .execute();
   }

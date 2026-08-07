@@ -1,5 +1,6 @@
 import {
   Alert,
+  Button,
   Card,
   Empty,
   Input,
@@ -8,11 +9,10 @@ import {
   RadioGroup,
   Space,
   Table,
-  Tabs,
   Typography,
 } from '@primathonos/orion';
 import { createFileRoute } from '@tanstack/react-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { FieldRow } from '@/components/FieldRow';
 import {
   type CustomerProfile,
@@ -31,7 +31,29 @@ const MIN_POINTS = 1;
 const MAX_POINTS = 100_000;
 const INVALID_PHONE_MESSAGE = 'Enter a valid Indian mobile number — 10 digits starting 6-9.';
 
+/**
+ * Leaderboard first, lookup second. The page used to open on an empty Search
+ * tab, so the landing state showed a merchant nothing about their own
+ * programme until they typed a phone number they had to already know. The
+ * leaderboard is the answer to "who are my customers", and picking a row (or
+ * the search box below it) drills into one.
+ */
 export function CustomersPage() {
+  const [phone, setPhone] = useState<string | null>(null);
+  const lookupRef = useRef<HTMLDivElement>(null);
+
+  const select = (next: string | null) => {
+    setPhone(next);
+    // The detail renders under the leaderboard table, so bring it into view
+    // instead of leaving the click looking like it did nothing. (jsdom has no
+    // scrollIntoView — optional call keeps tests happy.)
+    if (next) {
+      requestAnimationFrame(() =>
+        lookupRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }),
+      );
+    }
+  };
+
   return (
     <Space direction="vertical" size="large" style={{ display: 'flex' }}>
       <div>
@@ -39,24 +61,31 @@ export function CustomersPage() {
           Customers
         </Typography.Title>
         <Typography.Text type="secondary">
-          Look up a customer by phone or browse the coins leaderboard.
+          Browse the coins leaderboard, or look up any customer by phone.
         </Typography.Text>
       </div>
 
-      <Tabs
-        defaultActiveKey="search"
-        items={[
-          { key: 'search', label: 'Search', children: <CustomerSearch /> },
-          { key: 'leaderboard', label: 'Leaderboard', children: <Leaderboard /> },
-        ]}
-      />
+      <Leaderboard selectedPhone={phone} onSelect={select} />
+
+      <div ref={lookupRef}>
+        <CustomerLookup phone={phone} onPhoneChange={select} />
+      </div>
     </Space>
   );
 }
 
-function CustomerSearch() {
+/**
+ * The phone lookup + whatever it resolves to. `phone` is lifted to the page so
+ * clicking a leaderboard row and typing a number drive the same detail view.
+ */
+function CustomerLookup({
+  phone,
+  onPhoneChange,
+}: {
+  phone: string | null;
+  onPhoneChange: (phone: string | null) => void;
+}) {
   const [query, setQuery] = useState('');
-  const [phone, setPhone] = useState<string | null>(null);
   const [searchError, setSearchError] = useState<string | undefined>(undefined);
   const profile = useCustomerProfile(phone);
 
@@ -64,7 +93,7 @@ function CustomerSearch() {
     const trimmed = query.trim();
     if (!trimmed) {
       setSearchError('Enter a phone number to search.');
-      setPhone(null);
+      onPhoneChange(null);
       return;
     }
     // Normalize before the request so `9876543210`, `+91 98765 43210` and
@@ -72,11 +101,17 @@ function CustomerSearch() {
     const normalized = normalizeBulkPhone(trimmed);
     if (!normalized) {
       setSearchError(INVALID_PHONE_MESSAGE);
-      setPhone(null);
+      onPhoneChange(null);
       return;
     }
     setSearchError(undefined);
-    setPhone(normalized);
+    onPhoneChange(normalized);
+  };
+
+  const clear = () => {
+    setQuery('');
+    setSearchError(undefined);
+    onPhoneChange(null);
   };
 
   const notFound =
@@ -86,8 +121,12 @@ function CustomerSearch() {
 
   return (
     <Space direction="vertical" size="large" style={{ display: 'flex' }}>
-      <Card>
-        <FieldRow label="Phone number" required error={searchError}>
+      <Card title="Look up a customer">
+        <FieldRow
+          label="Phone number"
+          error={searchError}
+          hint="Any Indian format — 9876543210, +91 98765 43210 or 09876543210"
+        >
           <Space wrap>
             <Input
               aria-label="Search phone"
@@ -99,6 +138,7 @@ function CustomerSearch() {
               {...(searchError ? { status: 'error' as const } : {})}
             />
             <PrimaryButton onClick={search}>Search</PrimaryButton>
+            {phone && <Button onClick={clear}>Clear</Button>}
           </Space>
         </FieldRow>
       </Card>
@@ -147,7 +187,12 @@ function ProfileCard({ phone, data }: { phone: string; data: CustomerProfile }) 
   const { profile, balance, history } = data;
 
   return (
-    <Space direction="vertical" size="large" style={{ display: 'flex' }}>
+    <Space
+      direction="vertical"
+      size="large"
+      style={{ display: 'flex' }}
+      data-testid="customer-profile"
+    >
       <Card
         title={profile.name || phone}
         extra={<PrimaryButton onClick={() => setDialogOpen(true)}>Adjust coins</PrimaryButton>}
@@ -304,7 +349,13 @@ function AdjustDialog({
   );
 }
 
-function Leaderboard() {
+function Leaderboard({
+  selectedPhone,
+  onSelect,
+}: {
+  selectedPhone: string | null;
+  onSelect: (phone: string) => void;
+}) {
   const [sort, setSort] = useState<CustomerSort>('points_balance');
   const [page, setPage] = useState(1);
   const customers = useCustomers([], sort, page, 20);
@@ -342,22 +393,23 @@ function Leaderboard() {
   ];
 
   return (
-    <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
-      <Space wrap align="center">
-        <Typography.Text strong>Sort by</Typography.Text>
-        <RadioGroup
-          value={sort}
-          onChange={(e) => {
-            setSort(e.target.value as CustomerSort);
-            setPage(1);
-          }}
-          options={[
-            { label: 'Coins balance', value: 'points_balance' },
-            { label: 'Lifetime earned', value: 'lifetime_earned' },
-          ]}
-        />
-      </Space>
-      <Card>
+    <Card title="Coins leaderboard">
+      <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
+        <Space wrap align="center">
+          <Typography.Text strong>Sort by</Typography.Text>
+          <RadioGroup
+            value={sort}
+            onChange={(e) => {
+              setSort(e.target.value as CustomerSort);
+              setPage(1);
+            }}
+            options={[
+              { label: 'Coins balance', value: 'points_balance' },
+              { label: 'Lifetime earned', value: 'lifetime_earned' },
+            ]}
+          />
+          <Typography.Text type="secondary">Select a row to open that customer.</Typography.Text>
+        </Space>
         <Table
           rowKey="phone"
           columns={columns}
@@ -371,9 +423,19 @@ function Leaderboard() {
           }}
           scroll={{ x: 'max-content' }}
           locale={{ emptyText: <Empty description="No customers yet" /> }}
+          onRow={(record) => {
+            const row = record as CustomerRow;
+            return {
+              onClick: () => onSelect(row.phone),
+              style: {
+                cursor: 'pointer',
+                ...(row.phone === selectedPhone ? { background: '#e6f4ff' } : {}),
+              },
+            };
+          }}
         />
-      </Card>
-    </Space>
+      </Space>
+    </Card>
   );
 }
 

@@ -172,8 +172,8 @@ file fields as signed URLs (7-day).
   `env.schema.ts`.
 - **Module-specific env (Google-worker precedent, module-validated):**
   `FORMS_WEBHOOK_WORKER_ENABLED`, `FORMS_EMAIL_WORKER_ENABLED`,
-  `FORMS_WEBHOOK_QUEUE_URL`, `FORMS_EMAIL_QUEUE_URL`, `FORMS_S3_BUCKET`,
-  `FORMS_S3_REGION`, `FORMS_RECAPTCHA_SHARED_SECRET`,
+  `FORMS_WEBHOOK_QUEUE_URL`, `FORMS_EMAIL_QUEUE_URL`, `S3_BUCKET`, `S3_REGION`,
+  `FORMS_RECAPTCHA_SHARED_SECRET`,
   `FORMS_RECAPTCHA_SHARED_SITE_KEY`. Email sends through the shared
   `core/email` service — see the core `EMAIL_FROM` / `EMAIL_REGION` env.
 - **Security:** inbound webhook HMAC (core); OAuth tokens + reCAPTCHA secret

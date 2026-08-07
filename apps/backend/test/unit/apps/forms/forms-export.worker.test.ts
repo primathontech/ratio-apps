@@ -49,21 +49,21 @@ const twoSubmissions = () => [
 describe('FormsExportWorker — SQS drain → S3 stream', () => {
   const savedEnabled = process.env.FORMS_EXPORT_WORKER_ENABLED;
   const savedQueue = process.env.FORMS_EXPORT_QUEUE_URL;
-  const savedBucket = process.env.FORMS_S3_BUCKET;
-  const savedRegion = process.env.FORMS_S3_REGION;
+  const savedBucket = process.env.S3_BUCKET;
+  const savedRegion = process.env.S3_REGION;
 
   beforeEach(() => {
     delete process.env.FORMS_EXPORT_QUEUE_URL;
-    process.env.FORMS_S3_BUCKET = 'ratio-forms-uploads';
-    process.env.FORMS_S3_REGION = 'ap-south-1';
+    process.env.S3_BUCKET = 'ratio-forms-uploads';
+    process.env.S3_REGION = 'ap-south-1';
   });
 
   afterEach(() => {
     for (const [key, val] of [
       ['FORMS_EXPORT_WORKER_ENABLED', savedEnabled],
       ['FORMS_EXPORT_QUEUE_URL', savedQueue],
-      ['FORMS_S3_BUCKET', savedBucket],
-      ['FORMS_S3_REGION', savedRegion],
+      ['S3_BUCKET', savedBucket],
+      ['S3_REGION', savedRegion],
     ] as const) {
       if (val === undefined) delete process.env[key];
       else process.env[key] = val;

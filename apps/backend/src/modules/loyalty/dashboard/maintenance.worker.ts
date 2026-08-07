@@ -18,9 +18,15 @@ import { DailySnapshotJob } from './daily-snapshot.job';
  *
  *   (a) sweeps ≤ {@link SWEEP_BATCH} stale mirror balances (never synced or
  *       > 24 h old) against live Core — per-row try/catch so one dead phone
- *       can't stall the sweep;
- *   (b) fires the previous IST day's snapshot the first tick after the IST
- *       date flips (the job's Redis lock makes concurrent pods safe).
+ *       can't stall the sweep. A credit/debit we perform clears
+ *       `balanceSyncedAt`, so adjusted customers sort to the front and their
+ *       lifetime counters (what the dashboard trend is derived from) resync
+ *       on the next tick rather than up to 24 h later;
+ *   (b) fires the previous IST day's FINAL snapshot the first tick after the
+ *       IST date flips, and refreshes TODAY's snapshot every tick so the
+ *       dashboard reflects same-day activity (the job's Redis locks — one
+ *       per date, one short-lived for the live refresh — make concurrent pods
+ *       safe).
  *
  * The interval is `unref()`ed so it never pins the process open, and cleared
  * on module destroy.
@@ -124,8 +130,12 @@ export class MaintenanceWorker implements OnModuleInit, OnModuleDestroy {
 
   private async maybeSnapshot(): Promise<void> {
     const today = istDate();
-    if (today === this.lastIstDate) return;
-    this.lastIstDate = today;
-    await this.snapshot.runForDate(previousDate(today));
+    if (today !== this.lastIstDate) {
+      this.lastIstDate = today;
+      // Settle yesterday first so today's delta subtracts a complete history.
+      await this.snapshot.runForDate(previousDate(today), 'final');
+    }
+    // Keep today's row current; its own short lock throttles the cadence.
+    await this.snapshot.runForDate(today, 'live');
   }
 }

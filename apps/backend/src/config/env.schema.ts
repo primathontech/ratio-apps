@@ -18,6 +18,20 @@ const baseEnv = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
   RATIO_API_BASE_URL: z.string().url(),
   ALLOWED_ORIGINS: z.string(),
+
+  // ─── shared AWS credentials (S3 + SQS + SES) ──────────────────────────────
+  // One set for the whole backend — never per-module. Declared here so they
+  // are documented and validated, but they MUST stay optional: on EKS the pod
+  // assumes an IAM role (IRSA) and no static keys exist. The AWS SDK's default
+  // credential chain reads these off process.env by itself, so nothing passes
+  // them to a client explicitly except the local-emulator paths in
+  // queue.service.ts / s3.service.ts (which need dummy creds for
+  // ElasticMQ/MinIO). The chain also honours AWS_SESSION_TOKEN and AWS_PROFILE
+  // without them being declared here.
+  AWS_ACCESS_KEY_ID: emptyAsUndefined(z.string().min(1)),
+  AWS_SECRET_ACCESS_KEY: emptyAsUndefined(z.string().min(1)),
+  // Region for SQS (and the SES fallback). NOT the S3 region — see S3_REGION.
+  AWS_REGION: emptyAsUndefined(z.string().min(1)),
   // DB_POOL_SIZE: per-module Kysely pool size. Default 5; capped at 50 to
   // prevent accidentally exhausting MySQL `max_connections` when scaled
   // (replicas × modules × poolSize). Budget: keep total ≤ 0.6 × max_connections.
@@ -191,9 +205,6 @@ const baseEnv = z.object({
   // and the maintenance tick (balance sweep + daily snapshot). Consumers are
   // idempotent and the snapshot is Redis-locked, so >1 flagged replica is safe.
   LOYALTY_WORKER_ENABLED: z.enum(['true', 'false']).default('false'),
-  // S3 bucket for generated export CSVs (bucket owned by IaC). Optional in
-  // baseEnv; the exports worker fails the job cleanly when unset.
-  LOYALTY_EXPORT_S3_BUCKET: emptyAsUndefined(z.string().min(1)),
   // Parallel Core credit/debit calls per bulk batch; tune to Core rate limits.
   LOYALTY_BULK_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(5),
   // SQS visibility timeout (seconds) for bulk/export messages — keep ABOVE the
@@ -203,13 +214,21 @@ const baseEnv = z.object({
   // ─── core email (SES) ─────────────────────────────────────────────────────
   // Verified SES sender identity. Unset → EmailService no-ops (dev default).
   EMAIL_FROM: emptyAsUndefined(z.string().email()),
+
+  // ─── core object storage (S3) ─────────────────────────────────────────────
+  // ONE bucket for every module; each namespaces its own key prefix. A module
+  // gets its own bucket env only when it genuinely needs separate
+  // lifecycle/IAM rules. Unset → the features that need it disable themselves
+  // (forms uploads) or refuse the job (loyalty exports).
+  S3_BUCKET: emptyAsUndefined(z.string().min(1)),
+  // Bucket region. Deliberately NOT AWS_REGION — that is the SQS knob
+  // (`elasticmq` locally), and signing S3 with it fails every call.
+  S3_REGION: emptyAsUndefined(z.string().min(1)).default('ap-south-1'),
   // Local S3-compatible endpoint override (MinIO), mirroring SQS_ENDPOINT.
   S3_ENDPOINT: emptyAsUndefined(z.string().url()),
 
   // forms app: declared for boot validation; workers/queue resolvers still read
   // process.env.FORMS_* at call time (validate() strips only unknown keys).
-  FORMS_S3_BUCKET: emptyAsUndefined(z.string().min(1)),
-  FORMS_S3_REGION: emptyAsUndefined(z.string().min(1)).default('ap-south-1'),
   FORMS_SDK_DIST: emptyAsUndefined(z.string().min(1)),
   FORMS_RECAPTCHA_SHARED_SITE_KEY: emptyAsUndefined(z.string().min(1)),
   FORMS_RECAPTCHA_SHARED_SECRET: emptyAsUndefined(z.string().min(1)),
