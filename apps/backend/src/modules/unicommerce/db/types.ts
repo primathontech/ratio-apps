@@ -63,7 +63,12 @@ export interface UcSyncJobsTable {
   type: 'order_push' | 'cancel_push';
   ratioOrderId: string;
   payload: unknown;
-  status: 'PENDING' | 'RETRYING' | 'NEEDS_MANUAL' | 'DONE' | 'IN_PROGRESS';
+  // CANCELLED: set by UcSyncQueueService.cancelPendingOrderPush when an
+  // orders/cancelled webhook arrives while this order_push job was still
+  // PENDING/RETRYING/NEEDS_MANUAL — neither claimed by attemptImmediate
+  // (its WHERE clause never matches this status) nor counted as synced by
+  // the reconciliation sweep.
+  status: 'PENDING' | 'RETRYING' | 'NEEDS_MANUAL' | 'DONE' | 'IN_PROGRESS' | 'CANCELLED';
   attemptCount: Generated<number>;
   nextRetryAt: Date | null;
   lastError: string | null;
@@ -78,6 +83,25 @@ export interface UcDlqTable {
   payload: unknown;
   attempts: number;
   lastError: string;
+  createdAt: Generated<Date>;
+}
+
+// Durable per-item inbound jobs enqueued by the standalone `apps/uc-inbound-ingest`
+// service (migration 0003). `payload` carries exactly ONE item + its processing
+// context (status_notify: orderId/orderItemId/status/IsReverse/updated;
+// inventory_update: productId/variantId/inventory/hsnCode/facilityCode) — the
+// consumer (`UcInboundQueueService`) loads it per job row and dispatches to the
+// matching worker. `status` deliberately omits 'CANCELLED' (nothing cancels an
+// inbound job — see migration 0003's rationale).
+export interface UcInboundJobsTable {
+  id: Generated<string>;
+  merchantId: string;
+  type: 'status_notify' | 'inventory_update';
+  payload: unknown;
+  status: 'PENDING' | 'IN_PROGRESS' | 'DONE' | 'RETRYING' | 'NEEDS_MANUAL';
+  attemptCount: Generated<number>;
+  nextRetryAt: Date | null;
+  lastError: string | null;
   createdAt: Generated<Date>;
 }
 
@@ -149,6 +173,7 @@ export interface UnicommerceDatabase {
   ucOrderItemMap: UcOrderItemMapTable;
   ucVariantInventory: UcVariantInventoryTable;
   ucSyncJobs: UcSyncJobsTable;
+  ucInboundJobs: UcInboundJobsTable;
   ucDlq: UcDlqTable;
   ucEventLogs: UcEventLogsTable;
   ucReconciliationJobs: UcReconciliationJobsTable;

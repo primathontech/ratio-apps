@@ -1,0 +1,27 @@
+{
+  "name": "@ratio-app/uc-inbound-ingest",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "biome check src"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "fastify": "^5.8.5",
+    "kafkajs": "^2.2.4",
+    "mysql2": "^3.22.3",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "tsx": "^4.22.3",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
+  }
+}

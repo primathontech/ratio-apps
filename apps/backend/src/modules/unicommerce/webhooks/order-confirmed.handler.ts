@@ -47,7 +47,7 @@ interface RatioOrderLineItem {
   discount_allocations?: RatioDiscountAllocation[];
 }
 
-interface RatioOrderPayload {
+export interface RatioOrderPayload {
   id: string;
   name?: string;
   created_at: string;
@@ -98,8 +98,8 @@ function buildUcAddress(addr: RatioAddress | undefined, email: string | undefine
 }
 
 function buildUcOrderItem(item: RatioOrderLineItem, orderItemId: string) {
-  const sellingPrice = Number(item.price);
-  const discount = (item.discount_allocations ?? []).reduce((sum, d) => sum + Number(d.amount), 0);
+  const sellingPrice = Number(item.price) / 100;
+  const discount = (item.discount_allocations ?? []).reduce((sum, d) => sum + Number(d.amount), 0) / 100;
   return {
     orderItemId,
     productId: item.product_id,
@@ -112,6 +112,67 @@ function buildUcOrderItem(item: RatioOrderLineItem, orderItemId: string) {
       sellingPrice,
       totalPrice: sellingPrice * item.quantity - discount,
       discount,
+    },
+  };
+}
+
+// Shared by both the `orders/create` webhook handler (below) and
+// `UcReconciliationSweepService` (which enqueues an order_push for any order
+// its sweep finds missing a uc_sync_jobs row) — extracted so the tricky
+// parts (IST date formatting, paisa→rupee price conversion, address
+// mapping) live in exactly one place instead of being hand-duplicated.
+export async function buildOrderPushJobPayload(
+  orderItemMap: UcOrderItemMapService,
+  merchantId: string,
+  order: RatioOrderPayload,
+): Promise<{ merchantId: string; ratioOrderId: string; order: Record<string, unknown> }> {
+  const orderItems = [];
+  for (const item of order.line_items) {
+    const orderItemId = await orderItemMap.generate(
+      merchantId,
+      order.id,
+      item.id,
+      item.quantity,
+      'ratio_originated',
+    );
+    orderItems.push(buildUcOrderItem(item, orderItemId));
+  }
+
+  const createdAt = new Date(order.created_at);
+  const orderDate = formatUcDateTime(createdAt);
+  const sla = formatUcDateTime(
+    new Date(createdAt.getTime() + SLA_OFFSET_DAYS * 24 * 60 * 60 * 1000),
+  );
+  const totalShippingCharges =
+    (order.shipping_lines ?? []).reduce((sum, l) => sum + Number(l.price), 0) / 100;
+  const shippingAddress = buildUcAddress(order.shipping_address, order.email);
+  const billingAddress = buildUcAddress(order.billing_address, order.email);
+
+  return {
+    merchantId,
+    ratioOrderId: order.id,
+    // `order` here is the real POST uc/v1/order contract (TRD §2.9) — no
+    // saleOrderDTO wrapper, no customerGSTIN/facilityCode/giftWrap (no Ratio
+    // source for any of them, confirmed — omitted rather than guessed).
+    order: {
+      id: order.id,
+      displayOrderNumber: order.name,
+      orderDate,
+      orderStatus: 'CREATED',
+      sla,
+      priority: 0,
+      paymentType: inferPaymentType(order),
+      taxExempted: false,
+      cFormProvided: false,
+      thirdPartyShipping: false,
+      orderPrice: {
+        currency: 'INR',
+        totalDiscount: (order.total_discounts ?? 0) / 100,
+        totalShippingCharges,
+      },
+      shippingAddress,
+      billingAddress,
+      orderItems,
     },
   };
 }
@@ -166,62 +227,12 @@ export class UcOrderConfirmedHandler implements WebhookHandler {
       return;
     }
 
-    const orderItems = [];
-    for (const item of order.line_items) {
-      const orderItemId = await this.orderItemMap.generate(
-        merchantId,
-        order.id,
-        item.id,
-        item.quantity,
-        'ratio_originated',
-      );
-      orderItems.push(buildUcOrderItem(item, orderItemId));
-    }
-
-    const createdAt = new Date(order.created_at);
-    const orderDate = formatUcDateTime(createdAt);
-    const sla = formatUcDateTime(
-      new Date(createdAt.getTime() + SLA_OFFSET_DAYS * 24 * 60 * 60 * 1000),
-    );
-    const totalShippingCharges = (order.shipping_lines ?? []).reduce(
-      (sum, l) => sum + Number(l.price),
-      0,
-    );
-    const shippingAddress = buildUcAddress(order.shipping_address, order.email);
-    const billingAddress = buildUcAddress(order.billing_address, order.email);
-
+    const payload = await buildOrderPushJobPayload(this.orderItemMap, merchantId, order);
     const jobId = randomUUID();
-    // `order` here is the real POST uc/v1/order contract (TRD §2.9) — no
-    // saleOrderDTO wrapper, no customerGSTIN/facilityCode/giftWrap (no Ratio
-    // source for any of them, confirmed — omitted rather than guessed).
-    // `merchantId`/`ratioOrderId` sit alongside it because
+    // `merchantId`/`ratioOrderId` sit alongside `order` because
     // `UcSyncQueueService`/`UcOrderPushWorkerService` need them for
     // credential lookup and logging — they are not part of UC's contract
     // and must never be spread into the `order` object sent over HTTP.
-    const payloadJson = JSON.stringify({
-      merchantId,
-      ratioOrderId: order.id,
-      order: {
-        id: order.id,
-        displayOrderNumber: order.name,
-        orderDate,
-        orderStatus: 'CREATED',
-        sla,
-        priority: 0,
-        paymentType: inferPaymentType(order),
-        taxExempted: false,
-        cFormProvided: false,
-        thirdPartyShipping: false,
-        orderPrice: {
-          currency: 'INR',
-          totalDiscount: order.total_discounts ?? 0,
-          totalShippingCharges,
-        },
-        shippingAddress,
-        billingAddress,
-        orderItems,
-      },
-    });
     await ucTrx
       .insertInto('ucSyncJobs')
       .values({
@@ -229,7 +240,7 @@ export class UcOrderConfirmedHandler implements WebhookHandler {
         merchantId,
         type: 'order_push',
         ratioOrderId: order.id,
-        payload: payloadJson as unknown as Record<string, unknown>,
+        payload: JSON.stringify(payload) as unknown as Record<string, unknown>,
         status: 'PENDING',
       })
       .execute();

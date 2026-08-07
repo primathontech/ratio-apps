@@ -655,6 +655,88 @@ describe('UcSyncQueueService.attemptImmediate — cancel_push jobs', () => {
   });
 });
 
+// Bug: a cancel webhook arriving while the corresponding order_push job was
+// still PENDING/RETRYING/NEEDS_MANUAL was invisible to order-cancelled.handler.ts
+// (it only checks for a DONE push), so the push later ran anyway and shipped
+// an order the customer had already cancelled. This method lets the cancel
+// handler neutralize that race before it can happen.
+describe('UcSyncQueueService.cancelPendingOrderPush', () => {
+  it('cancels a PENDING order_push job for the given order', async () => {
+    const job: FakeJobRow = {
+      id: 'job-1',
+      merchantId: 'm1',
+      ratioOrderId: 'order-1',
+      payload: {},
+      attemptCount: 0,
+      status: 'PENDING',
+      type: 'order_push',
+    };
+    const { handle, jobs } = fakeHandle([job]);
+    const svc = new UcSyncQueueService(
+      handle as never,
+      kafkaService,
+      { push: vi.fn() } as never,
+      { push: vi.fn() } as never,
+      { record: vi.fn() } as never,
+      fakeConfig(),
+    );
+
+    await svc.cancelPendingOrderPush('m1', 'order-1');
+
+    expect(jobs[0]!.status).toBe('CANCELLED');
+  });
+
+  it('does not touch an IN_PROGRESS job for the same order (a worker may be mid-push)', async () => {
+    const job: FakeJobRow = {
+      id: 'job-1',
+      merchantId: 'm1',
+      ratioOrderId: 'order-1',
+      payload: {},
+      attemptCount: 0,
+      status: 'IN_PROGRESS',
+      type: 'order_push',
+    };
+    const { handle, jobs } = fakeHandle([job]);
+    const svc = new UcSyncQueueService(
+      handle as never,
+      kafkaService,
+      { push: vi.fn() } as never,
+      { push: vi.fn() } as never,
+      { record: vi.fn() } as never,
+      fakeConfig(),
+    );
+
+    await svc.cancelPendingOrderPush('m1', 'order-1');
+
+    expect(jobs[0]!.status).toBe('IN_PROGRESS');
+  });
+
+  it('does not touch an already-DONE job for the same order', async () => {
+    const job: FakeJobRow = {
+      id: 'job-1',
+      merchantId: 'm1',
+      ratioOrderId: 'order-1',
+      payload: {},
+      attemptCount: 0,
+      status: 'DONE',
+      type: 'order_push',
+    };
+    const { handle, jobs } = fakeHandle([job]);
+    const svc = new UcSyncQueueService(
+      handle as never,
+      kafkaService,
+      { push: vi.fn() } as never,
+      { push: vi.fn() } as never,
+      { record: vi.fn() } as never,
+      fakeConfig(),
+    );
+
+    await svc.cancelPendingOrderPush('m1', 'order-1');
+
+    expect(jobs[0]!.status).toBe('DONE');
+  });
+});
+
 // The producer side must not depend on the (optionally-disabled, separately
 // deployable) outbound consumer having started first to create the Kafka
 // topics — found via local verification: publish() failed outright against

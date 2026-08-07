@@ -1,4 +1,5 @@
 import { Body, Controller, Get, HttpCode, Logger, Post, Query, Req } from '@nestjs/common';
+import { ApiBody, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { RawResponse } from '../../../core/common/decorators/raw-response.decorator';
@@ -11,6 +12,7 @@ const authQuerySchema = z.object({ username: z.string().min(1), password: z.stri
 const authBodySchema = authQuerySchema;
 
 /** Both endpoints do the exact same thing — Unicommerce's spec offers both HTTP methods for the same operation. */
+@ApiTags('unicommerce')
 @Controller('unicommerce/api/v1')
 @RawResponse()
 export class UcAuthController {
@@ -23,6 +25,53 @@ export class UcAuthController {
 
   @Get('authToken')
   @HttpCode(200)
+  @ApiOperation({
+    summary: 'Authenticate (GET variant)',
+    description:
+      'Called BY Unicommerce at connect time to exchange its Ratio-issued username/password for a 48h access token. ' +
+      'No `apikey` header — this is the only inbound endpoint that does not require one. ' +
+      'The returned `accessToken` is echoed back by Unicommerce as the `apikey` header on every other inbound call.',
+  })
+  @ApiQuery({
+    name: 'username',
+    required: true,
+    description: 'Ratio-issued Unicommerce channel username (e.g. `ratio-<hex>`).',
+    example: 'ratio-59d590d97ffd',
+  })
+  @ApiQuery({
+    name: 'password',
+    required: true,
+    description: 'Ratio-issued password for the channel username above.',
+    example: '7f3KpQ!x9zWc',
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      '`SUCCESS` carries the `accessToken` (TTL ~48h) to send back as the `apikey` header on all other calls; ' +
+      '`INVALID_CREDENTIALS` when the username/password pair is wrong (the attempt is not event-logged).',
+    schema: {
+      oneOf: [
+        {
+          type: 'object',
+          properties: {
+            status: { type: 'string', enum: ['SUCCESS'] },
+            accessToken: {
+              type: 'string',
+              example: 'pX7vK2mQ9nL4wR8tY5bH1cJ3dF6gS0zA7eU2iM4k',
+              description:
+                'Opaque token, base64url; TTL ~48h. Send as the `apikey` header on every other inbound call.',
+            },
+          },
+          required: ['status', 'accessToken'],
+        },
+        {
+          type: 'object',
+          properties: { status: { type: 'string', enum: ['INVALID_CREDENTIALS'] } },
+          required: ['status'],
+        },
+      ],
+    },
+  })
   async getAuthToken(
     @Query(new ZodValidationPipe(authQuerySchema)) query: z.infer<typeof authQuerySchema>,
     @Req() req: FastifyRequest,
@@ -33,6 +82,61 @@ export class UcAuthController {
 
   @Post('authToken')
   @HttpCode(200)
+  @ApiOperation({
+    summary: 'Authenticate (POST variant)',
+    description:
+      'Called BY Unicommerce at connect time to exchange its Ratio-issued username/password for a 48h access token. ' +
+      "Identical to the GET variant — Unicommerce's spec offers both HTTP methods for the same operation. " +
+      'No `apikey` header — this is the only inbound endpoint that does not require one.',
+  })
+  @ApiBody({
+    required: true,
+    description: 'Ratio-issued Unicommerce channel credentials.',
+    schema: {
+      type: 'object',
+      properties: {
+        username: {
+          type: 'string',
+          example: 'ratio-59d590d97ffd',
+          description: 'Ratio-issued channel username (e.g. `ratio-<hex>`).',
+        },
+        password: {
+          type: 'string',
+          example: '7f3KpQ!x9zWc',
+          description: 'Ratio-issued password for the channel username above.',
+        },
+      },
+      required: ['username', 'password'],
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      '`SUCCESS` carries the `accessToken` (TTL ~48h) to send back as the `apikey` header on all other calls; ' +
+      '`INVALID_CREDENTIALS` when the username/password pair is wrong (the attempt is not event-logged).',
+    schema: {
+      oneOf: [
+        {
+          type: 'object',
+          properties: {
+            status: { type: 'string', enum: ['SUCCESS'] },
+            accessToken: {
+              type: 'string',
+              example: 'pX7vK2mQ9nL4wR8tY5bH1cJ3dF6gS0zA7eU2iM4k',
+              description:
+                'Opaque token, base64url; TTL ~48h. Send as the `apikey` header on every other inbound call.',
+            },
+          },
+          required: ['status', 'accessToken'],
+        },
+        {
+          type: 'object',
+          properties: { status: { type: 'string', enum: ['INVALID_CREDENTIALS'] } },
+          required: ['status'],
+        },
+      ],
+    },
+  })
   async postAuthToken(
     @Body(new ZodValidationPipe(authBodySchema)) body: z.infer<typeof authBodySchema>,
     @Req() req: FastifyRequest,
@@ -66,7 +170,10 @@ export class UcAuthController {
           response: { status: result.status },
         });
       } catch (err) {
-        this.logger.error({ msg: 'event-log write failed for auth success', err: err instanceof Error ? err.message : String(err) });
+        this.logger.error({
+          msg: 'event-log write failed for auth success',
+          err: err instanceof Error ? err.message : String(err),
+        });
       }
       // Never echo `merchantId` back to Unicommerce — it's internal-only,
       // added to `AuthResult` solely so this write has it without a second lookup.
