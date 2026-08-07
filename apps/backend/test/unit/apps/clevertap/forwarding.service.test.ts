@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { CLEVERTAP_REGIONS } from '@ratio-app/shared/constants/clevertap-events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { KafkaService } from '../../../../src/core/kafka/kafka.service';
 import {
   ClevertapEventsClient,
   type ClevertapUploadResult,
@@ -697,5 +698,61 @@ describe('ClevertapEventsClient — CleverTap diagnostics reach the operator', (
       body: JSON.stringify({ status: 'fail', error: 'x'.repeat(5_000) }),
     }).upload({ accountId: 'A', passcode: 'P', records: [{ type: 'event' }] });
     expect((res.error ?? '').length).toBeLessThan(400);
+  });
+});
+
+describe('ClevertapForwardingService — enqueue path (worker enabled)', () => {
+  it('enqueues to clevertap.forwarding and records a queued row instead of uploading inline', async () => {
+    const fake = makeFakeTrx({ config: config() });
+    const uploader = makeFakeUploader();
+    const produce = vi.fn(async () => {});
+    const service = new ClevertapForwardingService(
+      makeFakeCrypto(),
+      () => uploader,
+      true,
+      { produce } as unknown as KafkaService,
+      true,
+    );
+
+    await service.forwardOrder(
+      CLEVERTAP_WEBHOOK_TOPICS.ordersPaid,
+      ordersPaidPayload,
+      MERCHANT,
+      fake.trx,
+    );
+
+    expect(uploader.calls).toHaveLength(0);
+    expect(produce).toHaveBeenCalledTimes(1);
+    const [topic, payloads] = produce.mock.calls[0] as [string, Record<string, unknown>[]];
+    expect(topic).toBe('clevertap.forwarding');
+    expect(payloads[0]).toMatchObject({
+      merchantId: MERCHANT,
+      topic: 'orders/paid',
+      clevertapEvent: 'Charged',
+    });
+    expect(fake.rows[0]).toMatchObject({ status: 'queued' });
+  });
+
+  it('stays synchronous (uploads inline, no enqueue) when the worker flag is off', async () => {
+    const fake = makeFakeTrx({ config: config() });
+    const uploader = makeFakeUploader();
+    const produce = vi.fn(async () => {});
+    const service = new ClevertapForwardingService(
+      makeFakeCrypto(),
+      () => uploader,
+      true,
+      { produce } as unknown as KafkaService,
+      false,
+    );
+
+    await service.forwardOrder(
+      CLEVERTAP_WEBHOOK_TOPICS.ordersPaid,
+      ordersPaidPayload,
+      MERCHANT,
+      fake.trx,
+    );
+
+    expect(produce).not.toHaveBeenCalled();
+    expect(uploader.calls).toHaveLength(1);
   });
 });

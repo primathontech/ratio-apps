@@ -4,7 +4,7 @@ import { dlqTopic } from '@ratio-app/shared/constants/kafka-topics';
 import { type QueueEnvelope, wrapEnvelope } from '@ratio-app/shared/schemas/queue-envelope';
 import { type Admin, Kafka, type Message as KafkaMessage, type Producer } from 'kafkajs';
 import type { Env } from '../../config/env.schema';
-import { buildKafkaConfig, type KafkaEnv } from './kafka.config';
+import { kafkaConfigFromEnv } from './kafka.config';
 
 export interface KafkaMessageBatch {
   topic: string;
@@ -14,16 +14,6 @@ export interface KafkaMessageBatch {
 type KafkaLike = Pick<Kafka, 'producer' | 'admin'>;
 type ProducerLike = Pick<Producer, 'connect' | 'disconnect' | 'send'>;
 type AdminLike = Pick<Admin, 'connect' | 'disconnect' | 'listTopics' | 'createTopics'>;
-
-const KAFKA_ENV_KEYS: (keyof KafkaEnv)[] = [
-  'KAFKA_BROKERS',
-  'KAFKA_CLIENT_ID',
-  'KAFKA_SSL',
-  'KAFKA_SASL_MECHANISM',
-  'KAFKA_SASL_USERNAME',
-  'KAFKA_SASL_PASSWORD',
-  'KAFKA_CONNECTION_TIMEOUT_MS',
-];
 
 @Injectable()
 export class KafkaService implements OnModuleInit, OnModuleDestroy {
@@ -37,16 +27,21 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
       this.client = client;
       return;
     }
-    const env = Object.fromEntries(
-      KAFKA_ENV_KEYS.map((k) => [k, config.get(k, { infer: true })]),
-    ) as KafkaEnv;
-    this.client = new Kafka(buildKafkaConfig(env));
+    this.client = new Kafka(kafkaConfigFromEnv(config));
   }
 
+  // Connect eagerly but tolerate a down broker: boot must not hinge on Kafka
+  // (a shared-API pod may run with the forwarding worker off and never produce).
+  // send() lazily retries the connection.
   async onModuleInit(): Promise<void> {
-    this.producer = this.client.producer();
-    await this.producer.connect();
-    this.logger.log('Kafka producer connected');
+    try {
+      await this.ensureProducer();
+    } catch (err) {
+      this.logger.warn({
+        msg: 'Kafka producer connect deferred (will retry on first send)',
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   async onModuleDestroy(): Promise<void> {
@@ -54,6 +49,15 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
       await this.producer.disconnect();
       this.logger.log('Kafka producer disconnected');
     }
+  }
+
+  private async ensureProducer(): Promise<ProducerLike> {
+    if (this.producer) return this.producer;
+    const producer = this.client.producer();
+    await producer.connect();
+    this.producer = producer;
+    this.logger.log('Kafka producer connected');
+    return producer;
   }
 
   async ensureTopic(name: string, partitions = 3): Promise<void> {
@@ -81,8 +85,8 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
   }
 
   async send(batch: KafkaMessageBatch): Promise<void> {
-    if (!this.producer) throw new Error('Kafka producer not connected');
-    await this.producer.send({
+    const producer = await this.ensureProducer();
+    await producer.send({
       topic: batch.topic,
       messages: batch.messages as KafkaMessage[],
     });

@@ -35,6 +35,20 @@ describe('KafkaService', () => {
     expect(ctx.producer.connect).toHaveBeenCalledOnce();
   });
 
+  it('onModuleInit does not throw when the broker is unreachable (boot stays up)', async () => {
+    const producer = {
+      connect: vi.fn(async () => {
+        throw new Error('ECONNREFUSED');
+      }),
+      disconnect: vi.fn(async () => {}),
+      send: vi.fn(async () => []),
+    };
+    const client = { producer: () => producer, admin: () => ({}) };
+    // biome-ignore lint/suspicious/noExplicitAny: fake client/config for a no-broker unit test
+    const svc = new KafkaService({} as any, client as any);
+    await expect(svc.onModuleInit()).resolves.toBeUndefined();
+  });
+
   it('produce() wraps each payload in a queue envelope (v1, attempt 0)', async () => {
     await ctx.svc.produce('clevertap.forwarding', [{ orderId: 'o1' }, { orderId: 'o2' }]);
 

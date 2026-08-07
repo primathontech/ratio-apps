@@ -79,16 +79,16 @@ describe('clevertap deployment contract (TDD §7)', () => {
   };
 
   it('placement agrees across PRD, TRD and STATE', () => {
-    expect(state.deployment).toEqual({ apiPlacement: 'shared', workerPlacement: 'none' });
+    expect(state.deployment).toEqual({ apiPlacement: 'shared', workerPlacement: 'shared-api' });
 
     const trd = read(join(REPO_ROOT, 'docs/agent/apps/clevertap/TRD.md'));
     expect(trd).toContain('**API placement:** `shared`');
-    expect(trd).toContain('**Worker placement:** `none`');
+    expect(trd).toContain('**Worker placement:** `shared-api`');
   });
 
-  it('introduces no worker flag, queue, or *_WORKER_ENABLED env key', () => {
+  it('ships the opt-in Kafka forwarding worker flag (default off) and no SQS queue', () => {
     const envExample = read(join(REPO_ROOT, '.env.example'));
-    expect(envExample).not.toMatch(/CLEVERTAP_[A-Z_]*WORKER_ENABLED/);
+    expect(envExample).toMatch(/CLEVERTAP_FORWARD_WORKER_ENABLED=false/);
     expect(envExample).not.toMatch(/CLEVERTAP_[A-Z_]*QUEUE_URL/);
 
     const sources = walk(MODULE_DIR).map(read).join('\n');

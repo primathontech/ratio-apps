@@ -216,6 +216,14 @@ const baseEnv = z.object({
     .enum(['true', 'false'])
     .default('true')
     .transform((s) => s === 'true'),
+  // Gates the CleverTap server-side forwarding consumer. Off => forwarding stays
+  // synchronous inside the webhook transaction; on => webhooks enqueue to Kafka
+  // and ClevertapForwardingWorker delivers them.
+  CLEVERTAP_FORWARD_WORKER_ENABLED: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((s) => s === 'true'),
+  CLEVERTAP_FORWARD_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(5),
 
   // ─── core email (SES) ─────────────────────────────────────────────────────
   // Verified SES sender identity. Unset → EmailService no-ops (dev default).

@@ -5,12 +5,18 @@ import {
   type ClevertapWebhookEventTopic,
   DEFAULT_CLEVERTAP_REGION,
 } from '@ratio-app/shared/constants/clevertap-events';
+import { CLEVERTAP_FORWARDING_TOPIC } from '@ratio-app/shared/constants/kafka-topics';
 import type { Transaction } from 'kysely';
 import type { CryptoService } from '../../../core/crypto/crypto.service';
+import { KafkaService } from '../../../core/kafka/kafka.service';
 import type { DatabaseWithMerchants } from '../../../core/merchants/merchant.types';
 import type { DatabaseWithWebhookLog } from '../../../core/webhooks/webhook-log.types';
 import type { ClevertapConfigRow, ClevertapDatabase, ClevertapForwardStatus } from '../db/types';
-import { CLEVERTAP_APP_ENABLED, CLEVERTAP_CRYPTO } from '../tokens';
+import {
+  CLEVERTAP_APP_ENABLED,
+  CLEVERTAP_CRYPTO,
+  CLEVERTAP_FORWARD_WORKER_ENABLED,
+} from '../tokens';
 import type { ClevertapCustomerTopic } from '../webhooks/topics';
 import {
   CLEVERTAP_EVENTS_CLIENT_FACTORY,
@@ -46,6 +52,10 @@ export class ClevertapForwardingService {
     @Inject(CLEVERTAP_EVENTS_CLIENT_FACTORY)
     private readonly clientFactory: ClevertapEventsClientFactory,
     @Optional() @Inject(CLEVERTAP_APP_ENABLED) private readonly platformEnabled = true,
+    @Optional() private readonly kafka?: KafkaService,
+    @Optional()
+    @Inject(CLEVERTAP_FORWARD_WORKER_ENABLED)
+    private readonly workerEnabled = false,
   ) {}
 
   async forwardOrder(
@@ -207,6 +217,46 @@ export class ClevertapForwardingService {
     }
     const row = config as ClevertapConfigRow & { passcodeEnc: string };
 
+    if (this.workerEnabled && this.kafka) {
+      const queued = await this.record(ctrx, {
+        merchantId,
+        idempotencyKey,
+        topic,
+        clevertapEvent: mapped.clevertapEvent,
+        status: 'queued',
+        error: null,
+      });
+      if (!queued) {
+        this.logger.log({
+          msg: 'duplicate forward suppressed — already recorded',
+          merchantId,
+          topic,
+          idempotencyKey,
+        });
+        return;
+      }
+      await this.kafka.produce(
+        CLEVERTAP_FORWARDING_TOPIC,
+        [
+          {
+            merchantId,
+            topic,
+            idempotencyKey,
+            clevertapEvent: mapped.clevertapEvent,
+            records: mapped.records,
+          },
+        ],
+        (p) => (p as { merchantId: string }).merchantId,
+      );
+      this.logger.log({
+        msg: 'server-side forwarding enqueued',
+        merchantId,
+        topic,
+        idempotencyKey,
+      });
+      return;
+    }
+
     const inserted = await this.record(ctrx, {
       merchantId,
       idempotencyKey,
@@ -282,7 +332,7 @@ export class ClevertapForwardingService {
   }
 }
 
-function skipReasonFor(
+export function skipReasonFor(
   config: ClevertapConfigRow | undefined,
   platformEnabled: boolean,
   topic: string,
@@ -316,7 +366,7 @@ function topicIsDisabled(disabledTopics: unknown, topic: string): boolean {
   return Array.isArray(list) && list.includes(topic);
 }
 
-function apiHostFor(region: string): string {
+export function apiHostFor(region: string): string {
   const known = (CLEVERTAP_REGIONS as Record<string, { apiHost: string } | undefined>)[region];
   return (known ?? CLEVERTAP_REGIONS[DEFAULT_CLEVERTAP_REGION]).apiHost;
 }

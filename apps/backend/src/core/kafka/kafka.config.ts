@@ -1,3 +1,4 @@
+import type { ConfigService } from '@nestjs/config';
 import type { KafkaConfig, SASLOptions } from 'kafkajs';
 import type { Env } from '../../config/env.schema';
 
@@ -11,6 +12,23 @@ export type KafkaEnv = Pick<
   | 'KAFKA_SASL_PASSWORD'
   | 'KAFKA_CONNECTION_TIMEOUT_MS'
 >;
+
+export const KAFKA_ENV_KEYS: (keyof KafkaEnv)[] = [
+  'KAFKA_BROKERS',
+  'KAFKA_CLIENT_ID',
+  'KAFKA_SSL',
+  'KAFKA_SASL_MECHANISM',
+  'KAFKA_SASL_USERNAME',
+  'KAFKA_SASL_PASSWORD',
+  'KAFKA_CONNECTION_TIMEOUT_MS',
+];
+
+export function kafkaConfigFromEnv(config: ConfigService<Env, true>): KafkaConfig {
+  const env = Object.fromEntries(
+    KAFKA_ENV_KEYS.map((k) => [k, config.get(k, { infer: true })]),
+  ) as KafkaEnv;
+  return buildKafkaConfig(env);
+}
 
 export function buildKafkaConfig(env: KafkaEnv): KafkaConfig {
   const brokers = env.KAFKA_BROKERS.split(',')
