@@ -7,6 +7,8 @@ interface SentRecord {
   messages: { key: string | null; value: string }[];
 }
 
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
 function makeService() {
   const sent: SentRecord[] = [];
   const producer = {
@@ -28,25 +30,43 @@ describe('KafkaService', () => {
 
   beforeEach(async () => {
     ctx = makeService();
-    await ctx.svc.onModuleInit();
+    ctx.svc.onModuleInit();
+    await flush();
   });
 
   it('connects the producer on module init', () => {
     expect(ctx.producer.connect).toHaveBeenCalledOnce();
   });
 
-  it('onModuleInit does not throw when the broker is unreachable (boot stays up)', async () => {
+  it('onModuleInit connects in the background and never blocks boot when the broker is unreachable', async () => {
+    let resolveConnect: () => void = () => {};
+    const gate = new Promise<void>((r) => {
+      resolveConnect = r;
+    });
     const producer = {
-      connect: vi.fn(async () => {
-        throw new Error('ECONNREFUSED');
-      }),
+      connect: vi.fn(() => gate.then(() => Promise.reject(new Error('ECONNREFUSED')))),
       disconnect: vi.fn(async () => {}),
       send: vi.fn(async () => []),
     };
     const client = { producer: () => producer, admin: () => ({}) };
     // biome-ignore lint/suspicious/noExplicitAny: fake client/config for a no-broker unit test
     const svc = new KafkaService({} as any, client as any);
-    await expect(svc.onModuleInit()).resolves.toBeUndefined();
+
+    expect(svc.onModuleInit()).toBeUndefined();
+    resolveConnect();
+    await flush();
+    expect(producer.connect).toHaveBeenCalledOnce();
+  });
+
+  it('dedupes concurrent connects — a burst of sends connects the producer once', async () => {
+    const fresh = makeService();
+    await Promise.all([
+      fresh.svc.send({ topic: 't', messages: [{ key: 'k', value: 'v' }] }),
+      fresh.svc.send({ topic: 't', messages: [{ key: 'k', value: 'v' }] }),
+      fresh.svc.send({ topic: 't', messages: [{ key: 'k', value: 'v' }] }),
+    ]);
+    expect(fresh.producer.connect).toHaveBeenCalledOnce();
+    expect(fresh.producer.send).toHaveBeenCalledTimes(3);
   });
 
   it('produce() wraps each payload in a queue envelope (v1, attempt 0)', async () => {

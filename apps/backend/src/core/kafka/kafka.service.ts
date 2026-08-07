@@ -1,4 +1,10 @@
-import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  type OnModuleDestroy,
+  type OnModuleInit,
+  Optional,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { dlqTopic } from '@ratio-app/shared/constants/kafka-topics';
 import { type QueueEnvelope, wrapEnvelope } from '@ratio-app/shared/schemas/queue-envelope';
@@ -20,11 +26,12 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(KafkaService.name);
   private readonly client: KafkaLike;
   private producer: ProducerLike | null = null;
+  private connecting: Promise<ProducerLike> | null = null;
   private readonly topics = new Set<string>();
   private readonly defaultPartitions: number;
   private readonly replicationFactor: number;
 
-  constructor(config: ConfigService<Env, true>, client?: KafkaLike) {
+  constructor(config: ConfigService<Env, true>, @Optional() client?: KafkaLike) {
     this.defaultPartitions = readConfigNumber(config, 'KAFKA_TOPIC_PARTITIONS', 3);
     this.replicationFactor = readConfigNumber(config, 'KAFKA_TOPIC_REPLICATION_FACTOR', 1);
     if (client) {
@@ -34,15 +41,13 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
     this.client = new Kafka(kafkaConfigFromEnv(config));
   }
 
-  async onModuleInit(): Promise<void> {
-    try {
-      await this.ensureProducer();
-    } catch (err) {
+  onModuleInit(): void {
+    void this.ensureProducer().catch((err) => {
       this.logger.warn({
         msg: 'Kafka producer connect deferred (will retry on first send)',
         err: err instanceof Error ? err.message : String(err),
       });
-    }
+    });
   }
 
   async onModuleDestroy(): Promise<void> {
@@ -52,13 +57,23 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async ensureProducer(): Promise<ProducerLike> {
-    if (this.producer) return this.producer;
-    const producer = this.client.producer();
-    await producer.connect();
-    this.producer = producer;
-    this.logger.log('Kafka producer connected');
-    return producer;
+  private ensureProducer(): Promise<ProducerLike> {
+    if (this.producer) return Promise.resolve(this.producer);
+    if (!this.connecting) {
+      const producer = this.client.producer();
+      this.connecting = producer
+        .connect()
+        .then(() => {
+          this.producer = producer;
+          this.logger.log('Kafka producer connected');
+          return producer;
+        })
+        .catch((err) => {
+          this.connecting = null;
+          throw err;
+        });
+    }
+    return this.connecting;
   }
 
   async ensureTopic(name: string, partitions?: number): Promise<void> {
