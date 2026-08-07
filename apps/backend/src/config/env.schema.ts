@@ -178,6 +178,16 @@ const baseEnv = z.object({
   // for all producers/consumers in this process.
   KAFKA_BROKERS: z.string().default('localhost:9092'),
   KAFKA_CLIENT_ID: z.string().default('ratio-app'),
+  // Prod transport: managed Kafka (MSK / Confluent) terminates TLS and requires
+  // SASL. Unset locally (PLAINTEXT to the KRaft broker in docker-compose).
+  KAFKA_SSL: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((s) => s === 'true'),
+  KAFKA_SASL_MECHANISM: emptyAsUndefined(z.enum(['plain', 'scram-sha-256', 'scram-sha-512'])),
+  KAFKA_SASL_USERNAME: emptyAsUndefined(z.string().min(1)),
+  KAFKA_SASL_PASSWORD: emptyAsUndefined(z.string().min(1)),
+  KAFKA_CONNECTION_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
   // Per-module consumer gating: each module that owns a Kafka consumer uses its
   // own env flag so different deployments can decide which consumers to run
   // (e.g. shared API pods run the unicommerce consumer, dedicated workers run
