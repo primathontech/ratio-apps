@@ -50,14 +50,7 @@ export class UcStatusController {
   @ApiOperation({
     summary: 'Order status notification',
     description:
-      'Direction: Unicommerce to UC connector app. Called on every status change. There is no auto-retry on ' +
-      'Unicommerce\'s side, a non-success response stops further notifications for that order until the ' +
-      'merchant manually retries in UC. Out-of-order or duplicate updates are skipped. Unicommerce\'s status ' +
-      'is mapped onto Ratio\'s fulfillment status: dispatched or shipped becomes fulfilled, delivered becomes ' +
-      'delivered, return expected or acknowledged becomes return in progress. On the reverse flow, created or ' +
-      'courier allocated becomes return pickup scheduled, complete becomes restocked, not received becomes ' +
-      'return failed. Pre-dispatch statuses such as created, picked and packed result in no write. The ' +
-      'top-level status is always SUCCESS, real failures appear per item in orderItems errorMessage.',
+      'Unicommerce calls this on every order status change.',
   })
   @ApiHeader({
     name: 'apikey',

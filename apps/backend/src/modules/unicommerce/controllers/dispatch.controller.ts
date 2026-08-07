@@ -61,13 +61,7 @@ export class UcDispatchController {
   @ApiOperation({
     summary: 'Mark order items as dispatched (self-shipped)',
     description:
-      'Direction: Unicommerce to UC connector app. Called when the seller self-ships an order. Each ' +
-      'orderItemId resolves to a Ratio order via the order-item map, the shipped quantity is checked and ' +
-      'decremented against what remains, the Ratio order\'s fulfillment status is set to fulfilled, or ' +
-      'partially fulfilled if other items still have stock, and tracking, courier and invoice details are ' +
-      'written to Ratio as metafields. Tax and GST fields are logged only, they have no Ratio destination. ' +
-      'Per-item failures never abort the batch, they surface in orderItems errorMessage, with a top-level ' +
-      'status of SUCCESS, PARTIAL_SUCCESS or FAILED.',
+      'Unicommerce calls this when the seller self-ships an order.',
   })
   @ApiHeader({
     name: 'apikey',

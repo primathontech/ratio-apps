@@ -31,14 +31,7 @@ export class UcWebhooksController {
   @ApiOperation({
     summary: 'Receive a Ratio webhook delivery (topic-routed internally)',
     description:
-      'Direction: Ratio to UC connector app. For orders create and orders cancelled events, handling this ' +
-      'delivery also triggers an outbound push from the UC connector app to Unicommerce, at ' +
-      'genericproxy.unicommerce.com. Called by Ratio, not by Unicommerce, this is the inbound receiver for ' +
-      'the module\'s webhook handlers. Dispatch is by the envelope event type. Deliveries are deduped by ' +
-      'webhook id and payload fingerprint, retried, and self-healing through the webhook log transaction. ' +
-      'Must return 200 within 5 seconds. Known topics routed: orders create for outbound order push, orders ' +
-      'cancelled for outbound cancel push, and products create or products update for incremental SKU cache ' +
-      'sync.',
+      'Ratio calls this webhook; order events here also trigger an outbound push back to Unicommerce.',
   })
   @ApiHeader({
     name: 'x-ratio-hmac-sha256',

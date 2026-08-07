@@ -25,13 +25,7 @@ export class UcOrdersReadController {
   @ApiOperation({
     summary: 'Bulk order pull (orderStatus=CREATED) OR order status lookup (orderIds=...)',
     description:
-      'Direction: Unicommerce to UC connector app. Called on the same path for two operations, there is no ' +
-      'separate order status path. Bulk pull: orderStatus equal to CREATED, plus an optional date range, ' +
-      'returns the page of open, unfulfilled Ratio orders as-is, on UC\'s roughly 10-minute cycle. Status ' +
-      'lookup: orderIds as a comma-separated list returns each requested order mapped into Unicommerce\'s ' +
-      '6-value orderStatus vocabulary, plus a saleOrderCode. A single id is a single lookup, multiple ids ' +
-      'resolve concurrently. When orderIds is present it wins, otherwise the bulk pull runs. Both degrade to ' +
-      'an empty orders list on any downstream failure rather than a 500.',
+      'Unicommerce calls this to bulk pull open orders, or to look up specific order statuses.',
   })
   @ApiHeader({
     name: 'apikey',
